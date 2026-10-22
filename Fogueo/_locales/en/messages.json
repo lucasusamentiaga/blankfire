@@ -1,0 +1,14 @@
+{
+  "extName": {
+    "message": "Blankfire — Paper trading for Padre"
+  },
+  "extDesc": {
+    "message": "Practice memecoin trades on Padre (Terminal) with fake SOL: fees, slippage, TP/SL, journal and stats."
+  },
+  "actionTitle": {
+    "message": "Blankfire — your practice account"
+  },
+  "cmdToggle": {
+    "message": "Show or hide the Blankfire panel"
+  }
+}

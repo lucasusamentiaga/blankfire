@@ -1,0 +1,53 @@
+/* Fogueo — tokens de diseño compartidos (panel en Padre + popup).
+   Escena: Lucas de noche, delante de una terminal casi negra con acentos menta,
+   operando memecoins a golpe de vista. Fogueo se superpone a eso: oscuro por
+   contexto, pero con un ámbar de "campo de prácticas" que nunca se confunde
+   con los botones reales de Padre. */
+:root, :host {
+  --fx-bg: oklch(0.185 0.008 75);
+  --fx-raise: oklch(0.225 0.01 75);
+  --fx-raise-2: oklch(0.262 0.012 75);
+  --fx-line: oklch(0.33 0.012 75);
+  --fx-line-soft: oklch(0.27 0.01 75);
+  --fx-ink: oklch(0.955 0.006 85);
+  --fx-ink-2: oklch(0.8 0.01 80);
+  --fx-ink-3: oklch(0.68 0.012 80);
+
+  --fx-brand: oklch(0.83 0.15 78);
+  --fx-brand-hi: oklch(0.88 0.15 84);
+  --fx-brand-ink: oklch(0.21 0.045 70);
+  --fx-brand-wash: oklch(0.83 0.15 78 / 0.13);
+  --fx-brand-ring: oklch(0.83 0.15 78 / 0.38);
+
+  --fx-up: oklch(0.81 0.16 152);
+  --fx-up-strong: oklch(0.74 0.17 152);
+  --fx-up-ink: oklch(0.2 0.05 152);
+  --fx-up-wash: oklch(0.81 0.16 152 / 0.13);
+  --fx-down: oklch(0.71 0.18 24);
+  --fx-down-strong: oklch(0.66 0.2 24);
+  --fx-down-ink: oklch(0.98 0.01 24);
+  --fx-down-wash: oklch(0.71 0.18 24 / 0.14);
+
+  /* Graduado: un azul frío que no compite con verde/rojo de ganancias y pérdidas */
+  --fx-info: oklch(0.8 0.1 232);
+  --fx-info-wash: oklch(0.8 0.1 232 / 0.13);
+  --fx-info-ring: oklch(0.8 0.1 232 / 0.4);
+
+  --fx-font: "Fogueo Barlow", system-ui, sans-serif;
+  --fx-font-num: "Fogueo Barlow SC", "Fogueo Barlow", system-ui, sans-serif;
+  /* Code Next ExtraBold: solo para los momentos grandes (marca, token, precio, PnL, saldo, botones). */
+  --fx-font-display: "Fogueo Code Next", "Fogueo Barlow SC", system-ui, sans-serif;
+
+  --fx-r-sm: 6px;
+  --fx-r: 8px;
+  --fx-r-lg: 12px;
+
+  --fx-ease: cubic-bezier(0.22, 1, 0.36, 1);   /* ease-out-quint */
+  --fx-ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --fx-fast: 140ms;
+  --fx-mid: 220ms;
+
+  /* Escala de capas propia (el panel vive encima de una web ajena). */
+  --fx-z-panel: 2147483000;
+  --fx-z-pop: 2147483001;
+}

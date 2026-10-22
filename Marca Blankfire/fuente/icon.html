@@ -1,0 +1,9 @@
+<!doctype html><html><head><style>html,body{margin:0;background:transparent}</style></head><body>
+<script type="module">
+import { MARK } from './mark.js';
+const sz=+new URLSearchParams(location.search).get('s');
+const f=sz<=16?0.94:sz<=32?0.9:0.8, r=sz*0.22;
+// En 16 px quitamos la losa para que la llama sea lo más grande posible.
+const tile = `<rect width="${sz}" height="${sz}" rx="${r}" fill="oklch(0.135 0.008 70)"/>`;
+document.body.innerHTML=`<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}" style="display:block">${tile}<g transform="translate(${(sz-sz*f)/2} ${(sz-sz*f)/2}) scale(${sz*f/100})"><path d="${MARK}" fill="oklch(0.83 0.15 78)" fill-rule="evenodd"/></g></svg>`;
+</script></body></html>

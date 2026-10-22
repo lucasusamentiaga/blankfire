@@ -1,0 +1,11 @@
+# Hollow Ignition
+
+**Ignición hueca.** Una estética de la chispa sin carga: el gesto completo del fuego, con el centro deliberadamente vacío. Todo lo que se ve es contorno, umbral y promesa; lo que no está —la pólvora, el riesgo— es precisamente lo que da sentido a la forma.
+
+**Espacio y forma.** La unidad básica es una silueta cerrada con un vacío interior desplazado: un cuerpo sólido que contiene su propia ausencia. Las formas se construyen solo con arcos de círculo y tangentes exactas, nunca a mano alzada; cada curva tiene un centro que se puede medir. El vacío interior no se centra: cae hacia la base, como el peso que se queda atrás cuando algo sube. Esa asimetría es la única licencia expresiva, y debe parecer calculada durante horas, no improvisada.
+
+**Color y materia.** Un solo pigmento caliente —ámbar de bengala, entre el oro y la brasa— sobre una oscuridad que no es negra sino tostada, como el interior de una cámara apagada. Ningún degradado decorativo: la luz se expresa con dos o tres pasos tonales discretos del mismo ámbar, colocados con la precisión de un impresor que calibra tintas planas. Los grises toman siempre una pizca del tono de la brasa; nada es neutro por pereza.
+
+**Escala y ritmo.** La forma tiene que sobrevivir a todas las escalas: de un cartel a dieciséis píxeles. Por eso se diseña desde lo diminuto hacia arriba, y la versión pequeña no es una reducción sino una reconstrucción a mano, píxel a píxel, con grosores corregidos ópticamente. La repetición de la misma figura a distintos tamaños, alineada por su base, crea un ritmo de muestrario técnico: paciente, exhaustivo, obra de alguien que ha dedicado una atención meticulosa a cada tamaño.
+
+**Composición y jerarquía.** Las piezas se organizan como láminas de una disciplina imaginaria: retícula estricta, marcas de construcción finas, cotas, pequeñas etiquetas clínicas en tipografía estrecha. La figura principal ocupa el campo con autoridad y respira en un vacío generoso; todo lo demás es anotación. El texto es mínimo y siempre subordinado —un nombre, un valor, una referencia—, nunca explicación. El conjunto debe transmitir maestría absoluta: un objeto pulido hasta que no queda nada que quitar.

@@ -1,0 +1,21 @@
+# Code Next (Fontfabric): su licencia gratuita prohíbe redistribuir la fuente,
+# así que ni el zip ni el archivo de la extensión van al repositorio.
+Fogueo/Code-Next.zip
+Fogueo/fonts/codenext-800.woff2
+
+# Restos de las pruebas
+tests/node_modules/
+tests/p*-*/
+tests/pv*-*/
+tests/**/*.png
+!Marca Blankfire/*.png
+tests/vis*/
+tests/en/
+tests/tour*/
+tests/guided/
+tests/reco/
+
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini

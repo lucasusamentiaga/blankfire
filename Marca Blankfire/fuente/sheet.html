@@ -1,0 +1,86 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@font-face{font-family:CN;src:url(codenext-800.woff2)}
+@font-face{font-family:JB;src:url(JetBrainsMono-Regular.ttf)}
+@font-face{font-family:BR;src:url(barlow-latin-400-normal.woff2)}
+html,body{margin:0}
+body{width:1800px;height:2250px;background:oklch(0.17 0.009 72);position:relative;overflow:hidden}
+svg{position:absolute;inset:0}
+.mono{font-family:JB;font-size:15px;letter-spacing:.04em;fill:oklch(0.62 0.014 78)}
+.mono.dim{fill:oklch(0.48 0.012 78)}
+.mono.amb{fill:oklch(0.83 0.15 78)}
+</style></head><body>
+<svg width="1800" height="2250" viewBox="0 0 1800 2250" id="s"></svg>
+<script type="module">
+import { MARK } from './mark.js';
+const s=document.getElementById('s');
+const AMB='oklch(0.83 0.15 78)', AMB2='oklch(0.88 0.15 84)', AMB3='oklch(0.62 0.13 62)', BG='oklch(0.17 0.009 72)', TILE='oklch(0.135 0.008 70)';
+const LINE='oklch(0.95 0.01 80 / 0.16)', LINE2='oklch(0.95 0.01 80 / 0.07)', GUIDE='oklch(0.83 0.15 78 / 0.55)';
+let h='';
+const M=120;
+// ---- marco y rótulos superiores
+h+=`<line x1="${M}" y1="150" x2="${1800-M}" y2="150" stroke="${LINE}"/>`;
+h+=`<text class="mono" x="${M}" y="128">FIG. 01</text>`;
+h+=`<text class="mono dim" x="${M+120}" y="128">IGNICIÓN HUECA</text>`;
+h+=`<text class="mono dim" x="${1800-M}" y="128" text-anchor="end">BLANKFIRE · MARCA</text>`;
+// ---- figura principal: retícula de 10 u (k = 9 px/u)
+const k=10, ox=120, oy=230;
+const X=(u)=>ox+u*k, Y=(u)=>oy+u*k;
+for(let u=0;u<=100;u+=5){ const major=u%10===0;
+  h+=`<line x1="${X(u)}" y1="${Y(0)}" x2="${X(u)}" y2="${Y(100)}" stroke="${major?LINE2:'oklch(0.95 0.01 80 / 0.035)'}"/>`;
+  h+=`<line x1="${X(0)}" y1="${Y(u)}" x2="${X(100)}" y2="${Y(u)}" stroke="${major?LINE2:'oklch(0.95 0.01 80 / 0.035)'}"/>`; }
+for(let u=0;u<=100;u+=10){
+  h+=`<text class="mono dim" x="${X(u)}" y="${Y(100)+30}" text-anchor="middle" style="font-size:12px">${u}</text>`;
+  h+=`<text class="mono dim" x="${X(0)-14}" y="${Y(u)+4}" text-anchor="end" style="font-size:12px">${u}</text>`; }
+// marca
+h+=`<g transform="translate(${ox} ${oy}) scale(${k})"><path d="${MARK}" fill="${AMB}" fill-rule="evenodd"/></g>`;
+// construcción: círculo base, vacío, ejes, punta
+const cx=X(50), cy=Y(62);
+h+=`<circle cx="${cx}" cy="${cy}" r="${29*k}" fill="none" stroke="oklch(0.17 0.009 72 / 0.55)" stroke-width="1.4" stroke-dasharray="2 7"/>`;
+h+=`<circle cx="${cx}" cy="${cy}" r="${13.5*k}" fill="none" stroke="${BG}" stroke-width="1"/>`;
+h+=`<line x1="${cx-29*k-40}" y1="${cy}" x2="${cx+29*k+40}" y2="${cy}" stroke="${LINE}" stroke-dasharray="10 6"/>`;
+h+=`<line x1="${cx}" y1="${Y(0)}" x2="${cx}" y2="${Y(100)}" stroke="${LINE}" stroke-dasharray="10 6"/>`;
+h+=`<circle cx="${cx}" cy="${cy}" r="4" fill="${BG}" stroke="${AMB2}" stroke-width="1.5"/>`;
+// radios acotados
+h+=`<line x1="${cx}" y1="${cy}" x2="${cx+29*k*Math.cos(Math.PI/4)}" y2="${cy+29*k*Math.sin(Math.PI/4)}" stroke="${AMB2}" stroke-width="1.2"/>`;
+h+=`<text class="mono amb" x="${cx+29*k*0.72+14}" y="${cy+29*k*0.72+26}">r 29</text>`;
+h+=`<line x1="${cx}" y1="${cy}" x2="${cx-13.5*k}" y2="${cy}" stroke="${BG}" stroke-width="2"/>`;
+h+=`<line x1="${cx}" y1="${cy}" x2="${cx-13.5*k}" y2="${cy}" stroke="oklch(0.62 0.014 78)" stroke-width="1"/>`;
+h+=`<text class="mono" x="${cx-13.5*k/2}" y="${cy-12}" text-anchor="middle" style="font-size:14px">r 13,5</text>`;
+// punta y lengua: marcas de control
+const pts=[[57,5,'A'],[36,31,'B'],[45,45,'C'],[79,62,'D'],[21,62,'E']];
+for(const [u,v,l] of pts){ h+=`<rect x="${X(u)-5}" y="${Y(v)-5}" width="10" height="10" fill="${BG}" stroke="${AMB2}" stroke-width="1.3"/>`;
+  const inside = l==='C';
+  h+=`<text class="mono amb" x="${X(u)+(u>50||inside?16:-16)}" y="${Y(v)+(inside?5:-10)}" text-anchor="${u>50||inside?'start':'end'}" style="font-size:13px;${inside?'fill:'+BG:''}">${l} ${u},${v}</text>`; }
+// nota de la figura
+h+=`<text class="mono" x="${X(0)}" y="${Y(100)+76}">el vacío comparte centro con la base: la carga que falta</text>`;
+// ---- escalera de tamaños (columna derecha)
+const colX=1330; let y=290;
+h+=`<text class="mono dim" x="${colX}" y="250">ESCALA</text>`;
+for(const sz of [128,64,48,32,16]){
+  const r=sz*0.22, f=sz*(sz<=32?0.9:0.8);
+  h+=`<rect x="${colX}" y="${y}" width="${sz}" height="${sz}" rx="${r}" fill="${TILE}" stroke="oklch(0.95 0.01 80 / 0.08)"/>`;
+  h+=`<g transform="translate(${colX+(sz-f)/2} ${y+(sz-f)/2}) scale(${f/100})"><path d="${MARK}" fill="${AMB}" fill-rule="evenodd"/></g>`;
+  h+=`<line x1="${colX+150}" y1="${y+sz/2}" x2="${colX+190}" y2="${y+sz/2}" stroke="${LINE}"/>`;
+  h+=`<text class="mono" x="${colX+204}" y="${y+sz/2+5}">${sz} px</text>`;
+  y+=sz+56; }
+// marca sola, sin fondo, a tamaño de interfaz
+h+=`<text class="mono dim" x="${colX}" y="${y+10}">EN INTERFAZ</text>`;
+for(const [i,sz] of [[0,28],[1,20],[2,14]].entries()){ const xx=colX+[0,56,100][i]; h+=`<g transform="translate(${xx} ${y+34+(28-sz[1])}) scale(${sz[1]/100})"><path d="${MARK}" fill="${AMB}" fill-rule="evenodd"/></g>`; }
+// ---- banda inferior: firma + color
+const by=1430;
+h+=`<line x1="${M}" y1="${by}" x2="${1800-M}" y2="${by}" stroke="${LINE}"/>`;
+h+=`<g transform="translate(${M} ${by+70}) scale(1.5)"><path d="${MARK}" fill="${AMB}" fill-rule="evenodd"/></g>`;
+h+=`<text x="${M+180}" y="${by+190}" style="font-family:CN;font-size:128px;fill:oklch(0.955 0.006 85);letter-spacing:-0.01em">Blankfire</text>`;
+h+=`<text class="mono dim" x="${M+186}" y="${by+236}">FUEGO DE FOGUEO · PRÁCTICA SIN PÓLVORA</text>`;
+// muestras de color
+const sw=[['oklch(0.88 0.15 84)','brasa clara','0.88 0.15 84'],['oklch(0.83 0.15 78)','ámbar','0.83 0.15 78'],['oklch(0.62 0.13 62)','rescoldo','0.62 0.13 62'],['oklch(0.135 0.008 70)','cámara','0.135 0.008 70']];
+const sy=by+300, swW=(1800-2*M-3*24)/4;
+sw.forEach(([c,n,v],i)=>{ const sx=M+i*(swW+24);
+  h+=`<rect x="${sx}" y="${sy}" width="${swW}" height="200" fill="${c}" ${i===3?'stroke="oklch(0.95 0.01 80 / 0.12)"':''}/>`;
+  h+=`<text class="mono" x="${sx}" y="${sy+236}">${n}</text>`;
+  h+=`<text class="mono dim" x="${sx}" y="${sy+260}" style="font-size:13px">oklch ${v}</text>`; });
+// pie
+h+=`<text class="mono dim" x="${M}" y="${2250-90}" style="font-size:13px">A–E  puntos de control · retícula 10 u · 1 u = 10 px</text>`;
+h+=`<text class="mono dim" x="${1800-M}" y="${2250-90}" text-anchor="end" style="font-size:13px">v1 · 2026</text>`;
+s.innerHTML=h;
+</script></body></html>

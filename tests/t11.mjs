@@ -1,0 +1,38 @@
+import { chromium } from 'playwright';
+const TDIR = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+import fs from 'fs';
+const EXT=new URL('../Fogueo', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'), TOKEN='Hb1DD3TgUkiU1dJsEcckuyEprLW3CuyHYsYrAUmxpump', SOL='So11111111111111111111111111111111111111112';
+const ctx = await chromium.launchPersistentContext(TDIR+'p4-'+Date.now(), { headless:true, channel:'chromium', locale:'es-ES', viewport:{width:1280,height:860}, deviceScaleFactor:1.5, args:[`--disable-extensions-except=${EXT}`,`--load-extension=${EXT}`,'--lang=es-ES'] });
+await ctx.route('https://api.dexscreener.com/**', (route) => {
+  const u=route.request().url();
+  if (u.includes(SOL)&&!u.includes(TOKEN)) return route.fulfill({json:[{chainId:'solana',pairAddress:'x',baseToken:{address:SOL,symbol:'SOL'},quoteToken:{symbol:'USDC'},priceUsd:'182',liquidity:{usd:9e6}}]});
+  const p={chainId:'solana',dexId:'x',pairAddress:'P1',baseToken:{address:TOKEN,symbol:'GORILLA',name:'Gorilla'},quoteToken:{symbol:'SOL'},priceUsd:'0.00004',liquidity:{usd:5e4},marketCap:4e4,priceChange:{m5:1,h1:2},info:{}};
+  return route.fulfill({json: u.includes('/search')?{pairs:[p]}:[p]});
+});
+const fake=fs.readFileSync(TDIR+'fake-padre.html','utf8');
+await ctx.route('https://lite-api.jup.ag/**', (r) => r.fulfill({json: r.request().url().includes('/price/v3') ? {} : []}));
+await ctx.route('https://trade.padre.gg/**', (r) => r.fulfill({ body: fake, contentType:'text/html' }));
+let [sw]=ctx.serviceWorkers(); if(!sw) sw=await ctx.waitForEvent('serviceworker');
+const extId=sw.url().split('/')[2];
+const ok=(c,m)=>console.log((c?'OK  ':'FAIL')+' '+m);
+const st=async()=>(await sw.evaluate(()=>chrome.storage.local.get('fogueo'))).fogueo;
+let pop=await ctx.newPage(); await pop.setViewportSize({width:400,height:600});
+await pop.goto(`chrome-extension://${extId}/popup/popup.html`); await pop.waitForTimeout(1200);
+await pop.screenshot({path:TDIR+'pw-1.png'});
+ok(await pop.locator('[data-pt="core"]').count()===1, 'Popup: bienvenida con elección');
+await pop.locator('[data-pt="core"]').click(); await pop.waitForTimeout(500);
+await pop.keyboard.press('ArrowRight'); await pop.waitForTimeout(400); await pop.keyboard.press('ArrowRight'); await pop.waitForTimeout(500);
+const t=await pop.locator('.ptour-card h3').innerText(); const c=await pop.locator('.ptour-count').innerText();
+console.log('paso actual:', t, '|', c);
+await pop.screenshot({path:TDIR+'pw-2.png'});
+await pop.close(); await new Promise(r=>setTimeout(r,500));
+ok((await st()).ui.popupTourResume?.i===3, 'Popup cerrado a medias → guarda paso 3: '+JSON.stringify((await st()).ui.popupTourResume));
+pop=await ctx.newPage(); await pop.setViewportSize({width:400,height:600});
+await pop.goto(`chrome-extension://${extId}/popup/popup.html`); await pop.waitForTimeout(1200);
+ok(await pop.locator('[data-pt="resume"]').count()===1, 'Al reabrir ofrece seguir');
+await pop.screenshot({path:TDIR+'pw-3.png'});
+await pop.locator('[data-pt="resume"]').click(); await pop.waitForTimeout(500);
+ok(await pop.locator('.ptour-card h3').innerText()===t, 'Sigue en «'+t+'»');
+for(let i=0;i<12;i++){ if(!(await pop.locator('.ptour').count())) break; await pop.keyboard.press('ArrowRight'); await pop.waitForTimeout(300);} 
+const u=(await st()).ui; ok(u.popupToured && !u.popupTourResume, 'Terminado: limpio');
+await ctx.close();

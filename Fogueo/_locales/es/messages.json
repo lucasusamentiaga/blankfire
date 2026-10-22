@@ -1,0 +1,14 @@
+{
+  "extName": {
+    "message": "Blankfire — Paper trading para Padre"
+  },
+  "extDesc": {
+    "message": "Practica tus trades de memecoins en Padre (Terminal) con SOL ficticio: comisiones, slippage, TP/SL, diario y estadísticas."
+  },
+  "actionTitle": {
+    "message": "Blankfire — tu cuenta de práctica"
+  },
+  "cmdToggle": {
+    "message": "Mostrar u ocultar el panel de Blankfire"
+  }
+}

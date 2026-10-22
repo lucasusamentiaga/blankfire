@@ -1,0 +1,21 @@
+<!doctype html><html><head><style>
+body{margin:0;background:oklch(0.185 0.008 75);display:flex;flex-wrap:wrap;gap:40px;padding:40px;color:#ccc;font:14px sans-serif}
+.v{display:flex;flex-direction:column;align-items:center;gap:14px}
+.row{display:flex;align-items:flex-end;gap:18px}
+.tile{display:grid;place-items:center;background:oklch(0.15 0.01 70);border-radius:22%}
+svg{display:block}
+</style></head><body>
+<script>
+const A='oklch(0.83 0.15 78)';
+const V={
+ a:`<path fill-rule="evenodd" d="M56 8C60 26 76 40 76 62A26 26 0 0 1 24 62C24 44 40 34 46 22C48 18 52 12 56 8ZM52 44C54 52 62 57 62 67A12 12 0 0 1 38 67C38 59 46 54 52 44Z"/>`,
+ b:`<path fill-rule="evenodd" d="M54 6C58 24 78 38 78 62A28 28 0 0 1 22 62C22 48 30 38 38 30C38 38 42 42 46 44C44 32 48 18 54 6ZM50 50C55 56 61 60 61 68A11 11 0 0 1 39 68C39 61 45 56 50 50Z"/>`,
+ c:`<path fill-rule="evenodd" d="M50 6C56 22 78 36 78 62A28 28 0 0 1 22 62C22 36 44 22 50 6ZM50 46C54 54 62 58 62 68A12 12 0 0 1 38 68C38 58 46 54 50 46Z"/>`,
+ d:`<path fill-rule="evenodd" d="M57 5C61 25 79 37 79 61A29 29 0 0 1 21 61C21 47 28 38 36 31C37 39 41 43 45 45C43 31 49 17 57 5ZM50 49A13 13 0 0 1 50 75A13 13 0 0 1 50 49Z"/>`,
+};
+for (const [k,p] of Object.entries(V)) {
+  const svg=(s)=>`<svg width="${s}" height="${s}" viewBox="0 0 100 100" fill="${A}">${p}</svg>`;
+  const tile=(s)=>`<div class="tile" style="width:${s}px;height:${s}px"><svg width="${s*0.78}" height="${s*0.78}" viewBox="0 0 100 100" fill="${A}">${p}</svg></div>`;
+  document.body.insertAdjacentHTML('beforeend',`<div class="v"><b>${k}</b>${svg(220)}<div class="row">${tile(128)}${tile(48)}${tile(32)}${tile(16)}</div><div class="row">${svg(22)}${svg(16)}</div></div>`);
+}
+</script></body></html>

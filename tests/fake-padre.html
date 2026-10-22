@@ -1,0 +1,18 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Terminal</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; font-src 'self'">
+<style>
+body{margin:0;background:#070707;color:#ddd;font-family:Inter,system-ui,sans-serif;height:100vh;display:grid;grid-template-rows:44px 1fr 220px;grid-template-columns:1fr 320px}
+.nav{grid-column:1/-1;border-bottom:1px solid #1b1b1b;display:flex;align-items:center;padding:0 16px;gap:18px;font-size:13px;color:#999}
+.nav b{color:#7cf2a0}
+.chart{grid-column:1;border-right:1px solid #1b1b1b;background:linear-gradient(#0b0b0b,#070707);position:relative;overflow:hidden}
+.chart svg{position:absolute;inset:40px 20px}
+.side{grid-row:2/4;grid-column:2;padding:14px;display:flex;flex-direction:column;gap:10px}
+.side .b{height:40px;border-radius:8px;background:#7cf2a0;color:#04220f;display:grid;place-items:center;font-weight:600}
+.side .i{height:36px;border-radius:6px;background:#141414}
+.tbl{border-top:1px solid #1b1b1b;border-right:1px solid #1b1b1b;padding:10px 16px;font-size:12px;color:#777}
+</style></head><body>
+<div class="nav"><b>TERMINAL</b><span>Trenches</span><span>Trending</span><span>Portfolio</span></div>
+<div class="chart"><svg viewBox="0 0 600 300" preserveAspectRatio="none" width="90%" height="80%"><polyline fill="none" stroke="#7cf2a0" stroke-width="2" points="0,250 40,230 80,240 120,180 160,190 200,140 240,160 280,100 320,120 360,90 400,130 440,70 480,90 520,40 560,60 600,30"/></svg></div>
+<div class="side"><div class="i"></div><div class="i"></div><div class="i"></div><div class="b">Buy GORILLA</div><div class="i" style="height:120px"></div></div>
+<div class="tbl">Trades · Positions · Orders · Holders</div>
+</body></html>
