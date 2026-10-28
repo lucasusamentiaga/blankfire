@@ -4,7 +4,7 @@
 
 Extensión para Chrome y Opera GX (Manifest V3). Español e inglés.
 
-![Marca de Blankfire](Marca%20Blankfire/blankfire-lamina.png)
+![Blankfire: el panel dentro de Padre y la ventana del icono](docs/captura.png)
 
 ## Qué hace
 
@@ -24,8 +24,7 @@ Extensión para Chrome y Opera GX (Manifest V3). Español e inglés.
 2. Abre `chrome://extensions` (en Opera GX, `opera://extensions`).
 3. Activa el **Modo de desarrollador**.
 4. Pulsa **Cargar descomprimida** y elige la carpeta `Fogueo`.
-   (Opcional: añade la tipografía Code Next, mira *Tipografías* más abajo.)
-5. Abre un token en [trade.padre.gg](https://trade.padre.gg): el panel aparece solo. <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> lo muestra u oculta.
+   5. Abre un token en [trade.padre.gg](https://trade.padre.gg): el panel aparece solo. <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> lo muestra u oculta.
 
 > La carpeta se llama `Fogueo` (el nombre original del proyecto) a propósito: el navegador identifica la extensión por su ruta, y cambiarla borraría tu cuenta de práctica.
 
@@ -54,11 +53,19 @@ PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS=1 npm test
 
 Las pruebas cargan la extensión en Chromium, simulan las APIs de precios y Padre, y comprueban compras, ventas, TP/SL, stop dinámico, órdenes límite, recorridos, idiomas y que nada en modo inglés quede en español.
 
-## Aviso
+## Marca
 
-Blankfire es una herramienta de práctica. Los resultados son una aproximación: en real, la ejecución puede ser peor en tokens muy nuevos o con poca liquidez. Nada de esto es asesoramiento financiero.
+Llama con un vacío circular: fuego sin pólvora. La lámina muestra su construcción, los tamaños del icono y la paleta; en `Marca Blankfire/` están la filosofía visual y los archivos para regenerarla.
+
+![Lámina de la marca Blankfire](Marca%20Blankfire/blankfire-lamina.png)
 
 ## Tipografías
 
-- **Barlow** y **Barlow Semi Condensed** (SIL Open Font License) van incluidas.
-- **Code Next ExtraBold** (de [Fontfabric](https://www.fontfabric.com/fonts/code-next/), gratuita) se usa para la marca, los títulos y las cifras grandes, pero **no está en el repositorio**: su licencia no permite redistribuir el archivo. Sin ella la extensión funciona igual y usa Barlow en su lugar. Para tener el aspecto original, descarga Code Next desde Fontfabric y copia `CodeNext-ExtraBold.woff2` (carpeta *Commercial/WEB*) como `Fogueo/fonts/codenext-800.woff2`.
+Todas son libres (SIL Open Font License 1.1) y van incluidas en `Fogueo/fonts/` junto a sus licencias:
+
+- **Outfit ExtraBold**: la marca, los títulos y las cifras grandes.
+- **Barlow** y **Barlow Semi Condensed**: el texto y los números del resto de la interfaz.
+
+## Aviso
+
+Blankfire es una herramienta de práctica. Los resultados son una aproximación: en real, la ejecución puede ser peor en tokens muy nuevos o con poca liquidez. Nada de esto es asesoramiento financiero.

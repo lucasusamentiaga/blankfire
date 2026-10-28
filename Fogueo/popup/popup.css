@@ -4,7 +4,7 @@
 @font-face { font-family: "Fogueo Barlow SC"; font-weight: 500; src: url(../fonts/barlow-semi-condensed-latin-500-normal.woff2) format("woff2"); }
 @font-face { font-family: "Fogueo Barlow SC"; font-weight: 600; src: url(../fonts/barlow-semi-condensed-latin-600-normal.woff2) format("woff2"); }
 @font-face { font-family: "Fogueo Barlow SC"; font-weight: 700; src: url(../fonts/barlow-semi-condensed-latin-700-normal.woff2) format("woff2"); }
-@font-face { font-family: "Fogueo Code Next"; font-weight: 800; src: url(../fonts/codenext-800.woff2) format("woff2"); }
+@font-face { font-family: "Fogueo Display"; font-weight: 800; src: url(../fonts/outfit-800.woff2) format("woff2"); }
 
 *, *::before, *::after { box-sizing: border-box; }
 html { color-scheme: dark; }
@@ -231,11 +231,11 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--fx-brand); outl
   .tab-ink, .switch button[role="switch"]::after { transition-duration: 0ms; }
 }
 
-/* ---------- Code Next ExtraBold: momentos de display ---------- */
+/* ---------- Outfit ExtraBold: momentos de display ---------- */
 .brand, .big, .r-pnl, .wr-head b, .av, .net {
   font-family: var(--fx-font-display);
   font-weight: 800;
-  /* Las cifras tabulares de Code Next separan la coma ("9 , 4"): usamos las proporcionales. */
+  /* Con cifras tabulares la coma queda separada ("9 , 4"): usamos las proporcionales. */
   font-variant-numeric: proportional-nums;
   font-feature-settings: "tnum" 0, "pnum" 1;
 }

@@ -78,7 +78,7 @@ async function loadFonts() {
     ['Fogueo Barlow SC', 'barlow-semi-condensed-latin-500-normal', 500],
     ['Fogueo Barlow SC', 'barlow-semi-condensed-latin-600-normal', 600],
     ['Fogueo Barlow SC', 'barlow-semi-condensed-latin-700-normal', 700],
-    ['Fogueo Code Next', 'codenext-800', 800],
+    ['Fogueo Display', 'outfit-800', 800],
   ];
   // Cargamos los bytes nosotros: así la CSP de Padre no bloquea las fuentes.
   await Promise.all(faces.map(async ([family, file, weight]) => {

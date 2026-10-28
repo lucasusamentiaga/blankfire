@@ -1,0 +1,33 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@font-face{font-family:D;src:url(outfit-800.woff2);font-weight:800}
+@font-face{font-family:B;src:url(barlow-latin-400-normal.woff2);font-weight:400}
+@font-face{font-family:B;src:url(barlow-latin-500-normal.woff2);font-weight:500}
+@font-face{font-family:M;src:url(JetBrainsMono-Regular.ttf)}
+html,body{margin:0}
+body{width:1400px;height:920px;background:oklch(0.15 0.009 72);position:relative;overflow:hidden;font-family:B}
+.copy{position:absolute;left:72px;top:0;bottom:0;width:470px;display:flex;flex-direction:column;justify-content:center}
+.brand{display:flex;align-items:center;gap:18px}
+.brand svg{width:64px;height:64px;color:oklch(0.83 0.15 78)}
+.brand b{font-family:D;font-weight:800;font-size:68px;line-height:1;color:oklch(0.955 0.006 85);letter-spacing:-0.005em}
+h1{margin:34px 0 0;font-family:D;font-weight:800;font-size:34px;line-height:1.15;color:oklch(0.955 0.006 85);letter-spacing:0;text-wrap:balance}
+h1 em{font-style:normal;color:oklch(0.83 0.15 78)}
+p{margin:16px 0 0;font-size:20px;line-height:1.45;color:oklch(0.8 0.01 80);text-wrap:pretty;max-width:430px}
+.facts{margin-top:34px;display:grid;gap:10px;font-family:M;font-size:14px;color:oklch(0.68 0.012 80)}
+.facts span::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:oklch(0.83 0.15 78);margin-right:12px;vertical-align:2px}
+.shot{position:absolute;border-radius:12px;box-shadow:0 0 0 1px oklch(0.83 0.15 78 / .35),0 8px 8px -4px oklch(0 0 0 / .5)}
+.panel{left:600px;top:61px;width:330px}
+.popup{left:962px;top:160px;width:400px;box-shadow:0 0 0 1px oklch(0.95 0.01 80 / .10),0 8px 8px -4px oklch(0 0 0 / .5)}
+.cap{position:absolute;font-family:M;font-size:12px;color:oklch(0.55 0.012 78);letter-spacing:.04em}
+</style></head><body>
+<div class="copy">
+  <div class="brand"><svg viewBox="0 0 100 100"><path id="m" fill="currentColor" fill-rule="evenodd"/></svg><b>Blankfire</b></div>
+  <h1>Practica memecoins en Padre <em>sin arriesgar ni un SOL</em></h1>
+  <p>Un panel dentro de Padre con SOL ficticio, comisiones y slippage reales, Stop y Take automáticos y un diario que te dice qué hábitos te cuestan dinero.</p>
+  <div class="facts"><span>Chrome · Opera GX</span><span>Español · English</span><span>No toca tu wallet</span></div>
+</div>
+<img class="shot panel" src="hero-panel.png" alt="">
+<div class="cap" style="left:600px;top:34px">PANEL EN PADRE</div>
+<img class="shot popup" src="hero-popup.png" alt="">
+<div class="cap" style="left:962px;top:133px">VENTANA DEL ICONO</div>
+<script type="module">import { MARK } from './mark.js'; document.getElementById('m').setAttribute('d', MARK);</script>
+</body></html>

@@ -1,4 +1,4 @@
-// Modo inglés: recorre panel, popup y los dos tours buscando restos en español; luego vuelve a español.
+﻿// Modo inglÃ©s: recorre panel, popup y los dos tours buscando restos en espaÃ±ol; luego vuelve a espaÃ±ol.
 import { chromium } from 'playwright';
 const TDIR = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 import fs from 'fs';
@@ -6,8 +6,8 @@ const EXT=new URL('../Fogueo', import.meta.url).pathname.replace(/^\/([A-Za-z]:)
 const TOKEN='52u2Z2PZkPgX8nzzZvN7ADCroDBTRiT4VNkpAgm3pump';
 const OUT=TDIR+'en'; fs.rmSync(OUT,{recursive:true,force:true}); fs.mkdirSync(OUT);
 const ok=(c,m)=>console.log((c?'OK  ':'FAIL')+' '+m);
-const ES=/[áéíóúñ¿¡]|\b(de|del|el|la|los|las|que|con|para|por|tu|tus|sin|una|en|es|hoy|ayer|hace|compra|venta|comprar|vender|saldo|aquí|cuenta|ajustes|todo|más|cada|desde|hasta)\b/i;
-const SKIP=new Set(['ES','Español','English / Español']);
+const ES=/[Ã¡Ã©Ã­Ã³ÃºÃ±Â¿Â¡]|\b(de|del|el|la|los|las|que|con|para|por|tu|tus|sin|una|en|es|hoy|ayer|hace|compra|venta|comprar|vender|saldo|aquÃ­|cuenta|ajustes|todo|mÃ¡s|cada|desde|hasta)\b/i;
+const SKIP=new Set(['ES','EspaÃ±ol','English / EspaÃ±ol']);
 const leftovers=(txt)=>txt.split(/\n+/).map(s=>s.trim()).filter(s=>s && !SKIP.has(s) && ES.test(s));
 const ctx = await chromium.launchPersistentContext(TDIR+'p9-'+Date.now(), { headless:true, channel:'chromium', locale:'en-US', viewport:{width:1280,height:900}, args:[`--disable-extensions-except=${EXT}`,`--load-extension=${EXT}`,'--lang=en-US'] });
 await ctx.route('https://api.dexscreener.com/**', (route) => {
@@ -27,7 +27,7 @@ await pg.goto('https://trade.padre.gg/trade/solana/'+TOKEN); await pg.waitForTim
 const P=pg.locator('#fogueo-root');
 const panelText=()=>pg.evaluate(()=>document.querySelector('#fogueo-root').shadowRoot.querySelector('.fx, .panel, :host > *')?.innerText || document.querySelector('#fogueo-root').shadowRoot.textContent);
 const shadowAll=()=>pg.evaluate(()=>{const r=document.querySelector('#fogueo-root').shadowRoot; const out=[]; const w=document.createTreeWalker(r,NodeFilter.SHOW_TEXT); for(let n=w.nextNode();n;n=w.nextNode()){ if(n.parentElement?.closest('style')) continue; const t=n.nodeValue.trim(); if(t) out.push(t);} r.querySelectorAll('[placeholder],[aria-label],[title]').forEach(e=>['placeholder','aria-label','title'].forEach(a=>{const v=e.getAttribute(a); if(v) out.push('@'+a+': '+v);})); return out.join('\n');});
-const report=(where,txt)=>{ const l=[...new Set(leftovers(txt))]; ok(l.length===0, `${where}: sin español`+(l.length?' → '+JSON.stringify(l.slice(0,12)):'')); };
+const report=(where,txt)=>{ const l=[...new Set(leftovers(txt))]; ok(l.length===0, `${where}: sin espaÃ±ol`+(l.length?' â†’ '+JSON.stringify(l.slice(0,12)):'')); };
 ok(await P.count()===1, 'Panel cargado');
 report('Panel (onboarding)', await shadowAll());
 await pg.screenshot({path:`${OUT}/1-panel-onboard.png`});
@@ -39,8 +39,8 @@ await pg.screenshot({path:`${OUT}/2-panel-trade.png`});
 await P.locator('[data-ref="amount"]').fill('0.5');
 await P.locator('[data-act="buy"]').click(); await pg.waitForTimeout(1500);
 let s=await st();
-ok(Object.keys(s.account.positions).length===1, 'Compra con decimal inglés "0.5" → posición: '+Object.values(s.account.positions)[0]?.costSol);
-report('Panel (con posición)', await shadowAll());
+ok(Object.keys(s.account.positions).length===1, 'Compra con decimal inglÃ©s "0.5" â†’ posiciÃ³n: '+Object.values(s.account.positions)[0]?.costSol);
+report('Panel (con posiciÃ³n)', await shadowAll());
 await pg.screenshot({path:`${OUT}/3-panel-pos.png`});
 // vistas del panel
 for (const v of ['positions','keys']) { const b=P.locator(`[data-view="${v}"], [data-act="view-${v}"], [data-tab="${v}"]`).first(); if(await b.count()){ await b.click(); await pg.waitForTimeout(300); report('Panel vista '+v, await shadowAll()); } }
@@ -54,7 +54,7 @@ report('Tour del panel', tourTexts.join('\n'));
 // vender todo para tener historial
 await pg.waitForTimeout(500);
 await P.locator('[data-act="side"][data-side="sell"]').click(); await pg.waitForTimeout(200); await P.locator('[data-act="sellpct"][data-pct="100"]').click(); await P.locator('[data-act="sell"]').click(); await pg.waitForTimeout(1500);
-s=await st(); ok(s.account.rounds.length>=1, 'Venta → ronda cerrada');
+s=await st(); ok(s.account.rounds.length>=1, 'Venta â†’ ronda cerrada');
 report('Panel (tras vender)', await shadowAll());
 // popup
 const pop=await ctx.newPage(); pop.on('pageerror', e=>errs.push('POPUP '+e.message));
@@ -73,23 +73,23 @@ for (const t of ['wallet','history','stats','settings']) {
   await pop.screenshot({path:`${OUT}/6-popup-${t}.png`, fullPage:true});
 }
 ok((await pop.locator('.top .brand').innerText())==='Blankfire', 'Marca Blankfire en el popup');
-ok((await pop.locator('.lang-btn').innerText())==='ES', 'Botón de idioma muestra ES en inglés');
-// cambiar a español desde el popup
+ok((await pop.locator('.lang-btn').innerText())==='ES', 'BotÃ³n de idioma muestra ES en inglÃ©s');
+// cambiar a espaÃ±ol desde el popup
 await pop.locator('.lang-btn').click(); await pop.waitForTimeout(1500);
 s=await st(); ok(s.settings.lang==='es', 'lang guardado = es');
-ok((await pop.locator('[data-tab="wallet"]').innerText())==='Cartera', 'Popup en español tras cambiar: '+await pop.locator('[data-tab="wallet"]').innerText());
+ok((await pop.locator('[data-tab="wallet"]').innerText())==='Cartera', 'Popup en espaÃ±ol tras cambiar: '+await pop.locator('[data-tab="wallet"]').innerText());
 await pg.waitForTimeout(800);
 const pt=await shadowAll();
-ok(/Comprar|Posiciones|Operar/.test(pt), 'Panel en Padre cambia a español solo');
-ok((await pop.locator('.lang-btn').innerText())==='EN', 'Botón muestra EN en español');
-// y de vuelta a inglés desde el panel
+ok(/Comprar|Posiciones|Operar/.test(pt), 'Panel en Padre cambia a espaÃ±ol solo');
+ok((await pop.locator('.lang-btn').innerText())==='EN', 'BotÃ³n muestra EN en espaÃ±ol');
+// y de vuelta a inglÃ©s desde el panel
 await P.locator('[data-act="lang"]').first().click(); await pg.waitForTimeout(800);
-s=await st(); ok(s.settings.lang==='en', 'Botón del panel → en');
+s=await st(); ok(s.settings.lang==='en', 'BotÃ³n del panel â†’ en');
 await pop.waitForTimeout(1500);
 ok((await pop.locator('[data-tab="wallet"]').innerText())==='Wallet', 'Popup sigue al panel: '+await pop.locator('[data-tab="wallet"]').innerText());
 // manifiesto
 const man=await sw.evaluate(()=>chrome.runtime.getManifest());
-ok(man.name.startsWith('Blankfire') && man.version==='1.7.1', 'Manifiesto: '+man.name+' '+man.version);
+ok(man.name.startsWith('Blankfire') && man.version==='1.7.2', 'Manifiesto: '+man.name+' '+man.version);
 // error de background traducido
 const r=await sw.evaluate(async()=>{ return await new Promise(res=>chrome.runtime.sendMessage({type:'cancelOrder',id:'nope'},res)).catch(e=>String(e)); }).catch(e=>'n/a');
 ok(errs.length===0, 'Sin errores JS'+(errs.length?': '+errs.join(' | '):''));

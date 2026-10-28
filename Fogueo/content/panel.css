@@ -390,11 +390,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 }
 @keyframes fx-fade { from { opacity: 0; } to { opacity: 1; } }
 
-/* ---------- Code Next ExtraBold: momentos de display ---------- */
+/* ---------- Outfit ExtraBold: momentos de display ---------- */
 .brand, .sym, .price, .pos-pnl, .head-bal b, .go .label, .head-chip, .avatar {
   font-family: var(--fx-font-display);
   font-weight: 800;
-  /* Las cifras tabulares de Code Next separan la coma ("9 , 4"): usamos las proporcionales. */
+  /* Con cifras tabulares la coma queda separada ("9 , 4"): usamos las proporcionales. */
   font-variant-numeric: proportional-nums;
   font-feature-settings: "tnum" 0, "pnum" 1;
 }

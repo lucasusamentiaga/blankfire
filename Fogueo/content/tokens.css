@@ -35,8 +35,8 @@
 
   --fx-font: "Fogueo Barlow", system-ui, sans-serif;
   --fx-font-num: "Fogueo Barlow SC", "Fogueo Barlow", system-ui, sans-serif;
-  /* Code Next ExtraBold: solo para los momentos grandes (marca, token, precio, PnL, saldo, botones). */
-  --fx-font-display: "Fogueo Code Next", "Fogueo Barlow SC", system-ui, sans-serif;
+  /* Outfit ExtraBold (SIL OFL): solo para los momentos grandes (marca, token, precio, PnL, saldo, botones). */
+  --fx-font-display: "Fogueo Display", "Fogueo Barlow SC", system-ui, sans-serif;
 
   --fx-r-sm: 6px;
   --fx-r: 8px;
