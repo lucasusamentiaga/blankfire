@@ -66,6 +66,13 @@ Todas son libres (SIL Open Font License 1.1) y van incluidas en `Fogueo/fonts/` 
 - **Outfit ExtraBold**: la marca, los títulos y las cifras grandes.
 - **Barlow** y **Barlow Semi Condensed**: el texto y los números del resto de la interfaz.
 
+## Autor
+
+Hecho por **Lucas Usamentiaga**.
+
+- GitHub: [@lucasusamentiaga](https://github.com/lucasusamentiaga)
+- Instagram: [@lucasuazz_](https://www.instagram.com/lucasuazz_/)
+
 ## Aviso
 
 Blankfire es una herramienta de práctica. Los resultados son una aproximación: en real, la ejecución puede ser peor en tokens muy nuevos o con poca liquidez. Nada de esto es asesoramiento financiero.

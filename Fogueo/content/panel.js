@@ -56,6 +56,23 @@ function detectAddress(href) {
   return null;
 }
 
+// Los números ruedan hasta su nuevo valor en vez de saltar (sin animación si el sistema pide menos movimiento).
+const reducedMotion = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; } };
+function roll(el, to, render, ms = 520) {
+  if (!el) return;
+  const from = el.__v;
+  el.__v = to;
+  cancelAnimationFrame(el.__raf);
+  if (from == null || !isFinite(from) || !isFinite(to) || Math.abs(from - to) < 1e-12 || reducedMotion() || document.hidden) { render(to); return; }
+  const t0 = performance.now();
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - k, 4);
+    render(from + (to - from) * e);
+    if (k < 1) el.__raf = requestAnimationFrame(step);
+  };
+  el.__raf = requestAnimationFrame(step);
+}
+
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const parseNum = (v) => { const n = Number(String(v).replace(/\s/g, '').replace(',', '.')); return isFinite(n) ? n : NaN; };
 // "30k", "1,2M", "$45.000" → número
@@ -603,7 +620,7 @@ class Panel {
 
   renderHead() {
     const r = this.refs;
-    r.bal.textContent = fmtSol(this.st?.account.balance, { digits: 3 });
+    roll(r.bal, Number(this.st?.account.balance), (v) => { r.bal.textContent = fmtSol(v, { digits: 3 }); });
     const pos = this.position;
     const pnl = pos && this.quote ? positionPnl(pos, this.quote, this.solUsd) : null;
     if (pnl) {
@@ -791,7 +808,13 @@ class Panel {
     const $ = (s) => area.querySelector(`[data-ref="${s}"]`);
     $('pval').innerHTML = this.settings.pnlUnit === 'usd' && this.solUsd ? fmtUsd(pnl?.value * this.solUsd) : `${fmtSol(pnl?.value)} SOL`;
     $('ppnl').className = `pos-pnl num ${t}`;
-    $('ppnl').innerHTML = `${this.fmtPnl(pnl?.pnlSol, { sign: true })}<small>${fmtPct(pnl?.pnlPct, 1, { sign: true })}</small>`;
+    // Brillo de fondo según vas ganando o perdiendo, y el resultado rueda hasta su nuevo valor.
+    area.querySelector('.pos').dataset.tone = t;
+    const pnlEl = $('ppnl');  // referencia fija: si la posición se cierra a mitad, la animación no busca un nodo que ya no existe
+    roll(pnlEl, Number(pnl?.pnlSol), (v) => {
+      const pct = pnl && Math.abs(pnl.pnlSol) > 1e-12 ? pnl.pnlPct * (v / pnl.pnlSol) : pnl?.pnlPct;
+      pnlEl.innerHTML = `${this.fmtPnl(v, { sign: true })}<small>${fmtPct(pct, 1, { sign: true })}</small>`;
+    });
     $('pmeta').innerHTML = `
       <span>${tr('Entrada')} <b class="num">${fmtCompact(entryMc, '$')}</b> → <b class="num">${fmtCompact(nowMc, '$')}</b></span>
       <span>${tr('Invertido')} <b class="num">${fmtSol(pos.costSol)}</b></span>
@@ -1287,11 +1310,22 @@ class Panel {
     const d = res.data;
     if (!d.ok) return this.toast('err', `${d.error} ${tr('Se cobran {fee} SOL de prioridad, como en real.', { fee: fmtSol(d.chargedFee) })}`);
     r.buyNote.value = ''; r.buyNote.hidden = true;
+    this.fire('buy');
     this.toast('ok', tr('Compraste {qty} ${sym} a {mc} de MC por {sol} SOL.', { qty: fmtCompact(d.fill.qty), sym: this.quote.symbol, mc: fmtCompact(d.fill.mc, '$'), sol: fmtSol(d.fill.sol) }));
     this.renderQuotes();
   }
 
+  // Chispa al ejecutar una orden: onda en el botón y la llama de la marca se aviva.
+  fire(kind) {
+    const btn = this.refs[kind === 'buy' ? 'buyForm' : 'sellForm']?.querySelector('.go');
+    const mark = this.el?.querySelector('.head .mark');
+    [btn, mark].forEach((n) => { if (!n) return; n.classList.remove('fired'); void n.offsetWidth; n.classList.add('fired'); });
+    clearTimeout(this.fireTimer);
+    this.fireTimer = setTimeout(() => { btn?.classList.remove('fired'); mark?.classList.remove('fired'); }, 900);
+  }
+
   afterSell(d) {
+    this.fire('sell');
     this.refs.sellNote.value = ''; this.refs.sellNote.hidden = true;
     if (d.round) {
       this.side = 'buy';

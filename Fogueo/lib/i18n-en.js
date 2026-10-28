@@ -503,5 +503,6 @@ export const EN = {
  "Hace {n} s": "{n}s ago",
  "Con el ratón encima del panel": "With the mouse over the panel",
  "compran": "buy",
- "venden": "sell"
+ "venden": "sell",
+ "Hecho por": "Made by"
 };

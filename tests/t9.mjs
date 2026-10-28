@@ -89,7 +89,7 @@ await pop.waitForTimeout(1500);
 ok((await pop.locator('[data-tab="wallet"]').innerText())==='Wallet', 'Popup sigue al panel: '+await pop.locator('[data-tab="wallet"]').innerText());
 // manifiesto
 const man=await sw.evaluate(()=>chrome.runtime.getManifest());
-ok(man.name.startsWith('Blankfire') && man.version==='1.7.2', 'Manifiesto: '+man.name+' '+man.version);
+ok(man.name.startsWith('Blankfire') && man.version==='1.8.0', 'Manifiesto: '+man.name+' '+man.version);
 // error de background traducido
 const r=await sw.evaluate(async()=>{ return await new Promise(res=>chrome.runtime.sendMessage({type:'cancelOrder',id:'nope'},res)).catch(e=>String(e)); }).catch(e=>'n/a');
 ok(errs.length===0, 'Sin errores JS'+(errs.length?': '+errs.join(' | '):''));

@@ -31,11 +31,32 @@ const REASON = { tp: ['TP', 'tp'], sl: ['SL', 'sl'], trail: ['SL din.', 'sl'], i
 const reasonBadge = (r) => (REASON[r] ? `<span class="badge ${REASON[r][1]}">${REASON[r][0]}</span>` : '');
 
 const ICON = {
+  mark: '<svg viewBox="0 0 100 100" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M57 5C61 25 79 38 79 62A29 29 0 0 1 21 62C21 47 28 38 36 31C37 39 41 43 45 45C43 31 49 17 57 5ZM50 48.5A13.5 13.5 0 0 1 50 75.5A13.5 13.5 0 0 1 50 48.5Z"/></svg>',
+  code: '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4.5L2 8l3.5 3.5M10.5 4.5L14 8l-3.5 3.5M9 3l-2 10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  camera: '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 5.6c0-.6.4-1 1-1h2l1-1.6h4l1 1.6h2c.6 0 1 .4 1 1V12c0 .6-.4 1-1 1H3c-.6 0-1-.4-1-1z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="8" cy="8.7" r="2.3" stroke="currentColor" stroke-width="1.3"/></svg>',
   clock: '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M8 4.8V8l2.2 1.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
   target: '<svg viewBox="0 0 22 22" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="1.6"/><path d="M11 1.5v4M11 16.5v4M1.5 11h4M16.5 11h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
   book: '<svg viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M4 4.5A1.5 1.5 0 015.5 3H17v14H5.5A1.5 1.5 0 004 18.5v-14z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M4 18.5A1.5 1.5 0 005.5 20H17v-3" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
   bulb: '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 11.5h5M6.3 14h3.4M8 1.8a4.3 4.3 0 00-2.6 7.7c.5.4.8.9.8 1.5v.5h3.6V11c0-.6.3-1.1.8-1.5A4.3 4.3 0 008 1.8z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>',
 };
+
+// Los números ruedan hasta su nuevo valor (sin animación si el sistema pide menos movimiento).
+const reducedMotion = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; } };
+function roll(el, to, render, ms = 700) {
+  if (!el) return;
+  const from = el.__v;
+  el.__v = to;
+  cancelAnimationFrame(el.__raf);
+  if (from == null || !isFinite(from) || !isFinite(to) || Math.abs(from - to) < 1e-12 || reducedMotion()) { render(to); return; }
+  const t0 = performance.now();
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - k, 4);
+    render(from + (to - from) * e);
+    if (k < 1) el.__raf = requestAnimationFrame(step);
+  };
+  el.__raf = requestAnimationFrame(step);
+}
+let sparkShown = false;
 
 let st = null;
 let quotes = {};
@@ -83,7 +104,7 @@ function totals() {
 
 function renderSummary() {
   const t = totals();
-  $('#equity').innerHTML = `${fmtSol(t.equity, { digits: 3 })}<small>SOL</small>`;
+  roll($('#equity'), t.equity, (v) => { $('#equity').innerHTML = `${fmtSol(v, { digits: 3 })}<small>SOL</small>`; });
   $('#equityDelta').className = `delta num ${tone(t.delta)}`;
   $('#equityDelta').textContent = `${fmtSol(t.delta, { sign: true })} (${fmtPct(t.deltaPct, 1, { sign: true })})`;
   $('#equityDelta').title = 'Respecto al saldo inicial de esta cuenta';
@@ -111,7 +132,9 @@ function renderSpark(nowEquity) {
   const y = (v) => 3 + (1 - (v - min) / (max - min)) * (H - 6);
   const d = pts.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
   const t = tone(nowEquity - base);
-  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}"><line x1="0" x2="${W - 4}" y1="${y(base).toFixed(1)}" y2="${y(base).toFixed(1)}"/><path class="${t}" d="${d}"/><circle class="${t}" cx="${x(pts.length - 1).toFixed(1)}" cy="${y(nowEquity).toFixed(1)}" r="2.6"/></svg>`;
+  // La primera vez la línea se dibuja de izquierda a derecha.
+  const reveal = !sparkShown; sparkShown = true;
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="${reveal ? 'reveal' : ''}"><line x1="0" x2="${W - 4}" y1="${y(base).toFixed(1)}" y2="${y(base).toFixed(1)}"/><path class="${t}" d="${d}"/><circle class="${t}" cx="${x(pts.length - 1).toFixed(1)}" cy="${y(nowEquity).toFixed(1)}" r="2.6"/></svg>`;
 }
 
 function miniRange(pnl, p) {
@@ -387,7 +410,14 @@ function renderSettings() {
       return `<div><span>${tDay(a.startedAt)} – ${tDay(a.endedAt)} <span class="muted">· ${a.rounds.length} trades</span></span><span class="num ${tone(d)}">${fmtSol(d, { sign: true })} SOL</span><button class="x" data-del="${esc(a.id)}" aria-label="Borrar esta cuenta del archivo">borrar</button></div>`;
     }).join('')}</div>` : ''}
 
-    <p class="about">Blankfire no toca tu wallet ni tu cuenta de Padre: solo lee precios públicos de DexScreener y Jupiter. Los resultados son una aproximación; en real, la ejecución puede ser peor en tokens muy nuevos o con poca liquidez.</p>`;
+    <p class="about">Blankfire no toca tu wallet ni tu cuenta de Padre: solo lee precios públicos de DexScreener y Jupiter. Los resultados son una aproximación; en real, la ejecución puede ser peor en tokens muy nuevos o con poca liquidez.</p>
+    <div class="credits">
+      <span class="by">${ICON.mark}<span>${tr('Hecho por')} <b>Lucas Usamentiaga</b></span></span>
+      <span class="links">
+        <a href="https://github.com/lucasusamentiaga" target="_blank" rel="noopener" aria-label="GitHub · lucasusamentiaga">${ICON.code}<span>GitHub</span></a>
+        <a href="https://www.instagram.com/lucasuazz_/" target="_blank" rel="noopener" aria-label="Instagram · @lucasuazz_">${ICON.camera}<span>@lucasuazz_</span></a>
+      </span>
+    </div>`;
   translateDom(v);
 }
 
@@ -404,6 +434,16 @@ function moveInk() {
   ink.style.transform = `translateX(${b.offsetLeft + 8}px)`;
 }
 
+// Al entrar en una pestaña, sus listas y gráficas aparecen escalonadas (solo esa vez, no en cada refresco).
+function enterView() {
+  const v = $(`.view[data-view="${tab}"]`);
+  if (!v) return;
+  v.classList.remove('enter'); void v.offsetWidth; v.classList.add('enter');
+  v.querySelectorAll('.rows > *, .act > div, .ledger > div').forEach((n, i) => n.style.setProperty('--i', Math.min(i, 12)));
+  clearTimeout(enterView.t);
+  enterView.t = setTimeout(() => v.classList.remove('enter'), 1200);
+}
+
 // ---------- eventos ----------
 
 function setTab(name) {
@@ -413,6 +453,7 @@ function setTab(name) {
   document.querySelectorAll('.view').forEach((v) => { v.hidden = v.dataset.view !== tab; });
   moveInk();
   render();
+  enterView();
   $('.views').scrollTop = 0;
 }
 
@@ -550,7 +591,9 @@ function applyStaticLang() {
   setLang(st?.settings?.lang);
   if (st && !st.settings?.lang) { st.settings = { ...st.settings, lang: getLang() }; send({ type: 'saveSettings', settings: { lang: getLang() } }); }
   applyStaticLang();
+  if (st) $('#equity').__v = st.account.startBalance;
   render();
+  enterView();
   requestAnimationFrame(moveInk);
   document.fonts?.ready.then(moveInk);
   await loadQuotes(true);

@@ -132,8 +132,23 @@ svg { display: block; }
   border-radius: var(--fx-r);
   background: var(--fx-raise);
   display: grid; grid-template-columns: 1fr auto; gap: 6px 10px;
-  animation: fx-rise 240ms var(--fx-ease) both;
+  position: relative; isolation: isolate;
+  animation: pos-in 520ms var(--fx-ease-expo) both;
 }
+/* Al abrir una posición: sube y se enciende un instante el borde */
+@keyframes pos-in {
+  0% { opacity: 0; transform: translateY(8px) scale(0.98); box-shadow: 0 0 0 1px var(--fx-brand-ring); }
+  60% { opacity: 1; transform: none; box-shadow: 0 0 0 1px var(--fx-brand-ring); }
+  100% { box-shadow: 0 0 0 1px transparent; }
+}
+/* Brillo según vas ganando o perdiendo (se funde al cambiar) */
+.pos::before, .pos::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: -1; pointer-events: none;
+  opacity: 0; transition: opacity 700ms var(--fx-ease);
+}
+.pos::before { background: radial-gradient(120% 90% at 0% 0%, oklch(0.81 0.16 152 / 0.17), transparent 62%); }
+.pos::after { background: radial-gradient(120% 90% at 0% 0%, oklch(0.71 0.18 24 / 0.17), transparent 62%); }
+.pos[data-tone="up"]::before, .pos[data-tone="down"]::after { opacity: 1; }
 @keyframes fx-rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .pos-label { font-size: 12px; color: var(--fx-ink-3); }
 .pos-value { font-size: 13px; color: var(--fx-ink-2); }
@@ -820,3 +835,39 @@ button.pos-pnl:hover small { text-decoration: underline; text-underline-offset: 
 .tour-receipt .up, .tour-body .up { color: var(--fx-up); }
 .tour-receipt .down, .tour-body .down { color: var(--fx-down); }
 .tour-body .rc-note { margin: 10px 0 0; font-size: 12.5px; }
+
+
+/* =========================================================
+   Movimiento: chispa al operar, llama viva y bienvenida escalonada
+   ========================================================= */
+.go { position: relative; isolation: isolate; }
+.go.buy { --burst: oklch(0.81 0.16 152 / 0.55); }
+.go.sell { --burst: oklch(0.71 0.18 24 / 0.55); }
+.go::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; }
+.go.fired::after { animation: go-burst 720ms var(--fx-ease-expo) both; }
+@keyframes go-burst {
+  0% { opacity: 1; box-shadow: 0 0 0 0 var(--burst); }
+  100% { opacity: 0; box-shadow: 0 0 0 12px var(--burst); }
+}
+.head .mark { transform-origin: 50% 85%; transition: filter var(--fx-mid) var(--fx-ease); }
+.head:hover .mark { filter: drop-shadow(0 0 5px oklch(0.83 0.15 78 / 0.55)); }
+.head .mark.fired { animation: ember 800ms var(--fx-ease-expo) both; }
+@keyframes ember {
+  0% { transform: none; filter: none; }
+  25% { transform: scale(1.22) translateY(-1px); filter: drop-shadow(0 0 7px oklch(0.88 0.15 84 / 0.9)); }
+  100% { transform: none; filter: none; }
+}
+.ob-mark svg { transform-origin: 50% 85%; animation: ember 1100ms 200ms var(--fx-ease-expo) both; }
+.ob-steps li { animation: fx-rise 420ms var(--fx-ease) both; }
+.ob-steps li:nth-child(1) { animation-delay: 90ms; }
+.ob-steps li:nth-child(2) { animation-delay: 170ms; }
+.ob-steps li:nth-child(3) { animation-delay: 250ms; }
+.ob-steps::before { transform-origin: top; animation: rail 700ms 120ms var(--fx-ease-expo) both; }
+@keyframes rail { from { transform: scaleY(0); } to { transform: none; } }
+.ob-a, .onboard-tip { animation: fx-rise 420ms 320ms var(--fx-ease) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pos { animation: fx-fade 120ms linear both; }
+  .pos::before, .pos::after { transition: none; }
+  .go.fired::after, .head .mark.fired, .ob-mark svg, .ob-steps li, .ob-steps::before, .ob-a, .onboard-tip { animation: none; }
+}

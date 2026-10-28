@@ -361,3 +361,49 @@ button.tag-chip:hover { border-color: var(--fx-ink-3); color: var(--fx-ink); }
 .top-r { min-width: 0; }
 .since { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .lang-btn, .help-btn { flex: none; }
+
+/* =========================================================
+   Movimiento: gráficas que se dibujan y listas escalonadas
+   ========================================================= */
+.spark svg.reveal path, .spark svg.reveal line { animation: draw-x 900ms var(--fx-ease-expo) both; }
+.spark svg.reveal circle { animation: dot-in 360ms 700ms var(--fx-ease-expo) both; }
+@keyframes draw-x { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes dot-in { from { opacity: 0; transform: scale(0.3); } to { opacity: 1; transform: none; } }
+.spark circle { transform-box: fill-box; transform-origin: center; }
+
+.view.enter .chart svg { animation: draw-x 1000ms var(--fx-ease-expo) both; }
+.view.enter .chart .end { animation: dot-in 380ms 800ms var(--fx-ease-expo) both; }
+.wr-bar .w { transform-origin: left; }
+.view.enter .wr-bar .w { animation: grow-x 900ms 150ms var(--fx-ease-expo) both; }
+@keyframes grow-x { from { transform: scaleX(0); } to { transform: none; } }
+.view.enter .rows > *, .view.enter .act > div, .view.enter .ledger > div {
+  animation: row-in 420ms var(--fx-ease) both;
+  animation-delay: calc(var(--i, 0) * 35ms + 60ms);
+}
+@keyframes row-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+
+/* Créditos */
+.credits {
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--fx-line-soft);
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  font-size: 12px; color: var(--fx-ink-3);
+}
+.credits .by { display: inline-flex; align-items: center; gap: 7px; }
+.credits .by svg { width: 14px; height: 14px; color: var(--fx-brand); }
+.credits b { color: var(--fx-ink-2); font-weight: 600; }
+.credits .links { display: inline-flex; gap: 6px; }
+.credits a {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px;
+  border-radius: 999px; box-shadow: inset 0 0 0 1px var(--fx-line-soft);
+  color: var(--fx-ink-2); text-decoration: none; font-weight: 500;
+  transition: color var(--fx-fast) var(--fx-ease), box-shadow var(--fx-fast) var(--fx-ease), background var(--fx-fast) var(--fx-ease);
+}
+.credits a svg { width: 14px; height: 14px; }
+.credits a:hover { color: var(--fx-brand-hi); background: var(--fx-brand-wash); box-shadow: inset 0 0 0 1px var(--fx-brand-ring); }
+.credits a:focus-visible { outline: 2px solid var(--fx-brand); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .spark svg.reveal path, .spark svg.reveal line, .spark svg.reveal circle,
+  .view.enter .chart svg, .view.enter .chart .end, .view.enter .wr-bar .w,
+  .view.enter .rows > *, .view.enter .act > div, .view.enter .ledger > div { animation: none; }
+}
