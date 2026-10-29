@@ -10,12 +10,12 @@ const rel = (a, b) => Math.abs(a - b) / Math.max(1e-30, Math.abs(b));
 function ammBuy({ solIn, p, R, solUsd, feePct, poolPct, latPct }) {
   const x = R, y = R / p;
   const dx = solIn * (1 - (feePct + poolPct) / 100) * solUsd;       // dólares que entran al pool
-  const out = y - (x * y) / (x + dx);                                // tokens que salen (x·y = k)
+  const out = (y * dx) / (x + dx);                                  // tokens que salen: y − k/(x+dx), sin restas que pierdan precisión
   return out / (1 + latPct / 100);                                   // la latencia empeora el precio
 }
 function ammSell({ qty, p, R, solUsd, feePct, poolPct, latPct, prio }) {
   const x = R, y = R / p;
-  const outUsd = x - (x * y) / (y + qty);                            // dólares que salen
+  const outUsd = (x * qty) / (y + qty);                             // dólares que salen: x − k/(y+qty)
   const gross = (outUsd * (1 - latPct / 100)) / solUsd;
   return gross * (1 - (feePct + poolPct) / 100) - prio;              // SOL netos
 }
@@ -32,8 +32,8 @@ for (let i = 0; i < 5000; i++) {
   const s = C.simulateSell({ qty, quote: q, solUsd, settings: S });
   worstSell = Math.max(worstSell, rel(s.netSol + S.priorityFee, ammSell({ qty, p, R, solUsd, feePct: S.feePct, poolPct, latPct: S.latencySlipPct, prio: 0 })));
 }
-ok(worstBuy < 1e-6, `Compra = AMM exacto con reservas (error máx. ${worstBuy.toExponential(1)} en 5.000 casos)`);
-ok(worstSell < 1e-6, `Venta = AMM exacto con reservas (error máx. ${worstSell.toExponential(1)} en 5.000 casos)`);
+ok(worstBuy < 1e-12, `Compra = AMM exacto con reservas (error máx. ${worstBuy.toExponential(1)} en 5.000 casos)`);
+ok(worstSell < 1e-12, `Venta = AMM exacto con reservas (error máx. ${worstSell.toExponential(1)} en 5.000 casos)`);
 
 // ---------- 2. Curva de pump.fun exacta (reservas virtuales) ----------
 // Al nacer: 30 SOL virtuales y 1.073.000.191 tokens virtuales; suministro total 1.000M.
