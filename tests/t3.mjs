@@ -23,7 +23,7 @@ await P.locator('.opt.sl label').click(); await P.locator('[data-act="trail"]').
 await P.locator('[data-act="quick"]').nth(2).click(); await P.locator('[data-act="buy"]').click(); await pg.waitForTimeout(1200);
 price*=1.45; await pg.waitForTimeout(6000);
 await P.screenshot({path:TDIR+'t3-peak.png'});
-price*=0.75; await pg.waitForTimeout(6000);
+price*=0.65; await pg.waitForTimeout(6000);  // −35 % desde el máximo: salta el dinámico del 30 %
 console.log('after trail', await rounds());
 // 2) SL normal
 await P.locator('[data-act="trail"]').click();

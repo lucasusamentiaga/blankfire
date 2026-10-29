@@ -177,12 +177,22 @@ export function positionPnl(pos, quote, solUsd) {
   return { value, pnlSol, pnlPct: pos.costSol > 0 ? (pnlSol / pos.costSol) * 100 : 0 };
 }
 
+// Nivel del stop en % de resultado. El dinámico salta cuando el valor cae un X % desde su máximo
+// (no X puntos): con máximo +100 % y stop 30 %, salta en 2 × 0,7 = 1,4 → +40 %.
+export function stopLevelPct(pos) {
+  if (!pos?.sl) return null;
+  if (!pos.sl.trailing) return -pos.sl.pct;
+  const peak = Math.max(0, Number(pos.peakPct) || 0);
+  if (peak === 0) return -pos.sl.pct;
+  return ((1 + peak / 100) * (1 - pos.sl.pct / 100) - 1) * 100;
+}
+
 // Recorrido de una posición entre su stop loss (izquierda) y su take profit (derecha).
 // Devuelve posiciones 0..1 para pintar la barra; null si no hay TP ni SL.
 export function rangeModel(pnlPct, pos, stopLevel) {
   if (!pos || (!pos.tp && !pos.sl) || pnlPct == null || !isFinite(pnlPct)) return null;
   // stopLevel: nivel del stop en % de PnL (p. ej. −30, o +20 con stop dinámico ya en beneficios).
-  const L = pos.sl ? (stopLevel ?? -pos.sl.pct) : Math.min(-50, pnlPct * 1.15);
+  const L = pos.sl ? (stopLevel ?? stopLevelPct(pos)) : Math.min(-50, pnlPct * 1.15);
   const R = pos.tp ? pos.tp.pct : Math.max(100, pnlPct * 1.15);
   const clamp = (v) => Math.min(1, Math.max(0, v));
   const at = (v) => clamp((v - L) / (R - L));

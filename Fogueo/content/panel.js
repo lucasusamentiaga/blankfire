@@ -1,7 +1,7 @@
 // Blankfire — panel flotante dentro de trade.padre.gg.
 import {
   DEFAULT_SETTINGS, REVIEW_TAGS, PRESETS, simulateBuy, simulateSell, positionPnl, realizedSince, startOfDay,
-  fmtPrice, fmtCompact, fmtSol, fmtPct, fmtNum, fmtUsd, tone, rangeModel, hueFor, poolFeePct,
+  fmtPrice, fmtCompact, fmtSol, fmtPct, fmtNum, fmtUsd, tone, rangeModel, hueFor, poolFeePct, stopLevelPct,
 } from '../lib/core.js';
 import { tr, setLang, getLang } from '../lib/i18n.js';
 import { Tour } from './tour.js';
@@ -829,7 +829,7 @@ class Panel {
     if (!box) return;
     // Con stop dinámico, el stop efectivo va por debajo del máximo alcanzado.
     const trailing = !!(pos.sl?.trailing && (pos.peakPct ?? 0) > 0);
-    const stopLevel = pos.sl ? (trailing ? pos.peakPct - pos.sl.pct : -pos.sl.pct) : null;
+    const stopLevel = stopLevelPct(pos);
     const m = rangeModel(pnl?.pnlPct, pos, stopLevel);
     box.hidden = !m;
     if (!m) return;
@@ -1013,7 +1013,11 @@ class Panel {
   solFromInput() {
     const v = parseNum(this.refs.amount.value);
     if (!(v > 0)) return NaN;
-    if (this.settings.sizeMode === 'pct') return (this.st?.account.balance ?? 0) * Math.min(v, 100) / 100;
+    if (this.settings.sizeMode === 'pct') {
+      // El % es del saldo, pero dejando sitio para la priority fee (si no, el 100 % nunca se podría comprar).
+      const bal = this.st?.account.balance ?? 0;
+      return Math.max(0, Math.min(bal * Math.min(v, 100) / 100, bal - (Number(this.settings.priorityFee) || 0)));
+    }
     return v;
   }
 

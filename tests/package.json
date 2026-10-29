@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Pruebas de extremo a extremo de Blankfire con Playwright (la extensión se carga sin empaquetar).",
   "scripts": {
-    "test": "node core.test.mjs && node t9.mjs && node t10.mjs && node t11.mjs && node t12.mjs && node t13.mjs && node t14.mjs && node t15.mjs && node t16.mjs && node t5.mjs && node t7.mjs && node t8.mjs"
+    "test": "node core.test.mjs && node math.test.mjs && node t9.mjs && node t10.mjs && node t11.mjs && node t12.mjs && node t13.mjs && node t14.mjs && node t15.mjs && node t16.mjs && node t17.mjs && node t18.mjs && node t5.mjs && node t7.mjs && node t8.mjs"
   },
   "devDependencies": {
     "playwright": "^1.48.0"

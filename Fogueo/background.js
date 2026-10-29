@@ -2,7 +2,7 @@
 // precios (DexScreener + Jupiter para tokens recién creados) y vigilancia de Take Profit / Stop Loss.
 import {
   DEFAULT_SETTINGS, simulateBuy, simulateSell, positionPnl, uid, fmtSol, fmtPct, fmtCompact,
-  realizedSince, startOfDay, REVIEW_TAGS, LAUNCH_DEXES,
+  realizedSince, startOfDay, REVIEW_TAGS, LAUNCH_DEXES, stopLevelPct,
 } from './lib/core.js';
 import { tr, setLang } from './lib/i18n.js';
 
@@ -343,7 +343,7 @@ async function doBuy({ key, solIn, tpPct, slPct, trailing, note, url, via = 'man
         tp: null, sl: null, entryNote: '', exitNote: '', lesson: '', fills: [],
       };
     }
-    const prevQty = pos.qty;
+    const prevQty = pos.qty, prevCost = pos.costSol;
     pos.qty += sim.qty;
     pos.avgEntryUsd = (pos.avgEntryUsd * prevQty + sim.fillPrice * sim.qty) / pos.qty;
     pos.costSol += sim.totalDebit;
@@ -353,7 +353,11 @@ async function doBuy({ key, solIn, tpPct, slPct, trailing, note, url, via = 'man
     if (note) pos.entryNote = pos.entryNote ? `${pos.entryNote}\n${note}` : note;
     if (tpPct > 0) pos.tp = { pct: tpPct };
     if (slPct > 0) pos.sl = { pct: slPct, trailing: !!trailing };
-    pos.peakPct = Math.max(pos.peakPct ?? 0, 0);
+    // Al ampliar, el máximo se reexpresa sobre el nuevo coste (mismo precio máximo, más tokens).
+    if (prevQty > 0 && (pos.peakPct ?? 0) > 0 && pos.costSol > 0) {
+      const peakValue = (1 + pos.peakPct / 100) * prevCost * (pos.qty / prevQty);
+      pos.peakPct = Math.max(0, (peakValue / pos.costSol - 1) * 100);
+    } else pos.peakPct = Math.max(pos.peakPct ?? 0, 0);
     const fill = { id: uid(), t: now, key, symbol: quote.symbol, side: 'buy', via, sol: sim.totalDebit, qty: sim.qty, price: sim.fillPrice, mc: quote.marketCapUsd, slipPct: sim.slipPct, fee: sim.fee + sim.priorityFee };
     pos.fills.push(fill);
     st.account.fills.push(fill);
@@ -465,9 +469,9 @@ async function checkTriggers(onlyKeys) {
         await mutate((s2) => { const p2 = s2.account.positions[k]; if (p2) p2.peakPct = Math.max(p2.peakPct ?? 0, peak); });
       }
       let reason = null;
+      const stop = stopLevelPct({ ...pos, peakPct: peak });   // dinámico: caída de un X % desde el máximo
       if (pos.tp && movePct >= pos.tp.pct) reason = 'tp';
-      else if (pos.sl && pos.sl.trailing && peak > 0 && movePct <= peak - pos.sl.pct) reason = 'trail';
-      else if (pos.sl && movePct <= -pos.sl.pct) reason = 'sl';
+      else if (pos.sl && movePct <= stop) reason = pos.sl.trailing && stop > -pos.sl.pct + 1e-9 ? 'trail' : 'sl';
       if (!reason) continue;
       try {
         const res = await doSell({ key: k, pct: 100, reason });

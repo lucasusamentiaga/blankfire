@@ -94,7 +94,7 @@ const STEPS = [
   },
   {
     ch: 1, core: true, target: '[data-ref="trailBtn"]', title: 'Stop dinámico',
-    body: 'Con él encendido, el stop <b>sube detrás del máximo</b> que alcances. Si el token sube un 40 % y luego se desploma, vendes con beneficio en vez de devolverlo todo.',
+    body: 'Con él encendido, el stop <b>sigue al máximo</b>: salta si el valor cae ese % desde lo más alto que hayas tocado. Con un stop del 30 %, si sube un 60 % y luego se desploma, vendes en +12 % en vez de devolverlo todo.',
     try: { text: 'Pruébalo: toca el interruptor para apagarlo y otra vez para encenderlo.', acts: ['trail'], count: 2, done: 'Perfecto. En tus trades reales se queda como lo dejes.' },
   },
   {
