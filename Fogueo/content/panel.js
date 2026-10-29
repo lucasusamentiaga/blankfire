@@ -1,7 +1,7 @@
 // Blankfire — panel flotante dentro de trade.padre.gg.
 import {
   DEFAULT_SETTINGS, REVIEW_TAGS, PRESETS, simulateBuy, simulateSell, positionPnl, realizedSince, startOfDay,
-  fmtPrice, fmtCompact, fmtSol, fmtPct, fmtNum, fmtUsd, tone, rangeModel, hueFor,
+  fmtPrice, fmtCompact, fmtSol, fmtPct, fmtNum, fmtUsd, tone, rangeModel, hueFor, poolFeePct,
 } from '../lib/core.js';
 import { tr, setLang, getLang } from '../lib/i18n.js';
 import { Tour } from './tour.js';
@@ -1079,7 +1079,8 @@ class Panel {
         ? `${tr('Colocar orden')} · ${fmtNum(solIn, 4)} SOL <span class="tag">${tr('práctica')}</span>`
         : `${tr('Comprar')} ${fmtNum(solIn, 4)} SOL <span class="tag">${tr('práctica')}</span>`;
     } else {
-      r.buyQuote.innerHTML = `<span>${tr('Disponible <b>{bal}</b> SOL · comisión {fee} + {prio} de prioridad', { bal: fmtSol(bal), fee: fmtPct(s.feePct, 2), prio: fmtSol(s.priorityFee) })}</span>`;
+      const pool = s.poolFees === false || !this.quote ? 0 : poolFeePct(this.quote);
+      r.buyQuote.innerHTML = `<span title="${tr('Padre {a} + pool {b}', { a: fmtPct(s.feePct, 2), b: fmtPct(pool, 2) })}">${tr('Disponible <b>{bal}</b> SOL · comisiones {fee} + {prio} de prioridad', { bal: fmtSol(bal), fee: fmtPct(s.feePct + pool, 2), prio: fmtSol(s.priorityFee) })}</span>`;
       r.buyLabel.innerHTML = `${isLimit ? tr('Colocar orden') : tr('Comprar')} <span class="tag">${tr('práctica')}</span>`;
     }
     if (daily?.locked) {

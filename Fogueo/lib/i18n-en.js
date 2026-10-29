@@ -504,5 +504,20 @@ export const EN = {
  "Con el ratón encima del panel": "With the mouse over the panel",
  "compran": "buy",
  "venden": "sell",
- "Hecho por": "Made by"
+ "Hecho por": "Made by",
+ "DexScreener respondió {s}": "DexScreener returned {s}",
+ "Jupiter: esperando por límite de peticiones": "Jupiter: waiting for the rate limit",
+ "Jupiter respondió {s}": "Jupiter returned {s}",
+ "Jupiter: demasiadas peticiones": "Jupiter: too many requests",
+ "Saldo insuficiente: necesitas {a} SOL y tienes {b}.": "Insufficient balance: you need {a} SOL and have {b}.",
+ "No te queda SOL para pagar la priority fee de la venta ({fee} SOL).": "You don't have enough SOL left to pay the sell's priority fee ({fee} SOL).",
+ "Padre {a} + pool {b}": "Padre {a} + pool {b}",
+ "Disponible <b>{bal}</b> SOL · comisiones {fee} + {prio} de prioridad": "Available <b>{bal}</b> SOL · fees {fee} + {prio} priority",
+ "Sumar la comisión del pool": "Add the pool fee",
+ "Aparte de Padre: ~1,25 % en la curva de pump.fun y ~0,3 % en pools como PumpSwap o Raydium": "On top of Padre: ~1.25% on the pump.fun curve and ~0.3% on pools like PumpSwap or Raydium",
+ "Vamos a hacer un trade completo con el token de ejemplo y <b>tus comisiones reales</b>: {fee} de Padre y {pool} de la curva de pump.fun en cada compra y venta, más {prio} SOL de priority fee por transacción. Empezamos comprando {sol} SOL.": "Let's do a full trade with the sample token and <b>your real fees</b>: {fee} to Padre and {pool} to the pump.fun curve on every buy and sell, plus {prio} SOL priority fee per transaction. We start by buying {sol} SOL.",
+ "Has pagado <b>{total} SOL</b>: {net} van al token, {fee} de comisiones (Padre y pool) y {prio} de priority fee. Además, el slippage te dio un precio un {slip} peor. Por eso empiezas en <b class=\"{tone}\">{pct}</b> sin que el precio se haya movido: tiene que subir eso solo para quedarte igual.": "You paid <b>{total} SOL</b>: {net} went into the token, {fee} in fees (Padre and pool) and {prio} as priority fee. On top of that, slippage gave you a {slip} worse price. That's why you start at <b class=\"{tone}\">{pct}</b> before the price has even moved: it has to rise that much just for you to break even.",
+ "Toca vender. Padre y el pool vuelven a cobrar su {fee} sobre lo que recibes y pagas otra priority fee de {prio} SOL. El 100 % ya está elegido.": "Time to sell. Padre and the pool charge their {fee} again on what you receive, and you pay another {prio} SOL priority fee. 100% is already selected.",
+ "{sol} al token + {fee} comisiones + {prio} prioridad": "{sol} to the token + {fee} fees + {prio} priority",
+ "{gross} − {fee} comisiones − {prio} prioridad": "{gross} − {fee} fees − {prio} priority"
 };

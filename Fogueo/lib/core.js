@@ -19,6 +19,7 @@ export const DEFAULT_SETTINGS = {
   dailyLossLimit: 0,      // SOL; 0 = sin límite
   pnlUnit: 'sol',         // 'sol' | 'usd'
   autoPreset: false,      // aplicar los ajustes recomendados al abrir cada token
+  poolFees: true,         // sumar la comisión del pool (curva de pump.fun, PumpSwap…) a la de Padre
 };
 
 // ---------- Ajustes recomendados por tipo de token ----------
@@ -91,11 +92,27 @@ export const MIN_RESERVE_USD = 2500;
 // Comprar A dólares → precio medio = p · (1 + A/R).
 // Vender V dólares → precio medio = p · R / (R + V).
 
-export function reserveUsd(quote) {
+// Curva de pump.fun: x·y = k con reservas virtuales (30 SOL · 1.073M de tokens al nacer) y 1.000M de suministro.
+// De ahí sale la reserva de SOL a partir del market cap: vSOL = √(MC_SOL · 32,19).
+// (Comprobado con Jupiter: su «liquidez» de un token en la curva es justo esa reserva de SOL en dólares.)
+export const CURVE_K = 32.19;
+
+export function reserveUsd(quote, solUsd) {
   const liq = Number(quote?.liquidityUsd) || 0;
-  if (liq > 0) return Math.max(liq / 2, 500);
   const mc = Number(quote?.marketCapUsd) || 0;
+  if (quote?.stage === 'new') {
+    // En la curva toda la liquidez es el lado SOL: no se divide entre dos.
+    if (liq > 0) return Math.max(liq, 500);
+    if (mc > 0 && solUsd > 0) return Math.max(Math.sqrt(mc * CURVE_K * solUsd), 500);
+  }
+  if (liq > 0) return Math.max(liq / 2, 500);
   return Math.max(mc * 0.08, MIN_RESERVE_USD);
+}
+
+// Comisión del sitio donde cotiza el token, aparte de la de Padre (aprox., 2025-2026):
+// curva de pump.fun ≈ 0,95 % protocolo + 0,30 % creador; pools AMM (PumpSwap, Raydium, Orca…) ≈ 0,25-0,30 %.
+export function poolFeePct(quote) {
+  return quote?.stage === 'new' ? 1.25 : 0.3;
 }
 
 export function simulateBuy({ solIn, quote, solUsd, settings }) {
@@ -103,10 +120,11 @@ export function simulateBuy({ solIn, quote, solUsd, settings }) {
   const p = Number(quote?.priceUsd);
   if (!(solIn > 0)) return { ok: false, error: tr('Indica cuánto SOL quieres usar.') };
   if (!(p > 0) || !(solUsd > 0)) return { ok: false, error: tr('Sin precio en este momento.') };
-  const fee = solIn * (s.feePct / 100);
+  const poolPct = s.poolFees === false ? 0 : poolFeePct(quote);
+  const fee = solIn * ((s.feePct + poolPct) / 100);
   const netSol = solIn - fee;
   const usd = netSol * solUsd;
-  const R = reserveUsd(quote);
+  const R = reserveUsd(quote, solUsd);
   const impactPct = (usd / R) * 100;
   const fillPrice = p * (1 + usd / R) * (1 + s.latencySlipPct / 100);
   const slipPct = (fillPrice / p - 1) * 100;
@@ -117,7 +135,7 @@ export function simulateBuy({ solIn, quote, solUsd, settings }) {
     error: slipPct > s.maxSlippagePct
       ? tr('El precio se movería un {slip} y tu máximo es {max}. En real, la orden fallaría.', { slip: fmtPct(slipPct, 1), max: fmtPct(s.maxSlippagePct, 0) })
       : null,
-    side: 'buy', solIn, fee, priorityFee: s.priorityFee, totalDebit,
+    side: 'buy', solIn, fee, padreFee: solIn * (s.feePct / 100), poolFee: solIn * (poolPct / 100), poolPct, priorityFee: s.priorityFee, totalDebit,
     qty, fillPrice, midPrice: p, slipPct, impactPct, usd,
   };
 }
@@ -128,18 +146,19 @@ export function simulateSell({ qty, quote, solUsd, settings }) {
   if (!(qty > 0)) return { ok: false, error: tr('No tienes tokens que vender.') };
   if (!(p > 0) || !(solUsd > 0)) return { ok: false, error: tr('Sin precio en este momento.') };
   const V = qty * p;
-  const R = reserveUsd(quote);
+  const R = reserveUsd(quote, solUsd);
   const fillPrice = p * (R / (R + V)) * (1 - s.latencySlipPct / 100);
   const slipPct = (1 - fillPrice / p) * 100;
   const grossSol = (qty * fillPrice) / solUsd;
-  const fee = grossSol * (s.feePct / 100);
+  const poolPct = s.poolFees === false ? 0 : poolFeePct(quote);
+  const fee = grossSol * ((s.feePct + poolPct) / 100);
   const netSol = grossSol - fee - s.priorityFee;
   return {
     ok: slipPct <= s.maxSlippagePct,
     error: slipPct > s.maxSlippagePct
       ? tr('Vender esto movería el precio un {slip} (máximo {max}). Prueba a vender menos de golpe.', { slip: fmtPct(slipPct, 1), max: fmtPct(s.maxSlippagePct, 0) })
       : null,
-    side: 'sell', qty, grossSol, fee, priorityFee: s.priorityFee, netSol,
+    side: 'sell', qty, grossSol, fee, padreFee: grossSol * (s.feePct / 100), poolFee: grossSol * (poolPct / 100), poolPct, priorityFee: s.priorityFee, netSol,
     fillPrice, midPrice: p, slipPct, impactPct: (V / R) * 100,
   };
 }
@@ -245,7 +264,8 @@ export function fmtNum(n, max = 2, min = 0) {
 // Precio en USD con ceros comprimidos: 0,0₅4213 (es) / 0.0₅4213 (en)
 export function fmtPrice(n) {
   if (n == null || !isFinite(n) || n <= 0) return '—';
-  if (n >= 1) return '$' + nf(2, n >= 1000 ? 0 : 4).format(n);
+  if (n >= 1000) return '$' + nf(0, 0).format(n);
+  if (n >= 1) return '$' + nf(2, 4).format(n);
   const s = n.toFixed(20);
   const m = s.match(/^0\.(0*)(\d+)/);
   const zeros = m[1].length;
@@ -260,9 +280,17 @@ export function fmtCompact(n, prefix = '') {
   const a = Math.abs(n);
   const sign = n < 0 ? '−' : '';
   const units = [[1e12, 'T'], [1e9, 'B'], [1e6, 'M'], [1e3, 'K']];
-  for (const [v, u] of units) {
-    if (a >= v) return `${sign}${prefix}${nf(0, a / v >= 100 ? 0 : a / v >= 10 ? 1 : 2).format(a / v)}${u}`;
+  // Redondeamos antes de elegir la unidad: 999.999 → «1M», no «1000K».
+  for (let i = 0; i < units.length; i++) {
+    const [v, u] = units[i];
+    if (a < v * 0.9995 && !(i === units.length - 1 && a >= 999.5)) continue;
+    const x = a / v, dig = x >= 99.95 ? 0 : x >= 9.995 ? 1 : 2;
+    const r = Number(x.toFixed(dig));
+    if (r >= 1000 && i > 0) { const [v2, u2] = units[i - 1]; return `${sign}${prefix}${nf(0, 2).format(a / v2)}${u2}`; }
+    return `${sign}${prefix}${nf(0, dig).format(x)}${u}`;
   }
+  // Menos de 1 (p. ej. 0,00017 WBTC): tres cifras significativas en vez de «0».
+  if (a > 0 && a < 1) return `${sign}${prefix}${new Intl.NumberFormat(locale(), { maximumSignificantDigits: 3 }).format(a)}`;
   return `${sign}${prefix}${nf(0, a >= 100 ? 0 : 2).format(a)}`;
 }
 

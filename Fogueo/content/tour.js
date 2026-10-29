@@ -1,6 +1,6 @@
 // Blankfire — recorrido guiado por el panel.
 import { tr } from '../lib/i18n.js';
-import { simulateBuy, simulateSell, fmtSol, fmtPct, fmtCompact, fmtNum, tone } from '../lib/core.js';
+import { simulateBuy, simulateSell, poolFeePct, fmtSol, fmtPct, fmtCompact, fmtNum, tone } from '../lib/core.js';
 // Ilumina cada parte real del panel y la enseña funcionando con datos de ejemplo.
 // Tu cuenta no se toca: al terminar se restaura todo tal cual estaba.
 
@@ -36,7 +36,7 @@ function demoState(real) {
 
 const DEMO_QUOTE = () => ({
   chain: 'solana', address: 'DEMO', pairAddress: 'DEMO', symbol: 'DEMO', name: tr('Token de ejemplo'), icon: null,
-  priceUsd: 0.0000523, liquidityUsd: 48000, marketCapUsd: 52300, change: { m5: 6.4, h1: -3.1 }, at: Date.now(),
+  priceUsd: 0.0000523, liquidityUsd: 17500, marketCapUsd: 52300, change: { m5: 6.4, h1: -3.1 }, at: Date.now(),
   stage: 'new', pairCreatedAt: Date.now() - 6 * 60000, graduatedAt: null,
 });
 
@@ -145,7 +145,7 @@ const STEPS = [
     body: 'Todo lo que tienes abierto con su resultado en vivo y su barra de Stop/Take. Toca una para saltar a ese token en Padre. Tecla <kbd>P</kbd>.',
   },
   {
-    ch: 4, target: '[data-v="keys"]', title: 'Atajos de teclado',
+    ch: 4, target: '.foot [data-v="keys"]', title: 'Atajos de teclado',
     body: 'Aquí tienes la chuleta de atajos. Solo funcionan con el ratón encima del panel, para no pisar los de Padre. Con el puntero encima, cada botón te enseña su tecla.',
   },
   {
@@ -157,7 +157,7 @@ const STEPS = [
     body: 'Haz clic en el icono de Blankfire de la barra del navegador para ver tu <b>Cartera</b>, el <b>Historial</b> con notas y revisiones, las <b>Estadísticas</b> (acierto, profit factor, plan vs. impulso…) y los <b>Ajustes</b>. Allí también hay un recorrido.',
   },
   {
-    ch: 4, core: true, target: '[data-act="tour"]', title: '¡Listo para practicar!',
+    ch: 4, core: true, target: '.foot [data-act="tour"]', title: '¡Listo para practicar!',
     body: 'Tu rutina: abre un token, aplica los ajustes recomendados, fija Stop y Take, entra pequeño y revisa cada trade. Cuando encadenes semanas en positivo con las mismas reglas, estarás más cerca del dinero real.',
     hint: 'Puedes repetir el recorrido con este botón.',
     final: true,
@@ -223,7 +223,7 @@ const GUIDED_STEPS = [
   {
     ch: 5, guided: true, target: '[data-ref="buyForm"]', title: 'Primero, la compra',
     setup: (p, t) => { t.trade = null; gReset(t); p.quote = gQuote(p); p.refs.amount.value = fmtNum(0.5, 3); p.refs.useSl.checked = true; p.refs.useTp.checked = true; },
-    body: (p) => tr('Vamos a hacer un trade completo con el token de ejemplo y <b>tus comisiones reales</b>: {fee} de Padre en cada compra y venta, más {prio} SOL de priority fee por transacción. Empezamos comprando {sol} SOL.', { fee: fmtPct(p.st.settings.feePct, 1), prio: sx(p.st.settings.priorityFee), sol: fmtSol(G_SOL) }),
+    body: (p) => tr('Vamos a hacer un trade completo con el token de ejemplo y <b>tus comisiones reales</b>: {fee} de Padre y {pool} de la curva de pump.fun en cada compra y venta, más {prio} SOL de priority fee por transacción. Empezamos comprando {sol} SOL.', { fee: fmtPct(p.st.settings.feePct, 2), pool: fmtPct(p.st.settings.poolFees === false ? 0 : poolFeePct(gQuote(p)), 2), prio: sx(p.st.settings.priorityFee), sol: fmtSol(G_SOL) }),
     try: { text: 'Pruébalo: pulsa «Comprar 0,5 SOL». Es de práctica: tu saldo no cambia.', acts: ['buy'], done: 'Comprado. Mira lo que te ha costado entrar.' },
   },
   {
@@ -231,7 +231,7 @@ const GUIDED_STEPS = [
     setup: (p, t) => { gEnsureBuy(t); gReset(t); gApplyBought(t); p.quote = gQuote(p); },
     body: (p, t) => {
       const b = t.trade.buy, m = gMark(t, 1);
-      return tr('Has pagado <b>{total} SOL</b>: {net} van al token, {fee} de comisión de Padre y {prio} de priority fee. Además, el slippage te dio un precio un {slip} peor. Por eso empiezas en <b class="{tone}">{pct}</b> sin que el precio se haya movido: tiene que subir eso solo para quedarte igual.', {
+      return tr('Has pagado <b>{total} SOL</b>: {net} van al token, {fee} de comisiones (Padre y pool) y {prio} de priority fee. Además, el slippage te dio un precio un {slip} peor. Por eso empiezas en <b class="{tone}">{pct}</b> sin que el precio se haya movido: tiene que subir eso solo para quedarte igual.', {
         total: sx(b.totalDebit), net: sx(b.solIn - b.fee), fee: sx(b.fee), prio: sx(b.priorityFee), slip: fmtPct(b.slipPct, 2), pct: fmtPct(m.pct, 1, { sign: true }), tone: tone(m.pnl),
       });
     },
@@ -247,7 +247,7 @@ const GUIDED_STEPS = [
   {
     ch: 5, guided: true, target: '[data-ref="sellForm"]', title: 'Ahora, la venta',
     setup: (p, t) => { gEnsureBuy(t); t.trade.sell = null; gReset(t); gApplyBought(t); p.quote = gQuote(p, G_UP); p.side = 'sell'; p.sellPct = 100; },
-    body: (p) => tr('Toca vender. Padre vuelve a cobrar su {fee} sobre lo que recibes y pagas otra priority fee de {prio} SOL. El 100 % ya está elegido.', { fee: fmtPct(p.st.settings.feePct, 1), prio: sx(p.st.settings.priorityFee) }),
+    body: (p) => tr('Toca vender. Padre y el pool vuelven a cobrar su {fee} sobre lo que recibes y pagas otra priority fee de {prio} SOL. El 100 % ya está elegido.', { fee: fmtPct(p.st.settings.feePct + (p.st.settings.poolFees === false ? 0 : poolFeePct(gQuote(p))), 2), prio: sx(p.st.settings.priorityFee) }),
     try: { text: 'Pruébalo: pulsa «Vender 100 %».', acts: ['sell'], done: 'Vendido. Vamos a ver las cuentas.' },
   },
   {
@@ -264,8 +264,8 @@ const GUIDED_STEPS = [
       const dPnl = down.netSol - b.totalDebit, dPct = (dPnl / b.totalDebit) * 100;
       const row = (label, val, sub, cls = '') => `<div class="rc-row ${cls}"><span>${label}${sub ? `<small>${sub}</small>` : ''}</span><b class="num">${val}</b></div>`;
       return `<div class="tour-receipt">
-        ${row(tr('Pagaste al comprar'), `−${sx(b.totalDebit)}`, tr('{sol} al token + {fee} comisión + {prio} prioridad', { sol: sx(b.solIn - b.fee), fee: sx(b.fee), prio: sx(b.priorityFee) }))}
-        ${row(tr('Recibiste al vender'), `+${sx(sl.netSol)}`, tr('{gross} − {fee} comisión − {prio} prioridad', { gross: sx(sl.grossSol), fee: sx(sl.fee), prio: sx(sl.priorityFee) }))}
+        ${row(tr('Pagaste al comprar'), `−${sx(b.totalDebit)}`, tr('{sol} al token + {fee} comisiones + {prio} prioridad', { sol: sx(b.solIn - b.fee), fee: sx(b.fee), prio: sx(b.priorityFee) }))}
+        ${row(tr('Recibiste al vender'), `+${sx(sl.netSol)}`, tr('{gross} − {fee} comisiones − {prio} prioridad', { gross: sx(sl.grossSol), fee: sx(sl.fee), prio: sx(sl.priorityFee) }))}
         ${row(tr('Comisiones y prioridad'), `−${sx(fees)}`, tr('más slippage: {a} al entrar, {b} al salir', { a: fmtPct(b.slipPct, 2), b: fmtPct(sl.slipPct, 2) }), 'muted')}
         ${row(tr('Resultado'), `<span class="${tone(pnl)}">${sxs(pnl)} SOL · ${fmtPct(pct, 1, { sign: true })}</span>`, '', 'total')}
       </div>

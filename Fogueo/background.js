@@ -59,17 +59,17 @@ let solCache = { at: 0, usd: null };
 
 async function getJson(url) {
   const res = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(7000) });
-  if (!res.ok) throw new Error(`DexScreener respondió ${res.status}`);
+  if (!res.ok) throw new Error(tr('DexScreener respondió {s}', { s: res.status }));
   return res.json();
 }
 
 // Jupiter: cubre los tokens recién creados (pump.fun, bonding curve) que DexScreener aún no lista.
 let jupBackoffUntil = 0;
 async function jupJson(url) {
-  if (Date.now() < jupBackoffUntil) throw new Error('Jupiter: esperando por límite de peticiones');
+  if (Date.now() < jupBackoffUntil) throw new Error(tr('Jupiter: esperando por límite de peticiones'));
   const res = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(7000) });
-  if (res.status === 429) { jupBackoffUntil = Date.now() + 6000; throw new Error('Jupiter: demasiadas peticiones'); }
-  if (!res.ok) throw new Error(`Jupiter respondió ${res.status}`);
+  if (res.status === 429) { jupBackoffUntil = Date.now() + 6000; throw new Error(tr('Jupiter: demasiadas peticiones')); }
+  if (!res.ok) throw new Error(tr('Jupiter respondió {s}', { s: res.status }));
   return res.json();
 }
 
@@ -295,6 +295,9 @@ function trimHistory(st) {
 
 function pushEquity(st, quotes, sol) {
   trimHistory(st);
+  // Las demás posiciones se valoran con su última cotización conocida (no a coste).
+  quotes = { ...quotes };
+  Object.keys(st.account.positions).forEach((k) => { if (!quotes[k] && quoteCache.get(k)) quotes[k] = quoteCache.get(k).quote; });
   const eq = st.account.equity;
   eq.push({ t: Date.now(), v: equityOf(st, quotes, sol) });
   if (eq.length > 2000) eq.splice(1, eq.length - 2000);
@@ -320,7 +323,7 @@ async function doBuy({ key, solIn, tpPct, slPct, trailing, note, url, via = 'man
     }
     const sim = simulateBuy({ solIn, quote, solUsd: sol, settings: st.settings });
     if (sim.totalDebit > st.account.balance + 1e-12) {
-      throw new Error(`Saldo insuficiente: necesitas ${fmtSol(sim.totalDebit)} SOL y tienes ${fmtSol(st.account.balance)}.`);
+      throw new Error(tr('Saldo insuficiente: necesitas {a} SOL y tienes {b}.', { a: fmtSol(sim.totalDebit), b: fmtSol(st.account.balance) }));
     }
     if (!sim.ok) {
       // Igual que en real: la transacción falla pero la priority fee se paga.
@@ -369,6 +372,7 @@ async function doSell({ key, pct, note, reason = 'manual' }) {
   return mutate(async (st) => {
     const pos = st.account.positions[key];
     if (!pos || pos.qty <= 0) throw new Error(tr('No tienes posición en este token.'));
+    if (st.account.balance < st.settings.priorityFee) throw new Error(tr('No te queda SOL para pagar la priority fee de la venta ({fee} SOL).', { fee: fmtSol(st.settings.priorityFee) }));
     const frac = Math.min(Math.max(pct, 0), 100) / 100;
     const qty = frac >= 0.9999 ? pos.qty : pos.qty * frac;
     const sim = simulateSell({ qty, quote, solUsd: sol, settings: st.settings });
@@ -626,6 +630,7 @@ const handlers = {
       if ('useSl' in settings) clean.useSl = !!settings.useSl;
       if ('useTrail' in settings) clean.useTrail = !!settings.useTrail;
       if ('autoPreset' in settings) clean.autoPreset = !!settings.autoPreset;
+      if ('poolFees' in settings) clean.poolFees = !!settings.poolFees;
       if ('dailyLossLimit' in settings) clean.dailyLossLimit = num(settings.dailyLossLimit, 0, 1e6);
       if ('sizeMode' in settings) clean.sizeMode = settings.sizeMode === 'pct' ? 'pct' : 'sol';
       if ('lang' in settings) clean.lang = settings.lang === 'en' ? 'en' : 'es';

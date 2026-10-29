@@ -9,7 +9,7 @@ Extensión para Chrome y Opera GX (Manifest V3). Español e inglés.
 ## Qué hace
 
 - **Panel dentro de Padre** que detecta el token que estás viendo y te deja comprar y vender con SOL ficticio.
-- **Simulación realista**: comisión de Padre, priority fee (también si la orden falla), slippage según la liquidez del pool, retraso de ejecución y rechazo de precios congelados.
+- **Simulación realista**: comisión de Padre más la del pool (curva de pump.fun o PumpSwap/Raydium), priority fee (también si la orden falla), slippage calculado con la curva real de pump.fun o la liquidez del pool, retraso de ejecución y rechazo de precios congelados.
 - **Stop, Take y stop dinámico** que se ejecutan solos, aunque cierres la pestaña, y **órdenes límite** («compra si baja a…»).
 - **Ajustes recomendados** según el tipo de token: nuevo par (en la curva de pump.fun) o graduado, explicando el porqué.
 - **Diario de trading**: notas de por qué entras y sales, «¿seguiste tu plan?» y etiquetas (FOMO, venganza, con prisa…).
@@ -51,7 +51,7 @@ npx playwright install chromium
 PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS=1 npm test
 ```
 
-Las pruebas cargan la extensión en Chromium, simulan las APIs de precios y Padre, y comprueban compras, ventas, TP/SL, stop dinámico, órdenes límite, recorridos, idiomas y que nada en modo inglés quede en español.
+`core.test.mjs` comprueba los cálculos (simulación, curva de pump.fun, formatos y estadísticas) sin navegador. El resto carga la extensión en Chromium, simula las APIs de precios y Padre, y comprueba compras y ventas parciales, recuperar lo invertido, TP/SL, stop dinámico, órdenes límite, límite diario, recorridos en distintas situaciones, casos visuales extremos e idiomas.
 
 ## Marca
 

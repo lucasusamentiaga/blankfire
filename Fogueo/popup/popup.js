@@ -355,6 +355,7 @@ function renderSettings() {
     <h2>Simulación</h2>
     <div class="form">
       ${row('feePct', 'Comisión de Padre', 'Por cada compra y venta. Padre cobra ~1%.', '%', s.feePct, 2)}
+      <div class="switch"><span>Sumar la comisión del pool<small class="muted" style="display:block;font-size:11.5px">Aparte de Padre: ~1,25 % en la curva de pump.fun y ~0,3 % en pools como PumpSwap o Raydium</small></span><button role="switch" aria-checked="${s.poolFees !== false}" data-act="poolFees" aria-label="Sumar la comisión del pool"></button></div>
       ${row('priorityFee', 'Priority fee', 'Lo que pagas a la red por transacción, también si falla.', 'SOL', s.priorityFee, 4)}
       ${row('maxSlippagePct', 'Slippage máximo', 'Si el precio se movería más, la orden falla.', '%', s.maxSlippagePct, 1)}
       ${row('latencySlipPct', 'Retraso de ejecución', 'Empeora un poco el precio, como la latencia real.', '%', s.latencySlipPct, 2)}
@@ -505,6 +506,12 @@ document.addEventListener('click', async (e) => {
     await send({ type: 'savePanel', panel: { hidden: !show } });
   }
   if (act === 'save') saveSettings();
+  if (act === 'poolFees') {
+    const btn = t.closest('[data-act]');
+    const on = btn.getAttribute('aria-checked') !== 'true';
+    btn.setAttribute('aria-checked', String(on));
+    await send({ type: 'saveSettings', settings: { poolFees: on } });
+  }
   if (act === 'autoPreset') {
     const btn = t.closest('[data-act]');
     const on = btn.getAttribute('aria-checked') !== 'true';
