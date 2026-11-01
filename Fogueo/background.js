@@ -29,12 +29,42 @@ function freshState() {
   return { version: 1, settings: { ...DEFAULT_SETTINGS }, account: freshAccount(DEFAULT_SETTINGS.startBalance), archive: [], ui: {} };
 }
 
+const isObj = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
+const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+
+// Repara datos de versiones antiguas o dañados en vez de romperse. Devuelve true si cambió algo.
+function repair(st) {
+  let changed = false;
+  const fix = (cond, f) => { if (cond) { f(); changed = true; } };
+  fix(!isObj(st.settings), () => { st.settings = {}; });
+  const merged = { ...DEFAULT_SETTINGS, ...st.settings };
+  fix(!(isNum(merged.startBalance) && merged.startBalance > 0), () => { merged.startBalance = DEFAULT_SETTINGS.startBalance; });
+  st.settings = merged;
+  fix(!isObj(st.account), () => { st.account = freshAccount(st.settings.startBalance); });
+  const a = st.account;
+  fix(!(isNum(a.startBalance) && a.startBalance > 0), () => { a.startBalance = st.settings.startBalance; });
+  fix(!isNum(a.balance), () => { a.balance = a.startBalance; });
+  fix(!isNum(a.startedAt), () => { a.startedAt = Date.now(); });
+  fix(!a.id, () => { a.id = uid(); });
+  fix(!isObj(a.positions), () => { a.positions = {}; });
+  for (const [k, pos] of Object.entries(a.positions)) {
+    fix(!isObj(pos) || !(isNum(pos.qty) && pos.qty > 0) || !isNum(pos.costSol), () => { delete a.positions[k]; });
+  }
+  for (const f of ['rounds', 'fills', 'orders']) fix(!Array.isArray(a[f]), () => { a[f] = []; });
+  fix(!Array.isArray(a.equity) || !a.equity.length, () => { a.equity = [{ t: a.startedAt, v: a.startBalance }]; });
+  fix(!Array.isArray(st.archive), () => { st.archive = []; });
+  fix(!isObj(st.ui), () => { st.ui = {}; });
+  fix(!st.version, () => { st.version = 1; });
+  return changed;
+}
+
 async function load() {
   const got = await chrome.storage.local.get(KEY);
   let st = got[KEY];
-  if (!st) { st = freshState(); await chrome.storage.local.set({ [KEY]: st }); }
-  st.settings = { ...DEFAULT_SETTINGS, ...st.settings };
-  st.account.orders ||= [];
+  let save = false;
+  if (!isObj(st)) { st = freshState(); save = true; }
+  if (repair(st)) save = true;
+  if (save) await chrome.storage.local.set({ [KEY]: st });
   setLang(st.settings.lang);
   return st;
 }

@@ -407,3 +407,7 @@ button.tag-chip:hover { border-color: var(--fx-ink-3); color: var(--fx-ink); }
   .view.enter .chart svg, .view.enter .chart .end, .view.enter .wr-bar .w,
   .view.enter .rows > *, .view.enter .act > div, .view.enter .ledger > div { animation: none; }
 }
+
+/* Accesibilidad: el título de la marca es el h1 y las pestañas van dentro de <nav> sin cambiar el diseño */
+h1.brand { margin: 0; line-height: inherit; }
+.tabs-nav { display: contents; }

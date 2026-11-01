@@ -174,6 +174,9 @@ class Panel {
 
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local' || !changes.fogueo) return;
+      // Datos dañados o a medio reparar: esperamos a que el motor los arregle.
+      const nv = changes.fogueo.newValue;
+      if (!nv || typeof nv !== 'object' || !nv.account?.positions || !nv.settings) return;
       if (this.tour) { this.tour.realSt = changes.fogueo.newValue; return; }
       const prevHidden = !!this.st?.ui?.panel?.hidden;
       const prevLang = this.settings.lang;
@@ -302,7 +305,7 @@ class Panel {
         <div class="foot">
           <span class="fresh" data-ref="fresh" title="${tr('Antigüedad del último precio')}"><i></i><span data-ref="freshText">DexScreener</span></span>
           <span class="foot-actions">
-            <button class="foot-btn lang" data-act="lang" aria-label="${tr('Cambiar idioma a inglés')}" title="${tr('Cambiar idioma a inglés')}">${getLang() === 'en' ? 'ES' : 'EN'}</button>
+            <button class="foot-btn lang" data-act="lang" aria-label="${getLang() === 'en' ? 'ES' : 'EN'} · ${tr('Cambiar idioma a inglés')}" title="${tr('Cambiar idioma a inglés')}">${getLang() === 'en' ? 'ES' : 'EN'}</button>
             <button class="foot-btn" data-act="tour" aria-label="${tr('Recorrido guiado')}" title="${tr('Recorrido guiado por todas las funciones')}">${ICON.help}</button>
             <button class="foot-btn" data-act="view" data-v="keys" aria-label="${tr('Atajos de teclado')}" title="${tr('Atajos de teclado')}">${ICON.keys}</button>
             <button class="foot-btn wide" data-act="view" data-v="positions" data-ref="posBtn">${ICON.stack}<span data-ref="posBtnLabel">${tr('Posiciones')}</span></button>
@@ -864,7 +867,7 @@ class Panel {
       const label = kind === 'tp' ? 'Take profit' : 'Stop loss';
       const short = kind === 'tp' ? 'Take' : (pos.sl?.trailing ? tr('Stop din.') : 'Stop');
       const val = on ? `${kind === 'tp' ? '+' : '−'}${fmtNum(pos[kind].pct, 0)}%` : tr('Añadir');
-      return `<button class="target ${kind} ${on ? 'on' : ''}" data-act="editTarget" data-kind="${kind}" aria-label="${label}: ${on ? val : tr('sin fijar')}"><span>${short}</span><b>${val}</b></button>`;
+      return `<button class="target ${kind} ${on ? 'on' : ''}" data-act="editTarget" data-kind="${kind}" title="${label}: ${on ? val : tr('sin fijar')}"><span>${short}</span><b>${val}</b></button>`;
     };
     box.innerHTML = one('sl') + one('tp');
   }

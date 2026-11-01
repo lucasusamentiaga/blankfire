@@ -369,7 +369,7 @@ function renderSettings() {
     <div class="presets">
       <p class="hint">El panel detecta si el token es un <b>nuevo par</b> (todavía en la bonding curve de pump.fun) o está <b>graduado</b> (ya en su propio pool) y te propone estos ajustes, con el porqué de cada uno.</p>
       <table class="ptable">
-        <thead><tr><th></th><th class="p-new">${PRESETS.new.name}</th><th class="p-grad">${PRESETS.graduated.name}</th></tr></thead>
+        <thead><tr><td></td><th class="p-new">${PRESETS.new.name}</th><th class="p-grad">${PRESETS.graduated.name}</th></tr></thead>
         <tbody>
           <tr><th>Tamaño</th><td>${PRESETS.new.sizePct} ${tr('% saldo')}</td><td>${PRESETS.graduated.sizePct} ${tr('% saldo')}</td></tr>
           <tr><th>Stop</th><td>−${PRESETS.new.slPct} %${PRESETS.new.trailing ? ' ' + tr('din.') : ''}</td><td>−${PRESETS.graduated.slPct} %${PRESETS.graduated.trailing ? ' ' + tr('din.') : ''}</td></tr>
@@ -553,7 +553,13 @@ document.addEventListener('focusout', async (e) => {
 
 function exportCsv() {
   const head = ['simbolo', 'token', 'abierto', 'cerrado', 'invertido_sol', 'recuperado_sol', 'pnl_sol', 'pnl_pct', 'costes_sol', 'mc_entrada', 'mc_salida', 'cierre', 'por_que_entre', 'por_que_sali', 'leccion', 'siguio_plan', 'etiquetas'];
-  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  // Números tal cual; textos entre comillas y, si empiezan por = + - @ (fórmulas en Excel/Sheets), con ' delante.
+  const q = (v) => {
+    if (typeof v === 'number') return Number.isFinite(v) ? String(v) : '';
+    let t = String(v ?? '');
+    if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+    return `"${t.replace(/"/g, '""')}"`;
+  };
   const lines = st.account.rounds.map((r) => [r.symbol, r.address, new Date(r.openedAt).toISOString(), new Date(r.closedAt).toISOString(), r.investedSol, r.returnedSol, r.pnlSol, r.pnlPct, r.feesSol, r.entryMcUsd, r.exitMcUsd, r.reason, r.entryNote, r.exitNote, r.lesson, r.followedPlan == null ? '' : r.followedPlan ? 'si' : 'no', (r.tags || []).join(' ')].map(q).join(','));
   const blob = new Blob(['﻿' + [head.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
@@ -565,6 +571,9 @@ function exportCsv() {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local' || !changes.fogueo) return;
+  // Datos dañados o a medio reparar: esperamos a que el motor los arregle.
+  const nv = changes.fogueo.newValue;
+  if (!nv || typeof nv !== 'object' || !nv.account?.positions || !nv.settings) return;
   if ((changes.fogueo.newValue?.settings?.lang || null) !== (st?.settings?.lang || null) && changes.fogueo.newValue?.settings?.lang) { location.reload(); return; }
   if (touring) { touring.realSt = changes.fogueo.newValue; return; }
   st = changes.fogueo.newValue;
@@ -585,8 +594,8 @@ function applyStaticLang() {
   const lb = $('.lang-btn');
   if (lb) {
     lb.textContent = getLang() === 'en' ? 'ES' : 'EN';
-    lb.setAttribute('aria-label', getLang() === 'en' ? 'Cambiar a español' : 'Switch to English');
-    lb.title = lb.getAttribute('aria-label');
+    lb.title = getLang() === 'en' ? 'Cambiar a español' : 'Switch to English';
+    lb.setAttribute('aria-label', `${lb.textContent} · ${lb.title}`);
   }
   translateDom(document.querySelector('.top'));
   translateDom(document.querySelector('.summary'));

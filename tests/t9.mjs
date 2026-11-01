@@ -8,7 +8,7 @@ const OUT=TDIR+'en'; fs.rmSync(OUT,{recursive:true,force:true}); fs.mkdirSync(OU
 const ok=(c,m)=>console.log((c?'OK  ':'FAIL')+' '+m);
 const ES=/[áéíóúñ¿¡]|\b(de|del|el|la|los|las|que|con|para|por|tu|tus|sin|una|en|es|hoy|ayer|hace|compra|venta|comprar|vender|saldo|aquí|cuenta|ajustes|todo|más|cada|desde|hasta)\b/i;
 const SKIP=new Set(['ES','Español','English / Español']);
-const leftovers=(txt)=>txt.split(/\n+/).map(s=>s.trim()).filter(s=>s && !SKIP.has(s) && ES.test(s));
+const leftovers=(txt)=>txt.split(/\n+/).map(s=>s.trim().replace(/^(@aria-label: )?(ES|EN) · /,'$1')).filter(s=>s && !SKIP.has(s) && ES.test(s));
 const ctx = await chromium.launchPersistentContext(TDIR+'p9-'+Date.now(), { headless:true, channel:'chromium', locale:'en-US', viewport:{width:1280,height:900}, args:[`--disable-extensions-except=${EXT}`,`--load-extension=${EXT}`,'--lang=en-US'] });
 await ctx.route('https://api.dexscreener.com/**', (route) => {
   const u=route.request().url();
@@ -89,7 +89,7 @@ await pop.waitForTimeout(1500);
 ok((await pop.locator('[data-tab="wallet"]').innerText())==='Wallet', 'Popup sigue al panel: '+await pop.locator('[data-tab="wallet"]').innerText());
 // manifiesto
 const man=await sw.evaluate(()=>chrome.runtime.getManifest());
-ok(man.name.startsWith('Blankfire') && man.version==='1.9.1', 'Manifiesto: '+man.name+' '+man.version);
+ok(man.name.startsWith('Blankfire') && man.version==='1.9.2', 'Manifiesto: '+man.name+' '+man.version);
 // error de background traducido
 const r=await sw.evaluate(async()=>{ return await new Promise(res=>chrome.runtime.sendMessage({type:'cancelOrder',id:'nope'},res)).catch(e=>String(e)); }).catch(e=>'n/a');
 ok(errs.length===0, 'Sin errores JS'+(errs.length?': '+errs.join(' | '):''));

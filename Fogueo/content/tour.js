@@ -1,6 +1,6 @@
 // Blankfire — recorrido guiado por el panel.
 import { tr } from '../lib/i18n.js';
-import { simulateBuy, simulateSell, poolFeePct, fmtSol, fmtPct, fmtCompact, fmtNum, tone } from '../lib/core.js';
+import { simulateBuy, simulateSell, poolFeePct, fmtSol, fmtPct, fmtNum, tone } from '../lib/core.js';
 // Ilumina cada parte real del panel y la enseña funcionando con datos de ejemplo.
 // Tu cuenta no se toca: al terminar se restaura todo tal cual estaba.
 
