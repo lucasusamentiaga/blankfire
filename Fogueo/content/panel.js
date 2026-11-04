@@ -193,11 +193,11 @@ class Panel {
       if (msg?.type === 'triggered') {
         const r = msg.round;
         const label = tr({ tp: 'Take profit ejecutado', sl: 'Stop loss ejecutado', trail: 'Trailing stop ejecutado' }[msg.reason] || 'Posición cerrada');
-        this.toast(r && r.pnlSol >= 0 ? 'ok' : 'info', tr('{label} en ${sym}: {pnl} SOL ({pct}).', { label, sym: r?.symbol, pnl: fmtSol(r?.pnlSol, { sign: true }), pct: fmtPct(r?.pnlPct, 1, { sign: true }) }));
+        this.toast(r && r.pnlSol >= 0 ? 'ok' : 'info', '', { title: `${label} · $${r?.symbol ?? ''}`, stats: this.resultStats(r) });
         if (r) this.openReview(r);
       }
-      if (msg?.type === 'orderFilled') this.toast('ok', tr('Orden límite ejecutada en ${sym}: compraste {sol} SOL.', { sym: msg.order?.symbol, sol: fmtSol(msg.order?.solIn) }));
-      if (msg?.type === 'orderFailed') this.toast('err', tr('Orden límite cancelada: {e}', { e: msg.error }));
+      if (msg?.type === 'orderFilled') this.toast('ok', '', { title: tr('Orden límite ejecutada'), stats: [{ k: 'Token', v: `$${msg.order?.symbol ?? ''}` }, { k: tr('Compra'), v: `${fmtSol(msg.order?.solIn)} SOL` }] });
+      if (msg?.type === 'orderFailed') this.toast('err', msg.error, { title: tr('Orden límite cancelada') });
     });
 
     // Padre es una SPA: vigilamos la URL.
@@ -266,6 +266,8 @@ class Panel {
               </label>
               <div class="amount">
                 <input data-ref="amount" inputmode="decimal" autocomplete="off" placeholder="${fmtNum(0, 1, 1)}" aria-label="${tr('Cantidad a usar')}">
+                <span class="amt-meta num" data-ref="amtMeta"></span>
+                <i class="amt-bar" data-ref="amtBar" aria-hidden="true"><i></i></i>
                 <button class="unit" data-act="unit" data-ref="unit" title="${tr('Cambiar entre SOL y % de tu saldo')}">SOL</button>
               </div>
               <div class="chips" data-ref="quickBuys"></div>
@@ -282,7 +284,7 @@ class Panel {
               <button class="trail" data-act="trail" data-ref="trailBtn" role="switch" aria-checked="false">
                 <span class="sw"></span><span>${tr('<b>Stop dinámico</b> · sigue al máximo y protege lo ganado')}</span>
               </button>
-              <button class="note-toggle" data-act="note" data-for="buyNote">${ICON.pen}<span>${tr('Apuntar por qué entro')}</span></button>
+              <button class="note-toggle" data-act="note" data-for="buyNote" aria-expanded="false">${ICON.pen}<span>${tr('Apuntar por qué entro')}</span></button>
               <textarea class="note" data-ref="buyNote" hidden placeholder="${tr('Ej.: rompe resistencia en 40K de MC con volumen, dev no ha vendido…')}"></textarea>
               <div class="quote" data-ref="buyQuote" aria-live="polite"></div>
               <button class="go buy" data-act="buy"><span class="label" data-ref="buyLabel">${tr('Comprar')}</span><span class="spin"><i></i></span></button>
@@ -292,7 +294,7 @@ class Panel {
                 ${Object.entries(SELL_KEYS).map(([k, p]) => `<button class="chip num" data-act="sellpct" data-pct="${p}" data-k="${k.toUpperCase()}" aria-pressed="false">${p}%</button>`).join('')}
               </div>
               <button class="initials" data-act="initials" data-ref="initialsBtn"><span data-ref="initialsLabel">${tr('Recuperar lo invertido')}</span><kbd class="hk">I</kbd></button>
-              <button class="note-toggle" data-act="note" data-for="sellNote">${ICON.pen}<span>${tr('Apuntar por qué salgo')}</span></button>
+              <button class="note-toggle" data-act="note" data-for="sellNote" aria-expanded="false">${ICON.pen}<span>${tr('Apuntar por qué salgo')}</span></button>
               <textarea class="note" data-ref="sellNote" hidden placeholder="${tr('Ej.: perdió el soporte, recojo beneficios antes del dump…')}"></textarea>
               <div class="quote" data-ref="sellQuote" aria-live="polite"></div>
               <button class="go sell" data-act="sell"><span class="label" data-ref="sellLabel">${tr('Vender')}</span><span class="spin"><i></i></span></button>
@@ -472,16 +474,20 @@ class Panel {
     else if (this.view !== 'trade' || this.status !== 'ready') handled = false;
     else if (k === 'b') this.switchSide('buy');
     else if (k === 'v' || k === 's') this.switchSide('sell');
+    // Teclas que operan: ni la autorrepetición de una tecla mantenida ni dos pulsaciones en menos de 0,7 s disparan otra orden.
+    else if ((BUY_KEYS.includes(k) || SELL_KEYS[k] || k === 'i') && (e.repeat || performance.now() - (this.lastKeyTrade || -1e9) < 700)) { /* ignorada */ }
     else if (BUY_KEYS.includes(k) && this.side === 'buy') {
+      this.lastKeyTrade = performance.now();
       const chip = this.refs.quickBuys.querySelectorAll('.chip')[Number(k) - 1];
       if (chip) { chip.click(); this.flash(chip); this.buy(); }
     } else if (SELL_KEYS[k] && this.position) {
+      this.lastKeyTrade = performance.now();
       this.switchSide('sell');
       this.sellPct = SELL_KEYS[k];
       this.renderTrade(); this.renderQuotes();
       this.flash(this.refs.sellChips.querySelector(`[data-pct="${this.sellPct}"]`));
       this.sell();
-    } else if (k === 'i' && this.position) { this.switchSide('sell'); this.flash(this.refs.initialsBtn); this.sellInitials(); }
+    } else if (k === 'i' && this.position) { this.lastKeyTrade = performance.now(); this.switchSide('sell'); this.flash(this.refs.initialsBtn); this.sellInitials(); }
     else handled = false;
     if (handled) { e.preventDefault(); e.stopPropagation(); }
   }
@@ -760,7 +766,16 @@ class Panel {
     r.amount.value = this.settings.sizeMode === 'pct' ? fmtNum(P.sizePct, 1) : fmtNum(this.presetSol(P), 2);
     if (this.side !== 'buy') this.side = 'buy';
     this.renderTrade(); this.renderQuotes(); this.renderReco();
-    this.toast(auto ? 'info' : 'ok', tr(auto ? 'Aplicados automáticamente los ajustes para {name}: {size} % del saldo, Stop −{sl} %{trail}, Take +{tp} %, slippage {slip} % y prioridad {prio} SOL.' : 'Aplicados los ajustes para {name}: {size} % del saldo, Stop −{sl} %{trail}, Take +{tp} %, slippage {slip} % y prioridad {prio} SOL.', { name: tr(P.name).toLowerCase(), size: fmtNum(P.sizePct, 0), sl: P.slPct, trail: P.trailing ? tr(' dinámico') : '', tp: P.tpPct, slip: P.maxSlippagePct, prio: fmtSol(P.priorityFee) }));
+    this.toast(auto ? 'info' : 'ok', '', {
+      title: `${tr(auto ? 'Ajustes aplicados solos' : 'Ajustes aplicados')} · ${tr(P.name).toLowerCase()}`,
+      stats: [
+        { k: tr('Tamaño'), v: `${fmtNum(P.sizePct, 0)} %` },
+        { k: P.trailing ? tr('Stop din.') : 'Stop', v: `−${P.slPct} %`, t: 'down' },
+        { k: 'Take', v: `+${P.tpPct} %`, t: 'up' },
+        { k: 'Slip.', v: `${P.maxSlippagePct} %` },
+        { k: tr('Prio.'), v: fmtSol(P.priorityFee) },
+      ],
+    });
   }
 
   ago(ts) {
@@ -1001,7 +1016,7 @@ class Panel {
     const res = await send({ type: 'review', id: r.id, tags: this.reviewDraft.tags, followedPlan: this.reviewDraft.followedPlan });
     this.review = null;
     this.renderReview();
-    if (res.ok) this.toast('ok', tr('Revisión guardada. La verás en Estadísticas: plan vs. sin plan.'));
+    if (res.ok) this.toast('ok', tr('La verás en Estadísticas: plan vs. sin plan.'), { title: tr('Revisión guardada') });
     else this.toast('err', res.error);
   }
 
@@ -1116,14 +1131,25 @@ class Panel {
     if (isLimit) {
       limitMc = parseMc(r.limitMc.value);
       const mc = this.quote.marketCapUsd;
+      // Escala: de tu objetivo (punto) a donde está ahora; el tramo ámbar es lo que tiene que caer.
+      const x = limitMc > 0 && mc && limitMc < mc ? (limitMc / mc) * 100 : null;
+      const scale = x == null ? '' : `<span class="lim-scale" aria-hidden="true"><b>${fmtCompact(limitMc, '$')}</b><span class="lim-track"><i style="left:${x.toFixed(1)}%"></i><em style="left:${x.toFixed(1)}%"></em></span><b>${fmtCompact(mc, '$')}</b></span>`;
       r.limitHint.innerHTML = limitMc > 0 && mc
-        ? (limitMc >= mc ? `<span class="bad">${tr('Ya está por debajo ({mc}): usa «Ahora»', { mc: fmtCompact(mc, '$') })}</span>` : tr('Ahora {mc} · tiene que caer un <b>{pct}</b>', { mc: fmtCompact(mc, '$'), pct: fmtPct((1 - limitMc / mc) * 100, 0) }))
+        ? (limitMc >= mc ? `<span class="bad">${tr('Ya está por debajo ({mc}): usa «Ahora»', { mc: fmtCompact(mc, '$') })}</span>` : scale + `<span>${tr('Ahora {mc} · tiene que caer un <b>{pct}</b>', { mc: fmtCompact(mc, '$'), pct: fmtPct((1 - limitMc / mc) * 100, 0) })}</span>`)
         : tr('Ahora {mc}. Escribe p. ej. {ex}', { mc: fmtCompact(mc, '$'), ex: fmtCompact(mc * 0.7, '') });
     }
 
     // Comprar
     const solIn = this.solFromInput();
     const btn = r.buyForm.querySelector('.go');
+    // Dentro del importe: cuánto es en dólares y qué parte de tu saldo arriesgas (verde ≤ 10 %, ámbar ≤ 25 %, rojo más).
+    const share = solIn > 0 && bal > 0 ? (solIn / bal) * 100 : 0;
+    r.amtMeta.innerHTML = solIn > 0
+      ? `${this.solUsd ? `≈ ${solIn * this.solUsd >= 100 ? fmtCompact(solIn * this.solUsd, '$') : fmtUsd(solIn * this.solUsd)} · ` : ''}<b>${fmtPct(share, share < 10 ? 1 : 0)}</b>`
+      : '';
+    r.amtMeta.title = solIn > 0 ? tr('{pct} de tu saldo', { pct: fmtPct(share, 1) }) : '';
+    r.amtBar.className = `amt-bar ${share > 25 ? 'hi' : share > 10 ? 'mid' : 'lo'}`;
+    r.amtBar.firstChild.style.transform = `scaleX(${Math.min(1, share / 100).toFixed(4)})`;
     if (solIn > 0) {
       const sim = simulateBuy({ solIn, quote: this.quote, solUsd: this.solUsd, settings: s });
       const costs = (sim.fee || 0) + (sim.priorityFee || 0);
@@ -1279,6 +1305,7 @@ class Panel {
     else if (act === 'note') {
       const ta = r[b.dataset.for];
       ta.hidden = !ta.hidden;
+      b.setAttribute('aria-expanded', String(!ta.hidden));
       if (!ta.hidden) ta.focus();
     }
     else if (act === 'recoToggle') {
@@ -1332,7 +1359,7 @@ class Panel {
   saveUiAfterTour(finished, resume = null) {
     if (this.st) this.st.ui = { ...(this.st.ui || {}), tourResume: resume };
     send({ type: 'saveUi', ui: { onboarded: true, toured: !!finished || !!this.st?.ui?.toured, tourResume: resume } });
-    if (finished) this.toast('ok', tr('Recorrido terminado. Puedes repetirlo cuando quieras con el botón ? de abajo.'));
+    if (finished) this.toast('ok', tr('Puedes repetirlo cuando quieras con el botón ? de abajo.'), { title: tr('Recorrido terminado') });
   }
 
   setBusy(on, which) {
@@ -1363,7 +1390,10 @@ class Panel {
       r.limitMc.value = ''; r.buyNote.value = ''; r.buyNote.hidden = true;
       this.orderType = 'market';
       this.renderTrade();
-      return this.toast('ok', tr('Orden colocada: comprar {sol} SOL si el MC baja a {mc}. Funciona aunque cierres Padre (mientras el navegador esté abierto).', { sol: fmtSol(base.solIn), mc: fmtCompact(mc, '$') }));
+      return this.toast('ok', tr('Funciona aunque cierres Padre, mientras el navegador esté abierto.'), {
+        title: tr('Orden límite colocada'),
+        stats: [{ k: tr('Compra'), v: `${fmtSol(base.solIn)} SOL` }, { k: tr('Si el MC baja a'), v: fmtCompact(mc, '$'), t: 'amber' }],
+      });
     }
 
     this.setBusy(true, 'buy');
@@ -1371,10 +1401,17 @@ class Panel {
     this.setBusy(false, 'buy');
     if (!res.ok) return this.fail('buy', res.error);
     const d = res.data;
-    if (!d.ok) return this.fail('buy', `${d.error} ${tr('Se cobran {fee} SOL de prioridad, como en real.', { fee: fmtSol(d.chargedFee) })}`);
+    if (!d.ok) return this.fail('buy', d.error, d.chargedFee);
     r.buyNote.value = ''; r.buyNote.hidden = true;
     this.fire('buy');
-    this.toast('ok', tr('Compraste {qty} ${sym} a {mc} de MC por {sol} SOL.', { qty: fmtCompact(d.fill.qty), sym: this.quote.symbol, mc: fmtCompact(d.fill.mc, '$'), sol: fmtSol(d.fill.sol) }));
+    this.toast('ok', '', {
+      title: tr('Compra hecha · ${sym}', { sym: this.quote.symbol }),
+      stats: [
+        { k: tr('Recibes'), v: fmtCompact(d.fill.qty) },
+        { k: tr('Entrada'), v: `MC ${fmtCompact(d.fill.mc, '$')}` },
+        { k: tr('Pagas'), v: `${fmtSol(d.fill.sol)} SOL` },
+      ],
+    });
     this.renderQuotes();
   }
 
@@ -1393,13 +1430,18 @@ class Panel {
     if (d.round) {
       this.side = 'buy';
       const rr = d.round;
-      this.toast(rr.pnlSol >= 0 ? 'ok' : 'info', tr('Posición cerrada: {pnl} SOL ({pct}).', { pnl: fmtSol(rr.pnlSol, { sign: true }), pct: fmtPct(rr.pnlPct, 1, { sign: true }) }));
+      this.toast(rr.pnlSol >= 0 ? 'ok' : 'info', '', { title: tr('Posición cerrada · ${sym}', { sym: rr.symbol }), stats: this.resultStats(rr) });
       this.openReview(rr);
     } else {
-      const vars = { qty: fmtCompact(d.fill.qty), sym: this.quote.symbol, sol: fmtSol(d.fill.sol), pnl: fmtSol(d.fill.pnlSol, { sign: true }) };
-      this.toast('ok', d.fill.reason === 'initials'
-        ? tr('Inversión recuperada: vendiste {qty} ${sym} por {sol} SOL ({pnl}). El resto sigue corriendo gratis.', vars)
-        : tr('Vendiste {qty} ${sym} por {sol} SOL ({pnl}).', vars));
+      const ini = d.fill.reason === 'initials';
+      this.toast('ok', ini ? tr('El resto sigue corriendo gratis.') : '', {
+        title: ini ? tr('Inversión recuperada · ${sym}', { sym: this.quote.symbol }) : tr('Venta hecha · ${sym}', { sym: this.quote.symbol }),
+        stats: [
+          { k: tr('Vendes'), v: fmtCompact(d.fill.qty) },
+          { k: tr('Recibes'), v: `${fmtSol(d.fill.sol)} SOL` },
+          { k: tr('Resultado'), v: fmtSol(d.fill.pnlSol, { sign: true }), t: tone(d.fill.pnlSol) },
+        ],
+      });
     }
     this.renderAll();
   }
@@ -1411,7 +1453,7 @@ class Panel {
     this.setBusy(false, 'sell');
     if (!res.ok) return this.fail('sell', res.error);
     const d = res.data;
-    if (!d.ok) return this.fail('sell', `${d.error} ${tr('Se cobran {fee} SOL de prioridad, como en real.', { fee: fmtSol(d.chargedFee) })}`);
+    if (!d.ok) return this.fail('sell', d.error, d.chargedFee);
     this.afterSell(d);
   }
 
@@ -1422,24 +1464,42 @@ class Panel {
     this.setBusy(false, 'sell');
     if (!res.ok) return this.fail('sell', res.error);
     const d = res.data;
-    if (!d.ok) return this.fail('sell', `${d.error} ${tr('Se cobran {fee} SOL de prioridad, como en real.', { fee: fmtSol(d.chargedFee) })}`);
+    if (!d.ok) return this.fail('sell', d.error, d.chargedFee);
     this.afterSell(d);
   }
 
   // Error: el botón da un pequeño «no» con la cabeza y sale el aviso.
-  fail(which, msg) {
+  fail(which, msg, chargedFee) {
     const btn = this.refs[which === 'buy' ? 'buyForm' : 'sellForm']?.querySelector('.go');
     this.animIn(btn, 'nope', 420);
-    return this.toast('err', msg);
+    const rich = { title: tr(which === 'buy' ? 'No se pudo comprar' : 'No se pudo vender') };
+    if (chargedFee > 0) {
+      rich.stats = [{ k: tr('Prioridad cobrada'), v: `−${fmtSol(chargedFee)} SOL`, t: 'down' }];
+      rich.note = tr('Como en real: la transacción falla, pero la prioridad se paga.');
+    }
+    return this.toast('err', msg, rich);
+  }
+
+  // Resultado de un trade cerrado, en dos cifras.
+  resultStats(r) {
+    if (!r) return [];
+    const t = tone(r.pnlSol);
+    return [{ k: tr('Resultado'), v: `${fmtSol(r.pnlSol, { sign: true })} SOL`, t }, { k: tr('Rentabilidad'), v: fmtPct(r.pnlPct, 1, { sign: true }), t }];
   }
 
   // La barrita de abajo marca el tiempo que le queda al aviso; con el ratón encima se para.
-  toast(kind, text) {
+  // Aviso: título corto + las cifras clave en fichas + (si hace falta) una línea de texto.
+  toast(kind, text, rich = {}) {
     const t = this.refs.toast;
-    const ms = kind === 'err' ? 9000 : 6000;
-    t.className = `toast show ${kind}`;
+    const ms = kind === 'err' ? 9000 : rich.stats ? 7000 : 6000;
+    t.className = `toast show ${kind}${rich.title ? ' rich' : ''}`;
     t.style.setProperty('--life', `${ms}ms`);
-    t.innerHTML = `${kind === 'ok' ? ICON.ok : kind === 'info' ? ICON.mark : ICON.err}<p>${esc(text)}</p><button class="x" data-act="closeToast" aria-label="${tr('Cerrar aviso')}">${ICON.x}</button><i class="toast-life" aria-hidden="true"></i>`;
+    const stats = rich.stats?.length
+      ? `<div class="t-stats">${rich.stats.map((x) => `<span class="t-stat ${x.t || ''}"><small>${esc(x.k)}</small><b class="num">${esc(x.v)}</b></span>`).join('')}</div>` : '';
+    const body = [text, rich.note].filter(Boolean).map((x) => `<p>${esc(x)}</p>`).join('');
+    t.innerHTML = `<span class="t-ico">${kind === 'ok' ? ICON.ok : kind === 'info' ? ICON.mark : ICON.err}</span>
+      <div class="t-main">${rich.title ? `<strong>${esc(rich.title)}</strong>` : ''}${kind === 'err' ? `${text ? `<p>${esc(text)}</p>` : ''}${stats}${rich.note ? `<p class="t-note">${esc(rich.note)}</p>` : ''}` : stats + body}</div>
+      <button class="x" data-act="closeToast" aria-label="${tr('Cerrar aviso')}">${ICON.x}</button><i class="toast-life" aria-hidden="true"></i>`;
     const life = t.querySelector('.toast-life');
     life.addEventListener('animationend', () => this.hideToast());
     clearTimeout(this.toastTimer);

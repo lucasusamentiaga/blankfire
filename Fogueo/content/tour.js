@@ -1,6 +1,7 @@
 // Blankfire — recorrido guiado por el panel.
 import { tr } from '../lib/i18n.js';
 import { simulateBuy, simulateSell, poolFeePct, fmtSol, fmtPct, fmtNum, tone } from '../lib/core.js';
+import { vChips, vFlow, vKeys, vRange, vLegend, vMeter, vStack } from '../lib/viz.js';
 // Ilumina cada parte real del panel y la enseña funcionando con datos de ejemplo.
 // Tu cuenta no se toca: al terminar se restaura todo tal cual estaba.
 
@@ -54,10 +55,12 @@ const STEPS = [
   },
   {
     ch: 0, target: '.head-bal', title: 'Tu saldo de práctica',
+    viz: () => vChips([{ k: tr('Empiezas con'), v: '10 SOL', t: 'amber' }, { k: tr('Dinero real en juego'), v: '0' }, { k: tr('Se cambia en'), v: tr('Ajustes') }]),
     body: 'Es el SOL ficticio que tienes libre. Empiezas con 10 SOL y puedes cambiarlo o empezar de cero desde Ajustes. La etiqueta <b>práctica</b> te recuerda que nada de esto es real.',
   },
   {
     ch: 0, target: '.head', title: 'Muévelo a tu gusto',
+    viz: () => vKeys([{ keys: [tr('Arrastra')], label: tr('lo mueves') }, { keys: [tr('Doble clic')], label: tr('lo minimizas') }, { keys: ['Alt', 'Shift', 'F'], label: tr('lo ocultas') }]),
     body: 'Arrastra la barra para colocarlo donde no estorbe. <b>Doble clic</b> lo minimiza y te deja solo el saldo y el resultado. <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> lo oculta del todo.',
   },
   {
@@ -66,34 +69,41 @@ const STEPS = [
   },
   {
     ch: 0, target: '.fresh', title: '¿El precio está fresco?',
+    viz: () => vLegend([{ dot: 'up', label: tr('En vivo'), sub: tr('opera tranquilo') }, { dot: 'amber', label: tr('Hace X s'), sub: tr('espera, no operes') }]),
     body: 'Punto verde: precio de los últimos segundos. Si se vuelve ámbar y dice «hace X s», la fuente no responde: <b>no operes con un precio congelado</b>. Al lado ves de dónde sale (DexScreener o Jupiter).',
   },
   {
     ch: 1, core: true, target: '.reco', title: 'Ajustes recomendados',
+    viz: () => vLegend([{ dot: 'amber', label: tr('Nuevo par'), sub: tr('en la curva · posición pequeña') }, { dot: 'blue', label: tr('Graduado'), sub: tr('en su pool · más margen') }]),
     setup: (p) => { p.st.ui = { ...p.st.ui, recoOpen: true }; },
     body: 'Blankfire detecta si el token es un <b>nuevo par</b> (aún en la curva de pump.fun, ámbar) o está <b>graduado</b> (ya en su pool, azul) y te propone tamaño, Stop, Take, slippage y prioridad, con el porqué. <b>Aplicar</b> los pone de golpe.',
   },
   {
     ch: 1, target: '.otype', title: 'Comprar ahora o esperar un precio',
+    viz: () => vFlow([{ v: '$52K', k: tr('MC ahora') }, { v: '$38K', k: tr('tu orden'), t: 'amber' }, { v: tr('Compra'), k: tr('sola, al llegar'), t: 'up' }]),
     setup: (p) => { p.orderType = 'limit'; p.refs.limitMc.value = '38K'; },
     body: '<b>Ahora</b> compra al instante. <b>Si baja a…</b> crea una orden límite: compras solo cuando el market cap caiga hasta la cifra que pongas. Funciona aunque cierres Padre, mientras el navegador esté abierto.',
   },
   {
     ch: 1, target: '.amount', title: 'Cuánto meter',
+    viz: () => vMeter({ pct: 10, left: tr('<b>1 SOL</b> = 10 % de 10 SOL'), right: tr('máx. recomendado'), t: 'up' }),
     body: 'Escribe la cantidad en SOL o toca <b>SOL</b> para cambiar a <b>% de tu saldo</b>: así mides el riesgo en proporción, como los traders serios (p. ej. nunca más del 10 % por trade).',
   },
   {
     ch: 1, core: true, target: '[data-ref="quickBuys"]', title: 'Compras rápidas',
+    viz: () => vKeys([{ keys: ['1', '2', '3', '4'], label: tr('compran al instante') }]),
     setup: (p) => { p.refs.amount.value = ''; },
     body: 'Un toque rellena la cantidad. Con el ratón encima del panel, las teclas <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd> <b>compran directamente</b>. Las cantidades se cambian en Ajustes.',
     try: { text: 'Pruébalo: toca una de las cantidades.', acts: ['quick'], done: 'Eso es: la cantidad ya está puesta.' },
   },
   {
     ch: 1, core: true, target: '.opts', title: 'Stop y Take antes de entrar',
+    viz: () => vRange({ sl: 30, tp: 100, slLabel: `Stop ${fmtPct(-30, 0)}`, tpLabel: `Take ${fmtPct(100, 0, { sign: true })}`, entryLabel: tr('entrada') }),
     body: '<b>Stop</b> vende todo si pierdes ese %; <b>Take</b> vende todo si ganas ese %. Decidirlos antes de comprar es la regla nº 1: te quita la emoción del momento. Incluyen comisiones.',
   },
   {
     ch: 1, core: true, target: '[data-ref="trailBtn"]', title: 'Stop dinámico',
+    viz: () => vFlow([{ v: fmtPct(60, 0, { sign: true }), k: tr('máximo'), t: 'up' }, { v: fmtPct(-30, 0), k: tr('cae desde ahí'), t: 'down' }, { v: fmtPct(12, 0, { sign: true }), k: tr('vendes'), t: 'up' }]),
     body: 'Con él encendido, el stop <b>sigue al máximo</b>: salta si el valor cae ese % desde lo más alto que hayas tocado. Con un stop del 30 %, si sube un 60 % y luego se desploma, vendes en +12 % en vez de devolverlo todo.',
     try: { text: 'Pruébalo: toca el interruptor para apagarlo y otra vez para encenderlo.', acts: ['trail'], count: 2, done: 'Perfecto. En tus trades reales se queda como lo dejes.' },
   },
@@ -103,6 +113,7 @@ const STEPS = [
   },
   {
     ch: 1, core: true, target: '[data-ref="buyQuote"]', title: 'Lo que pasaría de verdad',
+    viz: () => vChips([{ k: tr('Recibes'), v: tr('tokens') }, { k: 'Slippage', v: tr('% peor'), t: 'amber' }, { k: tr('Costes'), v: tr('comisiones + prioridad'), t: 'down' }]),
     body: 'Antes de pulsar ves cuántos tokens recibirías, el <b>slippage</b> (cuánto empeora el precio por el tamaño de tu orden) y los costes. Si el slippage supera tu máximo, la orden falla como en real.',
   },
   {
@@ -112,6 +123,7 @@ const STEPS = [
   },
   {
     ch: 2, core: true, live: true, target: '.range', title: 'Lo cerca que estás del Stop y del Take',
+    viz: () => vRange({ sl: 30, tp: 100, slLabel: 'Stop', tpLabel: 'Take', entryLabel: tr('entrada'), now: 24.8 }),
     body: 'El punto es tu resultado ahora; la rayita gris, tu entrada. A la izquierda el stop, a la derecha el take. La marca ámbar es el máximo que has tocado: el stop dinámico va detrás de ella.',
   },
   {
@@ -124,6 +136,7 @@ const STEPS = [
   },
   {
     ch: 3, core: true, target: '[data-ref="sellForm"]', title: 'Vender',
+    viz: () => vKeys([{ keys: ['Q', 'W', 'E', 'R'], label: [25, 50, 75, 100].map((n) => fmtPct(n, 0)).join(' · ') }, { keys: ['I'], label: tr('recupera lo invertido') }]),
     setup: (p) => { p.side = 'sell'; p.sellPct = 50; },
     body: 'Vende el 25, 50, 75 o 100 % (teclas <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd>). <b>Recuperar lo invertido</b> (<kbd>I</kbd>) vende justo lo necesario para sacar lo que metiste: el resto sigue corriendo gratis.',
     try: { text: 'Pruébalo: elige cuánto vender. (No se vende nada de verdad.)', acts: ['sellpct'], done: 'Bien. Fíjate cómo cambia lo que recibirías.' },
@@ -136,6 +149,7 @@ const STEPS = [
   },
   {
     ch: 3, target: '.daily', title: 'Límite de pérdida diaria',
+    viz: () => vMeter({ pct: 24, left: tr('Hoy <b>−0,12</b> SOL'), right: tr('límite −0,5 · bloquea compras'), t: 'down' }),
     body: 'Si lo activas en Ajustes, aquí ves cuánto llevas perdido hoy frente a tu límite. Al llegar, el panel <b>bloquea las compras hasta mañana</b>: evita la espiral de «recuperar lo perdido».',
   },
   {
@@ -146,6 +160,7 @@ const STEPS = [
   },
   {
     ch: 4, target: '.foot [data-v="keys"]', title: 'Atajos de teclado',
+    viz: () => vKeys([{ keys: ['B'], label: tr('comprar') }, { keys: [tr('V')], label: tr('vender') }, { keys: ['P'], label: tr('posiciones') }, { keys: ['?'], label: tr('atajos') }]),
     body: 'Aquí tienes la chuleta de atajos. Solo funcionan con el ratón encima del panel, para no pisar los de Padre. Con el puntero encima, cada botón te enseña su tecla.',
   },
   {
@@ -158,6 +173,7 @@ const STEPS = [
   },
   {
     ch: 4, core: true, target: '.foot [data-act="tour"]', title: '¡Listo para practicar!',
+    viz: () => vFlow([{ v: tr('Ajustes') }, { v: tr('Stop y Take'), t: 'amber' }, { v: tr('Entra pequeño') }, { v: tr('Revisa'), t: 'up' }]),
     body: 'Tu rutina: abre un token, aplica los ajustes recomendados, fija Stop y Take, entra pequeño y revisa cada trade. Cuando encadenes semanas en positivo con las mismas reglas, estarás más cerca del dinero real.',
     hint: 'Puedes repetir el recorrido con este botón.',
     final: true,
@@ -222,12 +238,14 @@ function gMark(t, mult) {
 const GUIDED_STEPS = [
   {
     ch: 5, guided: true, target: '[data-ref="buyForm"]', title: 'Primero, la compra',
+    viz: (p) => vChips([{ k: 'Padre', v: fmtPct(p.st.settings.feePct, 2) }, { k: tr('Pool'), v: fmtPct(p.st.settings.poolFees === false ? 0 : poolFeePct(gQuote(p)), 2) }, { k: tr('Prioridad'), v: `${sx(p.st.settings.priorityFee)} SOL` }, { k: tr('Compras'), v: `${fmtSol(G_SOL)} SOL`, t: 'amber' }]),
     setup: (p, t) => { t.trade = null; gReset(t); p.quote = gQuote(p); p.refs.amount.value = fmtNum(0.5, 3); p.refs.useSl.checked = true; p.refs.useTp.checked = true; },
     body: (p) => tr('Vamos a hacer un trade completo con el token de ejemplo y <b>tus comisiones reales</b>: {fee} de Padre y {pool} de la curva de pump.fun en cada compra y venta, más {prio} SOL de priority fee por transacción. Empezamos comprando {sol} SOL.', { fee: fmtPct(p.st.settings.feePct, 2), pool: fmtPct(p.st.settings.poolFees === false ? 0 : poolFeePct(gQuote(p)), 2), prio: sx(p.st.settings.priorityFee), sol: fmtSol(G_SOL) }),
     try: { text: 'Pruébalo: pulsa «Comprar 0,5 SOL». Es de práctica: tu saldo no cambia.', acts: ['buy'], done: 'Comprado. Mira lo que te ha costado entrar.' },
   },
   {
     ch: 5, guided: true, target: '.pos', title: 'Lo que te ha costado entrar',
+    viz: (p, t) => { gEnsureBuy(t); const b = t.trade.buy; return vStack([{ v: b.solIn - b.fee, label: sx(b.solIn - b.fee), sub: tr('al token'), t: 'up' }, { v: b.fee, label: sx(b.fee), sub: tr('comisiones'), t: 'amber' }, { v: b.priorityFee, label: sx(b.priorityFee), sub: tr('prioridad'), t: 'down' }]); },
     setup: (p, t) => { gEnsureBuy(t); gReset(t); gApplyBought(t); p.quote = gQuote(p); },
     body: (p, t) => {
       const b = t.trade.buy, m = gMark(t, 1);
@@ -238,6 +256,7 @@ const GUIDED_STEPS = [
   },
   {
     ch: 5, guided: true, target: '.pos', title: 'El token sube un 30 %',
+    viz: (p, t) => { gEnsureBuy(t); const m = gMark(t, G_UP); return vFlow([{ v: fmtPct(30, 0, { sign: true }), k: tr('precio') }, { v: fmtPct(m.pct, 1, { sign: true }), k: tr('tu posición'), t: 'up' }]); },
     setup: (p, t) => { gEnsureBuy(t); gReset(t); gApplyBought(t); p.quote = gQuote(p); t.tweenTo(G_UP); },
     body: (p, t) => {
       const m = gMark(t, G_UP);
@@ -330,7 +349,8 @@ export class Tour {
       <div class="tour-card" role="dialog" aria-modal="true" aria-labelledby="tour-title">
         <div class="tour-top"><span class="tour-count"></span><button class="tour-x" data-tour="end" aria-label="${tr('Salir del recorrido')}">${tr('Salir')}</button></div>
         <h3 id="tour-title"></h3>
-        <p class="tour-body"></p>
+        <div class="tour-body"></div>
+        <div class="tour-viz" hidden></div>
         <div class="tour-try" role="status" hidden><span class="tt-ico"></span><span class="tt-text"></span></div>
         <p class="tour-hint"></p>
         <div class="tour-bar" aria-hidden="true"><i></i></div>
@@ -465,6 +485,9 @@ export class Tour {
       : `<b>${chapter}</b> · ${tr('{i} de {n}', { i, n: total })}`;
     this.card.querySelector('h3').textContent = tr(step.title);
     this.card.querySelector('.tour-body').innerHTML = typeof step.body === 'function' ? step.body(p, this) : tr(step.body);
+    const viz = this.card.querySelector('.tour-viz');
+    viz.innerHTML = step.viz ? step.viz(p, this) : '';
+    viz.hidden = !step.viz;
     const hint = this.card.querySelector('.tour-hint');
     hint.textContent = step.hint ? tr(step.hint) : '';
     hint.hidden = !step.hint;

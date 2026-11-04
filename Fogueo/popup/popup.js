@@ -3,6 +3,7 @@ import {
   fmtSol, fmtPct, fmtCompact, fmtNum, fmtDuration, fmtWhen, fmtPrice, tone, rangeModel, hueFor,
 } from '../lib/core.js';
 import { tr, setLang, getLang, locale } from '../lib/i18n.js';
+import { vChips, vFlow, vLegend, vMeter } from '../lib/viz.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -15,7 +16,7 @@ function translateDom(root) {
   const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   for (let n = w.nextNode(); n; n = w.nextNode()) {
     const par = n.parentElement;
-    if (!par || par.closest('textarea, script, style, .ptour-body')) continue;
+    if (!par || par.closest('textarea, script, style, .ptour-body, .ptour-viz')) continue;
     const raw = n.nodeValue, key = raw.trim();
     if (!key) continue;
     const t = tr(key);
@@ -675,22 +676,22 @@ function demoPopupState(real) {
 
 const POPUP_STEPS = [
   { title: 'Tu cuenta de práctica', body: 'Esta ventana es el cuartel general de Blankfire: tu dinero ficticio, todo lo que has hecho y lo que estás aprendiendo. Te lo enseño con datos de ejemplo; tu cuenta real no se toca.' },
-  { target: '.sum-eq', title: 'Patrimonio', body: 'Tu SOL libre más lo que valen ahora tus posiciones. Al lado, cuánto has ganado o perdido desde que empezaste esta cuenta.' },
+  { target: '.sum-eq', viz: () => vFlow([{ v: tr('SOL libre') }, { v: tr('+ posiciones'), k: tr('a precio de ahora') }, { v: tr('Patrimonio'), t: 'amber' }]), title: 'Patrimonio', body: 'Tu SOL libre más lo que valen ahora tus posiciones. Al lado, cuánto has ganado o perdido desde que empezaste esta cuenta.' },
   { target: '#spark', title: 'Cómo va tu cuenta', body: 'La línea muestra la evolución de tu patrimonio; la raya punteada es tu saldo inicial. Por encima, vas ganando.' },
-  { target: '.facts', title: 'Libre, en juego y abierto', body: '<b>Libre</b>: SOL disponible para comprar. <b>En juego</b>: lo que valen tus posiciones. <b>Abierto</b>: lo que ganarías o perderías si cerraras todo ahora.' },
+  { target: '.facts', viz: () => vChips([{ k: tr('Libre'), v: tr('para comprar') }, { k: tr('En juego'), v: tr('en posiciones') }, { k: tr('Abierto'), v: tr('si cierras ya'), t: 'up' }]), title: 'Libre, en juego y abierto', body: '<b>Libre</b>: SOL disponible para comprar. <b>En juego</b>: lo que valen tus posiciones. <b>Abierto</b>: lo que ganarías o perderías si cerraras todo ahora.' },
   { tab: 'wallet', target: '.rows', title: 'Cartera', body: 'Tus posiciones abiertas con su resultado en vivo, su Stop y Take, y la barra que indica hacia cuál se acerca. Toca una para abrirla en Padre.' },
   { tab: 'wallet', target: '.orders', title: 'Órdenes límite', body: 'Las compras que has dejado programadas para cuando el market cap baje. Puedes cancelarlas desde aquí.' },
   { tab: 'wallet', target: '.act', title: 'Actividad reciente', body: 'Cada compra y venta, con el market cap al que entraste o saliste. Las etiquetas indican si saltó un TP, un SL, un stop dinámico o una orden límite.' },
   { tab: 'history', target: '.bar', title: 'Historial', body: 'Todos tus trades cerrados. Filtra ganadoras o perdedoras y expórtalos a <b>CSV</b> para analizarlos en Excel o Google Sheets.' },
   { tab: 'history', open: 'demo-r1', target: '.detail', title: 'Cada trade, al detalle', body: 'Toca un trade para ver lo que invertiste y recuperaste, costes, duración y cada compra y venta. Aquí respondes <b>¿seguiste tu plan?</b>, marcas etiquetas y apuntas qué aprendes. Se guarda solo.' },
   { tab: 'stats', target: '.chart', title: 'Estadísticas', body: 'Elige Hoy, 7 días o Todo. La gráfica es tu patrimonio operación a operación: así ves si mejoras o solo tuviste suerte un día.' },
-  { tab: 'stats', target: '.wr', title: 'Acierto', body: 'Qué porcentaje de trades cierras en positivo. Ojo: se puede ganar dinero acertando menos de la mitad si las ganancias son más grandes que las pérdidas.' },
-  { tab: 'stats', target: '.ledger', title: 'Los números que importan', body: '<b>Profit factor</b>: lo ganado entre lo perdido (por encima de 1,5 vas bien). Ganancia y pérdida media, duración, racha de pérdidas y lo que te han costado las comisiones.' },
-  { tab: 'stats', target: '.pvs', title: 'Plan vs. impulso', body: 'Lo más revelador: cuánto ganas cuando sigues tu plan frente a cuando no. Debajo, lo que suma cada etiqueta, para que veas qué hábito te cuesta más dinero.' },
+  { tab: 'stats', target: '.wr', viz: () => vMeter({ pct: 40, left: tr('<b>40 %</b> de acierto'), right: tr('y aun así se puede ganar'), t: 'up' }), title: 'Acierto', body: 'Qué porcentaje de trades cierras en positivo. Ojo: se puede ganar dinero acertando menos de la mitad si las ganancias son más grandes que las pérdidas.' },
+  { tab: 'stats', target: '.ledger', viz: () => vMeter({ pct: 60, left: tr('Profit factor <b>1,5</b>'), right: tr('por encima, vas bien'), t: 'up' }), title: 'Los números que importan', body: '<b>Profit factor</b>: lo ganado entre lo perdido (por encima de 1,5 vas bien). Ganancia y pérdida media, duración, racha de pérdidas y lo que te han costado las comisiones.' },
+  { tab: 'stats', target: '.pvs', viz: () => vChips([{ k: tr('Con plan'), v: `${fmtSol(0.84, { sign: true })} SOL`, t: 'up' }, { k: tr('Sin plan'), v: `${fmtSol(-1.2, { sign: true })} SOL`, t: 'down' }]), title: 'Plan vs. impulso', body: 'Lo más revelador: cuánto ganas cuando sigues tu plan frente a cuando no. Debajo, lo que suma cada etiqueta, para que veas qué hábito te cuesta más dinero.' },
   { tab: 'stats', target: '.tip', title: 'Consejo automático', body: 'Blankfire lee tus números y te señala tu fuga principal: pérdidas demasiado grandes, exceso de comisiones, rachas o un hábito concreto.' },
   { tab: 'settings', target: '.form', title: 'Simulación realista', body: 'Comisión de Padre, priority fee, slippage máximo y retraso de ejecución. Déjalos como en real para que tus resultados sean creíbles. Aquí cambias también las compras rápidas.' },
-  { tab: 'settings', target: '.presets', title: 'Ajustes recomendados', body: 'Blankfire distingue <b>nuevos pares</b> (en la curva de pump.fun) y <b>graduados</b> (ya en su pool), y propone tamaño, Stop, Take, slippage y prioridad para cada uno. Aquí los comparas y puedes hacer que se apliquen solos.' },
-  { tab: 'settings', target: '[data-set="dailyLossLimit"]', targetUp: '.f-row', title: 'Disciplina', body: 'Pon un límite de pérdida diaria: al alcanzarlo, el panel bloquea las compras hasta mañana. Es la regla que más cuentas salva.' },
+  { tab: 'settings', target: '.presets', viz: () => vLegend([{ dot: 'amber', label: tr('Nuevo par'), sub: tr('en la curva · posición pequeña') }, { dot: 'blue', label: tr('Graduado'), sub: tr('en su pool · más margen') }]), title: 'Ajustes recomendados', body: 'Blankfire distingue <b>nuevos pares</b> (en la curva de pump.fun) y <b>graduados</b> (ya en su pool), y propone tamaño, Stop, Take, slippage y prioridad para cada uno. Aquí los comparas y puedes hacer que se apliquen solos.' },
+  { tab: 'settings', target: '[data-set="dailyLossLimit"]', targetUp: '.f-row', viz: () => vMeter({ pct: 100, left: tr('Hoy <b>−0,5</b> SOL'), right: tr('límite alcanzado · compras bloqueadas'), t: 'down' }), title: 'Disciplina', body: 'Pon un límite de pérdida diaria: al alcanzarlo, el panel bloquea las compras hasta mañana. Es la regla que más cuentas salva.' },
   { tab: 'settings', target: '.danger', title: 'Empezar de cero', body: 'Abre una cuenta nueva con el saldo que quieras. La anterior queda guardada en «Cuentas anteriores» para comparar tu progreso.' },
   { tab: 'settings', target: '[data-act="panelTour"]', targetUp: '.switch', title: '¡Ya lo sabes todo!', body: 'Desde aquí puedes repetir este recorrido o lanzar el del panel dentro de Padre, que enseña cómo comprar, vender, el stop dinámico y los atajos.', final: true },
 ];
@@ -721,7 +722,7 @@ function startTour() {
     <div class="ptour-spot"></div>
     <div class="ptour-card" role="dialog" aria-modal="true" aria-labelledby="ptour-t">
       <div class="ptour-top"><span class="ptour-count"></span><button data-pt="end">${tr('Salir')}</button></div>
-      <h3 id="ptour-t"></h3><p class="ptour-body"></p><p class="ptour-hint"></p>
+      <h3 id="ptour-t"></h3><p class="ptour-body"></p><div class="ptour-viz" hidden></div><p class="ptour-hint"></p>
       <div class="ptour-bar"><i></i></div>
       <div class="ptour-nav"></div>
     </div>`;
@@ -785,6 +786,9 @@ function tourGo(i) {
     : `<b>${tr(POPUP_CHAPTERS[step.ch])}</b> · ${tr('{i} de {n}', { i, n: total })}`;
   L.querySelector('h3').textContent = tr(step.title);
   L.querySelector('.ptour-body').innerHTML = tr(step.body);
+  const viz = L.querySelector('.ptour-viz');
+  viz.innerHTML = step.viz ? step.viz() : '';
+  viz.hidden = !step.viz;
   const hint = L.querySelector('.ptour-hint');
   hint.textContent = step.hint ? tr(step.hint) : ''; hint.hidden = !step.hint;
   const bar = L.querySelector('.ptour-bar');
