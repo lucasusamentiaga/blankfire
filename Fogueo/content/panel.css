@@ -871,3 +871,102 @@ button.pos-pnl:hover small { text-decoration: underline; text-underline-offset: 
   .pos::before, .pos::after { transition: none; }
   .go.fired::after, .head .mark.fired, .ob-mark svg, .ob-steps li, .ob-steps::before, .ob-a, .onboard-tip { animation: none; }
 }
+
+/* =========================================================
+   v1.10 · Más vida: saldo que flota, vistas que entran, cierre con resultado
+   ========================================================= */
+/* La diferencia de saldo sube junto a la cifra y se desvanece */
+.head-bal { position: relative; }
+.bal-delta {
+  position: absolute; right: calc(100% + 6px); top: 50%;
+  padding: 1px 6px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  pointer-events: none;
+  animation: bal-float 1300ms var(--fx-ease) both;
+}
+.bal-delta.up { color: var(--fx-up); background: var(--fx-up-wash); }
+.bal-delta.down { color: var(--fx-down); background: var(--fx-down-wash); }
+@keyframes bal-float {
+  0% { opacity: 0; transform: translateY(-20%) scale(0.9); }
+  15% { opacity: 1; transform: translateY(-50%) scale(1); }
+  70% { opacity: 1; transform: translateY(-80%); }
+  100% { opacity: 0; transform: translateY(-140%); }
+}
+
+/* Cambio de vista: la nueva entra; las filas de posiciones, una tras otra */
+.view-in { animation: fx-view 300ms var(--fx-ease) both; }
+@keyframes fx-view { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.list-wrap.enter .prow { animation: fx-rise 380ms var(--fx-ease) both; animation-delay: calc(var(--i, 0) * 45ms + 40ms - var(--el, 0ms)); }
+.list-wrap.enter .order { animation: fx-rise 380ms var(--fx-ease) both; animation-delay: calc(160ms - var(--el, 0ms)); }
+
+/* Comprar ↔ Vender: el formulario llega desde el lado de su pestaña */
+.form.from-l { animation: side-l 280ms var(--fx-ease) both; }
+.form.from-r { animation: side-r 280ms var(--fx-ease) both; }
+@keyframes side-l { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+@keyframes side-r { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: none; } }
+
+/* Orden rechazada: el botón niega con la cabeza */
+.go.nope { animation: go-nope 380ms var(--fx-ease) both; }
+@keyframes go-nope {
+  0%, 100% { transform: none; }
+  20% { transform: translateX(-5px); }
+  45% { transform: translateX(4px); }
+  70% { transform: translateX(-2px); }
+}
+
+/* Aviso: barrita de vida, pausa al pasar el ratón y salida suave */
+.toast { position: relative; overflow: hidden; }
+.toast-life {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: currentColor; opacity: 0.45;
+  transform-origin: left;
+  animation: toast-life var(--life, 6000ms) linear both;
+}
+.toast.ok .toast-life { color: var(--fx-up); }
+.toast.err .toast-life { color: var(--fx-down); }
+.toast.info .toast-life { color: var(--fx-brand); }
+.toast:hover .toast-life { animation-play-state: paused; }
+@keyframes toast-life { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+.toast.leaving { animation: toast-out 170ms var(--fx-ease) both; }
+@keyframes toast-out { to { opacity: 0; transform: translateY(4px); } }
+
+/* Trade cerrado: barrido de color, el resultado cuenta desde cero y, si ganas, saltan chispas */
+.review { position: relative; isolation: isolate; }
+.review.enter::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit;
+  background: var(--sweep, var(--fx-brand-wash));
+  animation: review-sweep 1100ms var(--fx-ease-expo) both;
+}
+.review.enter.rv-up { --sweep: var(--fx-up-wash); }
+.review.enter.rv-down { --sweep: var(--fx-down-wash); }
+@keyframes review-sweep {
+  0% { clip-path: inset(0 100% 0 0); opacity: 1; }
+  45% { clip-path: inset(0 0 0 0); opacity: 1; }
+  100% { clip-path: inset(0 0 0 0); opacity: 0; }
+}
+.review-res { position: relative; display: inline-flex; }
+.review-res > b { font-family: var(--fx-font-display); font-weight: 800; font-size: 12.5px; font-feature-settings: "tnum" 0; }
+.sparks { position: absolute; right: 35%; top: -3px; z-index: -1; width: 0; height: 0; pointer-events: none; }
+.sparks i {
+  position: absolute; left: 0; top: 0; width: 4px; height: 4px; border-radius: 50%;
+  background: var(--fx-brand-hi); box-shadow: 0 0 6px oklch(0.88 0.15 84 / 0.8);
+  opacity: 0;
+  animation: spark 900ms var(--fx-ease-expo) both;
+}
+.sparks i:nth-child(1) { --x: -26px; --y: -16px; animation-delay: 620ms; }
+.sparks i:nth-child(2) { --x: -12px; --y: -22px; animation-delay: 660ms; }
+.sparks i:nth-child(3) { --x: 4px; --y: -24px; animation-delay: 640ms; }
+.sparks i:nth-child(4) { --x: 18px; --y: -19px; animation-delay: 700ms; background: var(--fx-up); }
+.sparks i:nth-child(5) { --x: 30px; --y: -10px; animation-delay: 680ms; }
+.sparks i:nth-child(6) { --x: -36px; --y: -6px; animation-delay: 720ms; background: var(--fx-up); }
+@keyframes spark {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.4); }
+  20% { opacity: 1; transform: translate(calc(var(--x) * 0.35), calc(var(--y) * 0.35)) scale(1); }
+  100% { opacity: 0; transform: translate(var(--x), var(--y)) scale(0.5); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bal-delta, .view-in, .list-wrap.enter .prow, .list-wrap.enter .order, .form.from-l, .form.from-r, .go.nope,
+  .toast.leaving, .review.enter::before, .sparks i { animation: none; }
+  .bal-delta, .sparks { display: none; }
+}

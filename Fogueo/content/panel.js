@@ -494,8 +494,11 @@ class Panel {
 
   switchSide(side) {
     if (side === 'sell' && !this.position) return;
+    const changed = side !== this.side;
     this.side = side;
     this.renderTrade(); this.renderQuotes();
+    // El formulario entra desde el lado de su pestaña: Vender desde la derecha, Comprar desde la izquierda.
+    if (changed) this.animIn(this.refs[side === 'buy' ? 'buyForm' : 'sellForm'], side === 'buy' ? 'from-l' : 'from-r', 320);
   }
 
   // ---------- datos ----------
@@ -583,6 +586,9 @@ class Panel {
 
   renderView() {
     const r = this.refs;
+    const changed = this.lastView !== undefined && this.lastView !== this.view;
+    this.lastView = this.view;
+    if (changed && this.view === 'positions') this.listEnterAt = performance.now();
     r.viewTrade.hidden = this.view !== 'trade';
     r.viewList.hidden = this.view !== 'positions';
     r.viewKeys.hidden = this.view !== 'keys';
@@ -593,6 +599,15 @@ class Panel {
     this.el.querySelector('[data-v="keys"]').setAttribute('aria-pressed', String(this.view === 'keys'));
     if (this.view === 'positions') this.renderList();
     if (this.view === 'keys') this.renderKeys();
+    if (changed) this.animIn({ trade: r.viewTrade, positions: r.viewList, keys: r.viewKeys }[this.view], 'view-in');
+  }
+
+  // Reinicia una animación de entrada (clase temporal) en un elemento.
+  animIn(el, cls, ms = 600) {
+    if (!el || reducedMotion()) return;
+    el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls);
+    clearTimeout(el.__animT);
+    el.__animT = setTimeout(() => el.classList.remove(cls), ms);
   }
 
   renderOnboard() {
@@ -623,7 +638,12 @@ class Panel {
 
   renderHead() {
     const r = this.refs;
-    roll(r.bal, Number(this.st?.account.balance), (v) => { r.bal.textContent = fmtSol(v, { digits: 3 }); });
+    const bal = Number(this.st?.account.balance);
+    // Al cambiar el saldo, la diferencia sube flotando junto a la cifra (no al entrar o salir del recorrido).
+    const balKey = this.tour ? 'tour' : 'real';
+    if (balKey === this.balKey && isFinite(this.lastBal) && isFinite(bal) && Math.abs(bal - this.lastBal) >= 0.0005) this.floatDelta(bal - this.lastBal);
+    this.balKey = balKey; this.lastBal = bal;
+    roll(r.bal, bal, (v) => { r.bal.textContent = fmtSol(v, { digits: 3 }); });
     const pos = this.position;
     const pnl = pos && this.quote ? positionPnl(pos, this.quote, this.solUsd) : null;
     if (pnl) {
@@ -632,6 +652,19 @@ class Panel {
     } else {
       r.headChip.className = 'head-chip num';
     }
+  }
+
+  floatDelta(d) {
+    const host = this.refs.bal?.parentElement;
+    if (!host || reducedMotion() || document.hidden) return;
+    const s = document.createElement('span');
+    s.className = `bal-delta num ${d > 0 ? 'up' : 'down'}`;
+    s.setAttribute('aria-hidden', 'true');
+    s.textContent = fmtSol(d, { sign: true, digits: 3 });
+    host.append(s);
+    const kill = () => s.remove();
+    s.addEventListener('animationend', kill);
+    setTimeout(kill, 1600);
   }
 
   renderToken() {
@@ -920,6 +953,7 @@ class Panel {
   openReview(round) {
     this.review = round;
     this.reviewDraft = { tags: [], followedPlan: null };
+    this.reviewFresh = true;
     this.renderReview();
   }
 
@@ -928,19 +962,37 @@ class Panel {
     const r = this.review;
     if (!r) { area.innerHTML = ''; return; }
     const d = this.reviewDraft;
-    const t = tone(r.pnlSol);
-    area.innerHTML = `
-      <div class="review" role="group" aria-label="${tr('Revisión del trade')}">
-        <div class="review-h"><span>${tr('Trade cerrado')} · <b>$${esc(r.symbol)}</b></span><b class="num ${t}">${fmtSol(r.pnlSol, { sign: true })} SOL · ${fmtPct(r.pnlPct, 1, { sign: true })}</b></div>
-        <div class="review-q">${tr('¿Seguiste tu plan?')}
-          <span class="yn">
-            <button data-act="plan" data-v="yes" aria-pressed="${d.followedPlan === true}">${tr('Sí')}</button>
-            <button data-act="plan" data-v="no" aria-pressed="${d.followedPlan === false}">${tr('No')}</button>
-          </span>
-        </div>
-        <div class="tags">${REVIEW_TAGS.map((tg) => `<button class="tag-chip" data-act="tag" data-id="${tg.id}" aria-pressed="${d.tags.includes(tg.id)}">${tr(tg.label)}</button>`).join('')}</div>
-        <div class="review-a"><button class="link-btn" data-act="reviewSkip">${tr('Ahora no')}</button><button class="btn-brand" data-act="reviewSave">${tr('Guardar revisión')}</button></div>
-      </div>`;
+    let box = area.querySelector('.review');
+    if (!box || box.dataset.id !== String(r.id)) {
+      const t = tone(r.pnlSol);
+      // Solo al abrirla: la tarjeta entra con un barrido de color y el resultado cuenta desde cero.
+      const fresh = this.reviewFresh && !reducedMotion();
+      const sparks = fresh && r.pnlSol > 0 ? `<span class="sparks" aria-hidden="true">${'<i></i>'.repeat(6)}</span>` : '';
+      area.innerHTML = `
+        <div class="review ${fresh ? `enter rv-${t}` : ''}" data-id="${esc(r.id)}" role="group" aria-label="${tr('Revisión del trade')}">
+          <div class="review-h"><span>${tr('Trade cerrado')} · <b>$${esc(r.symbol)}</b></span><span class="review-res"><b class="num ${t}" data-ref="rvPnl"></b>${sparks}</span></div>
+          <div class="review-q">${tr('¿Seguiste tu plan?')}
+            <span class="yn">
+              <button data-act="plan" data-v="yes">${tr('Sí')}</button>
+              <button data-act="plan" data-v="no">${tr('No')}</button>
+            </span>
+          </div>
+          <div class="tags">${REVIEW_TAGS.map((tg) => `<button class="tag-chip" data-act="tag" data-id="${tg.id}">${tr(tg.label)}</button>`).join('')}</div>
+          <div class="review-a"><button class="link-btn" data-act="reviewSkip">${tr('Ahora no')}</button><button class="btn-brand" data-act="reviewSave">${tr('Guardar revisión')}</button></div>
+        </div>`;
+      box = area.querySelector('.review');
+      const el = box.querySelector('[data-ref="rvPnl"]');
+      const show = (v) => {
+        const pct = Math.abs(r.pnlSol) > 1e-12 ? r.pnlPct * (v / r.pnlSol) : r.pnlPct;
+        el.textContent = `${fmtSol(v, { sign: true })} SOL · ${fmtPct(pct, 1, { sign: true })}`;
+      };
+      el.__v = fresh ? 0 : r.pnlSol;
+      if (fresh) { show(0); roll(el, Number(r.pnlSol), show, 900); } else show(r.pnlSol);
+    }
+    this.reviewFresh = false;
+    box.querySelector('[data-v="yes"]').setAttribute('aria-pressed', String(d.followedPlan === true));
+    box.querySelector('[data-v="no"]').setAttribute('aria-pressed', String(d.followedPlan === false));
+    box.querySelectorAll('.tag-chip').forEach((b) => b.setAttribute('aria-pressed', String(d.tags.includes(b.dataset.id))));
   }
 
   async saveReview() {
@@ -1134,14 +1186,14 @@ class Panel {
     if (!positions.length && !orders.length) {
       return `<div class="empty small">${ICON.stack}<p><strong>${tr('Sin posiciones abiertas')}</strong>${tr('Lo que compres aparecerá aquí, con su resultado en vivo.')}</p></div>`;
     }
-    const rows = positions.map(([k, p]) => {
+    const rows = positions.map(([k, p], i) => {
       const q = k === this.key ? this.quote : this.allQuotes[k];
       const pnl = positionPnl(p, q, this.solUsd);
       const t = tone(pnl?.pnlSol);
       const m = rangeModel(pnl?.pnlPct, p);
       const initial = esc((p.symbol || '?').slice(0, 1).toUpperCase());
       const bar = m ? `<span class="mini-range"><i class="${m.x >= m.x0 ? 'up' : 'down'}" style="clip-path:inset(0 ${(100 - Math.max(m.x0, m.x) * 100).toFixed(1)}% 0 ${(Math.min(m.x0, m.x) * 100).toFixed(1)}%)"></i><b style="left:${(m.x0 * 100).toFixed(1)}%"></b></span>` : '';
-      return `<button class="prow ${k === this.key ? 'here' : ''}" data-act="goto" data-key="${esc(k)}" data-url="${esc(p.url || '')}">
+      return `<button class="prow ${k === this.key ? 'here' : ''}" style="--i:${i}" data-act="goto" data-key="${esc(k)}" data-url="${esc(p.url || '')}">
         <span class="avatar sm" style="--h:${hueFor(p.symbol)}">${p.icon ? `<img alt="" src="${esc(p.icon)}" referrerpolicy="no-referrer">` : initial}</span>
         <span class="prow-main"><b>$${esc(p.symbol)}</b><small class="num">${fmtSol(p.costSol)} → ${pnl ? fmtSol(pnl.value) : '…'} SOL</small></span>
         <span class="prow-end num ${t}">${pnl ? fmtPct(pnl.pnlPct, 1, { sign: true }) : '—'}<small>${pnl ? fmtSol(pnl.pnlSol, { sign: true }) : ''}</small></span>
@@ -1156,7 +1208,10 @@ class Panel {
     if (this.view !== 'positions') return;
     const box = this.refs.viewList;
     const back = this.status === 'ready' ? `<button class="back" data-act="view" data-v="positions">${ICON.back}${tr('Volver a')} $${esc(this.quote?.symbol)}</button>` : '';
-    box.innerHTML = `<div class="list-wrap">${back}<div class="sub-h">${tr('Posiciones abiertas')}</div>${this.listHtml()}</div>`;
+    // La lista se repinta a menudo (precios): la cascada de entrada continúa donde iba en vez de empezar de nuevo.
+    const el = performance.now() - (this.listEnterAt ?? -1e9);
+    const enter = el < 700 && !reducedMotion();
+    box.innerHTML = `<div class="list-wrap${enter ? ' enter' : ''}"${enter ? ` style="--el:${Math.round(el)}ms"` : ''}>${back}<div class="sub-h">${tr('Posiciones abiertas')}</div>${this.listHtml()}</div>`;
   }
 
   renderKeys() {
@@ -1304,7 +1359,7 @@ class Panel {
       this.setBusy(true, 'buy');
       const res = await send({ type: 'placeOrder', ...base, mc });
       this.setBusy(false, 'buy');
-      if (!res.ok) return this.toast('err', res.error);
+      if (!res.ok) return this.fail('buy', res.error);
       r.limitMc.value = ''; r.buyNote.value = ''; r.buyNote.hidden = true;
       this.orderType = 'market';
       this.renderTrade();
@@ -1314,9 +1369,9 @@ class Panel {
     this.setBusy(true, 'buy');
     const res = await send({ type: 'buy', ...base });
     this.setBusy(false, 'buy');
-    if (!res.ok) return this.toast('err', res.error);
+    if (!res.ok) return this.fail('buy', res.error);
     const d = res.data;
-    if (!d.ok) return this.toast('err', `${d.error} ${tr('Se cobran {fee} SOL de prioridad, como en real.', { fee: fmtSol(d.chargedFee) })}`);
+    if (!d.ok) return this.fail('buy', `${d.error} ${tr('Se cobran {fee} SOL de prioridad, como en real.', { fee: fmtSol(d.chargedFee) })}`);
     r.buyNote.value = ''; r.buyNote.hidden = true;
     this.fire('buy');
     this.toast('ok', tr('Compraste {qty} ${sym} a {mc} de MC por {sol} SOL.', { qty: fmtCompact(d.fill.qty), sym: this.quote.symbol, mc: fmtCompact(d.fill.mc, '$'), sol: fmtSol(d.fill.sol) }));
@@ -1354,9 +1409,9 @@ class Panel {
     this.setBusy(true, 'sell');
     const res = await send({ type: 'sell', key: this.key, pct: this.sellPct, note: this.refs.sellNote.value.trim() });
     this.setBusy(false, 'sell');
-    if (!res.ok) return this.toast('err', res.error);
+    if (!res.ok) return this.fail('sell', res.error);
     const d = res.data;
-    if (!d.ok) return this.toast('err', `${d.error} ${tr('Se cobran {fee} SOL de prioridad, como en real.', { fee: fmtSol(d.chargedFee) })}`);
+    if (!d.ok) return this.fail('sell', `${d.error} ${tr('Se cobran {fee} SOL de prioridad, como en real.', { fee: fmtSol(d.chargedFee) })}`);
     this.afterSell(d);
   }
 
@@ -1365,19 +1420,40 @@ class Panel {
     this.setBusy(true, 'sell');
     const res = await send({ type: 'sellInitials', key: this.key, note: this.refs.sellNote.value.trim() });
     this.setBusy(false, 'sell');
-    if (!res.ok) return this.toast('err', res.error);
+    if (!res.ok) return this.fail('sell', res.error);
     const d = res.data;
-    if (!d.ok) return this.toast('err', `${d.error} ${tr('Se cobran {fee} SOL de prioridad, como en real.', { fee: fmtSol(d.chargedFee) })}`);
+    if (!d.ok) return this.fail('sell', `${d.error} ${tr('Se cobran {fee} SOL de prioridad, como en real.', { fee: fmtSol(d.chargedFee) })}`);
     this.afterSell(d);
   }
 
-  toast(kind, text) {
-    const t = this.refs.toast;
-    t.className = `toast show ${kind}`;
-    t.innerHTML = `${kind === 'ok' ? ICON.ok : kind === 'info' ? ICON.mark : ICON.err}<p>${esc(text)}</p><button class="x" data-act="closeToast" aria-label="${tr('Cerrar aviso')}">${ICON.x}</button>`;
-    clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => this.hideToast(), kind === 'err' ? 9000 : 6000);
+  // Error: el botón da un pequeño «no» con la cabeza y sale el aviso.
+  fail(which, msg) {
+    const btn = this.refs[which === 'buy' ? 'buyForm' : 'sellForm']?.querySelector('.go');
+    this.animIn(btn, 'nope', 420);
+    return this.toast('err', msg);
   }
 
-  hideToast() { this.refs.toast.className = 'toast'; }
+  // La barrita de abajo marca el tiempo que le queda al aviso; con el ratón encima se para.
+  toast(kind, text) {
+    const t = this.refs.toast;
+    const ms = kind === 'err' ? 9000 : 6000;
+    t.className = `toast show ${kind}`;
+    t.style.setProperty('--life', `${ms}ms`);
+    t.innerHTML = `${kind === 'ok' ? ICON.ok : kind === 'info' ? ICON.mark : ICON.err}<p>${esc(text)}</p><button class="x" data-act="closeToast" aria-label="${tr('Cerrar aviso')}">${ICON.x}</button><i class="toast-life" aria-hidden="true"></i>`;
+    const life = t.querySelector('.toast-life');
+    life.addEventListener('animationend', () => this.hideToast());
+    clearTimeout(this.toastTimer);
+    // Por si la animación no llega a correr: se cierra igual, salvo con el ratón encima.
+    const arm = (wait) => { this.toastTimer = setTimeout(() => (t.matches(':hover') ? arm(1500) : this.hideToast()), wait); };
+    arm(ms + 3000);
+  }
+
+  hideToast() {
+    const t = this.refs.toast;
+    clearTimeout(this.toastTimer);
+    if (!t.classList.contains('show') || t.classList.contains('leaving')) return;
+    if (reducedMotion() || document.hidden) { t.className = 'toast'; return; }
+    t.classList.add('leaving');
+    setTimeout(() => { if (t.classList.contains('leaving')) t.className = 'toast'; }, 180);
+  }
 }

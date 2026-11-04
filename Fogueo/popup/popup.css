@@ -411,3 +411,14 @@ button.tag-chip:hover { border-color: var(--fx-ink-3); color: var(--fx-ink); }
 /* Accesibilidad: el título de la marca es el h1 y las pestañas van dentro de <nav> sin cambiar el diseño */
 h1.brand { margin: 0; line-height: inherit; }
 .tabs-nav { display: contents; }
+
+/* v1.10 · El detalle de un trade se despliega al abrirlo */
+.detail.opening { animation: detail-open 420ms var(--fx-ease-expo) both; transform-origin: top; }
+.detail.opening > * { animation: row-in 380ms var(--fx-ease) both; }
+.detail.opening > *:nth-child(2) { animation-delay: 70ms; }
+.detail.opening > *:nth-child(3) { animation-delay: 130ms; }
+.detail.opening > *:nth-child(n+4) { animation-delay: 180ms; }
+@keyframes detail-open { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
+@media (prefers-reduced-motion: reduce) {
+  .detail.opening, .detail.opening > * { animation: none; }
+}

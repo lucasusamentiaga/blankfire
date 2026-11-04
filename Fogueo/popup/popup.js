@@ -65,6 +65,7 @@ let tab = 'wallet';
 let histFilter = 'all';
 let statsPeriod = 'all';
 let openRow = null;
+let justOpened = null;   // el detalle recién abierto se despliega con animación (solo esa vez)
 let confirmReset = false;
 let touring = null;
 
@@ -180,10 +181,10 @@ function renderWallet() {
   translateDom(v);
 }
 
-function roundDetail(r) {
+function roundDetail(r, opening) {
   const fills = (r.fills || []).map((f) => `<div><span><span class="${f.side}">${f.side === 'buy' ? 'Compra' : 'Venta'}</span> ${tr('a {mc}', { mc: fmtCompact(f.mc, '$') })} · ${tTime(f.t, true)}</span><b>${f.side === 'buy' ? '−' : '+'}${fmtSol(f.sol)} SOL</b></div>`).join('');
   const note = (field, label, ph) => `<label class="field"><span>${label} <em class="saved" data-saved="${field}">guardado</em></span><textarea data-note="${field}" data-id="${esc(r.id)}" placeholder="${ph}">${esc(r[field] || '')}</textarea></label>`;
-  return `<div class="detail">
+  return `<div class="detail${opening ? ' opening' : ''}">
     <div class="kv">
       <div><span>Invertido</span><b>${fmtSol(r.investedSol)}</b></div>
       <div><span>Recuperado</span><b>${fmtSol(r.returnedSol)}</b></div>
@@ -228,10 +229,11 @@ function renderHistory() {
         <span class="r-main"><span class="r-sym"><span>$${esc(r.symbol)}</span>${reasonBadge(r.reason)}${r.followedPlan === true ? '<span class="badge plan-y" title="Seguiste tu plan">plan ✓</span>' : r.followedPlan === false ? '<span class="badge plan-n" title="No seguiste tu plan">sin plan</span>' : ''}</span>
         <span class="r-sub">${fmtWhen(r.closedAt)} · ${fmtDuration(r.closedAt - r.openedAt)}</span></span>
         <span class="r-end"><span class="r-pnl num ${t}">${fmtSol(r.pnlSol, { sign: true })}</span><br><span class="r-pct num ${t}">${fmtPct(r.pnlPct, 1, { sign: true })}</span></span>
-      </button>${isOpen ? roundDetail(r) : ''}`;
+      </button>${isOpen ? roundDetail(r, justOpened === r.id) : ''}`;
     }).join('') + '</div>';
   }
   v.innerHTML = html;
+  justOpened = null;
   fixImages(v);
   translateDom(v);
 }
@@ -465,7 +467,7 @@ document.addEventListener('click', async (e) => {
   if (tabBtn) { setTab(tabBtn.dataset.tab); return; }
   const hf = t.closest('[data-hf]'); if (hf) { histFilter = hf.dataset.hf; renderHistory(); return; }
   const sp = t.closest('[data-sp]'); if (sp) { statsPeriod = sp.dataset.sp; renderStats(); return; }
-  const row = t.closest('[data-row]'); if (row) { openRow = openRow === row.dataset.row ? null : row.dataset.row; renderHistory(); return; }
+  const row = t.closest('[data-row]'); if (row) { openRow = openRow === row.dataset.row ? null : row.dataset.row; justOpened = openRow; renderHistory(); return; }
   const del = t.closest('[data-del]'); if (del) { await send({ type: 'deleteArchive', id: del.dataset.del }); return; }
   const cancel = t.closest('[data-cancel]'); if (cancel) { await send({ type: 'cancelOrder', id: cancel.dataset.cancel }); return; }
   const plan = t.closest('[data-plan]');
