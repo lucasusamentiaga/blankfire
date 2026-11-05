@@ -5,6 +5,7 @@ import {
   realizedSince, startOfDay, REVIEW_TAGS, LAUNCH_DEXES, stopLevelPct,
 } from './lib/core.js';
 import { tr, setLang } from './lib/i18n.js';
+import { RAW, cmpVer, installedVersion, readUpdate, patchUpdate } from './lib/update.js';
 
 const KEY = 'fogueo';
 const DS = 'https://api.dexscreener.com';
@@ -712,6 +713,16 @@ const handlers = {
     }).finally(updateBadge);
   },
 
+  async checkUpdate({ force = true } = {}) { return checkUpdate(!!force); },
+
+  // Recarga la extensión desde la carpeta (coge los archivos nuevos tras actualizar.bat). Tus datos no se tocan.
+  async reloadExt() {
+    // Al volver, recargamos las pestañas de Padre para que el panel nuevo entre solo.
+    await chrome.storage.local.set({ blankfireReloadTabs: Date.now() });
+    setTimeout(() => chrome.runtime.reload(), 150);
+    return true;
+  },
+
   async deleteArchive({ id }) {
     return mutate((st) => { st.archive = st.archive.filter((a) => a.id !== id); return true; });
   },
@@ -734,8 +745,72 @@ chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch[
 chrome.alarms.create('fogueo-watch', { periodInMinutes: 0.5 });
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'fogueo-watch') checkTriggers(); });
 
-chrome.runtime.onInstalled.addListener(() => { load().then(updateBadge); });
-chrome.runtime.onStartup.addListener(() => { updateBadge(); });
+// ---------- Aviso de nueva versión ----------
+// Mira en GitHub la versión del manifest publicado (y sus novedades en updates.json) cada 3 h.
+const UPDATE_EVERY = 3 * 3600e3;
+let updChecking = null;
+async function ghJson(url) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 8000);
+  try {
+    const r = await fetch(`${url}?t=${Date.now()}`, { cache: 'no-store', signal: ctl.signal });
+    if (!r.ok) throw new Error(String(r.status));
+    return await r.json();
+  } finally { clearTimeout(t); }
+}
+async function checkUpdate(force = false) {
+  if (updChecking) return updChecking;
+  updChecking = (async () => {
+    const info = await readUpdate();
+    if (!force && info.checkedAt && Date.now() - info.checkedAt < UPDATE_EVERY) return info;
+    try {
+      const m = await ghJson(`${RAW}Fogueo/manifest.json`);
+      const latest = String(m?.version || '');
+      if (!/^\d+(\.\d+){0,3}$/.test(latest)) throw new Error('bad version');
+      let notes = null;
+      try {
+        const u = await ghJson(`${RAW}updates.json`);
+        const r = u?.releases?.[latest];
+        const clean = (a) => (Array.isArray(a) ? a.filter((x) => typeof x === 'string').map((x) => x.slice(0, 160)).slice(0, 4) : []);
+        if (r) notes = { version: latest, es: clean(r.es), en: clean(r.en) };
+      } catch { /* sin novedades: la tarjeta sale igual */ }
+      const next = { latest, notes, checkedAt: Date.now() };
+      const cur = installedVersion();
+      if (cmpVer(latest, cur) > 0 && info.notifiedFor !== latest) {
+        next.notifiedFor = latest;
+        notify(tr('Blankfire {v} ya está disponible', { v: latest }), tr('Abre Padre o la ventana de Blankfire para actualizar en dos pasos. Tus datos se quedan.'));
+      }
+      await patchUpdate(next);
+      return { ...info, ...next };
+    } catch {
+      await patchUpdate({ checkedAt: Date.now() - UPDATE_EVERY + 15 * 60e3 });   // reintenta en 15 min
+      return info;
+    }
+  })().finally(() => { updChecking = null; });
+  return updChecking;
+}
+chrome.alarms.create('blankfire-update', { periodInMinutes: 60 });
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'blankfire-update') checkUpdate(); });
+
+chrome.runtime.onInstalled.addListener(async (d) => {
+  load().then(updateBadge);
+  // Tras actualizar: celebración una vez, y fuera el aviso de la versión que ya tienes.
+  if (d?.reason === 'update' && d.previousVersion && cmpVer(installedVersion(), d.previousVersion) > 0) {
+    await patchUpdate({ justUpdated: { from: d.previousVersion, to: installedVersion(), at: Date.now(), seen: false }, snooze: null });
+  }
+  checkUpdate(true);
+  try {
+    const { blankfireReloadTabs: at } = await chrome.storage.local.get('blankfireReloadTabs');
+    if (at) {
+      await chrome.storage.local.remove('blankfireReloadTabs');
+      if (Date.now() - at < 60000) {
+        const tabs = await chrome.tabs.query({ url: 'https://trade.padre.gg/*' });
+        tabs.forEach((t) => chrome.tabs.reload(t.id).catch(() => {}));
+      }
+    }
+  } catch { /* sin pestañas que recargar */ }
+});
+chrome.runtime.onStartup.addListener(() => { updateBadge(); checkUpdate(); });
 
 chrome.commands?.onCommand.addListener(async (command) => {
   if (command !== 'toggle-panel') return;

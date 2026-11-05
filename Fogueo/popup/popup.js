@@ -4,6 +4,7 @@ import {
 } from '../lib/core.js';
 import { tr, setLang, getLang, locale } from '../lib/i18n.js';
 import { vChips, vFlow, vLegend, vMeter } from '../lib/viz.js';
+import { UPD_KEY, updateView, updateCard, readUpdate, onUpdateAction, installedVersion, cmpVer, REPO } from '../lib/update.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -414,6 +415,8 @@ function renderSettings() {
       return `<div><span>${tDay(a.startedAt)} – ${tDay(a.endedAt)} <span class="muted">· ${a.rounds.length} trades</span></span><span class="num ${tone(d)}">${fmtSol(d, { sign: true })} SOL</span><button class="x" data-del="${esc(a.id)}" aria-label="Borrar esta cuenta del archivo">borrar</button></div>`;
     }).join('')}</div>` : ''}
 
+    ${versionRow()}
+
     <p class="about">Blankfire no toca tu wallet ni tu cuenta de Padre: solo lee precios públicos de DexScreener y Jupiter. Los resultados son una aproximación; en real, la ejecución puede ser peor en tokens muy nuevos o con poca liquidez.</p>
     <div class="credits">
       <span class="by">${ICON.mark}<span>${tr('Hecho por')} <b>Lucas Usamentiaga</b></span></span>
@@ -425,8 +428,33 @@ function renderSettings() {
   translateDom(v);
 }
 
+// ---------- versión y aviso de actualización ----------
+let upd = {};
+let updSig = null;
+let updChecking = false;
+function renderUpdate() {
+  const box = $('#updArea');
+  if (!box) return;
+  const view = touring ? null : updateView(upd, { respectSnooze: false });
+  const sig = view ? `${view}|${upd.latest}|${upd.notes?.version}|${getLang()}` : '';
+  if (sig !== updSig) { updSig = sig; box.innerHTML = view ? updateCard(upd, view, { compact: true }) : ''; }
+  const vr = $('.ver-row');
+  if (vr) vr.outerHTML = versionRow();
+}
+function versionRow() {
+  const cur = installedVersion();
+  const newer = upd.latest && cmpVer(upd.latest, cur) > 0;
+  const mins = upd.checkedAt ? Math.max(0, Math.round((Date.now() - upd.checkedAt) / 60000)) : null;
+  const state = updChecking ? `<span class="ver-s">${tr('Buscando…')}</span>`
+    : newer ? `<span class="ver-s new">${tr('Hay una nueva: {v}', { v: esc(upd.latest) })}</span>`
+      : mins != null ? `<span class="ver-s ok">${tr('Al día')} · ${mins < 1 ? tr('comprobado ahora') : tr('comprobado hace {n} min', { n: mins })}</span>` : '';
+  return `<div class="ver-row"><span class="ver-l">${tr('Versión')} <b class="num">${esc(cur)}</b>${state}</span>
+    <span class="ver-a"><a class="ghost" href="${REPO}" target="_blank" rel="noopener">GitHub</a><button class="ghost" data-act="checkUpd" ${updChecking ? 'disabled' : ''}>${tr('Buscar actualizaciones')}</button></span></div>`;
+}
+
 function render() {
   if (!st) return;
+  renderUpdate();
   renderSummary();
   ({ wallet: renderWallet, history: renderHistory, stats: renderStats, settings: renderSettings })[tab]();
 }
@@ -464,6 +492,20 @@ function setTab(name) {
 document.addEventListener('click', async (e) => {
   const t = e.target;
   if (touring) return; // durante el recorrido solo responde la tarjeta
+  const ub = t.closest('[data-upd]');
+  if (ub) {
+    if (ub.dataset.upd === 'reload') { ub.disabled = true; ub.textContent = tr('Recargando…'); }
+    onUpdateAction(ub.dataset.upd, upd);
+    return;
+  }
+  if (t.closest('[data-act="checkUpd"]')) {
+    updChecking = true; renderUpdate();
+    const r = await send({ type: 'checkUpdate', force: true });
+    updChecking = false;
+    if (r?.ok) upd = r.data || upd;
+    renderUpdate();
+    return;
+  }
   const tabBtn = t.closest('[data-tab]');
   if (tabBtn) { setTab(tabBtn.dataset.tab); return; }
   const hf = t.closest('[data-hf]'); if (hf) { histFilter = hf.dataset.hf; renderHistory(); return; }
@@ -573,6 +615,7 @@ function exportCsv() {
 }
 
 chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes[UPD_KEY]) { upd = changes[UPD_KEY].newValue || {}; renderUpdate(); }
   if (area !== 'local' || !changes.fogueo) return;
   // Datos dañados o a medio reparar: esperamos a que el motor los arregle.
   const nv = changes.fogueo.newValue;
@@ -611,6 +654,9 @@ function applyStaticLang() {
   if (st && !st.settings?.lang) { st.settings = { ...st.settings, lang: getLang() }; send({ type: 'saveSettings', settings: { lang: getLang() } }); }
   applyStaticLang();
   if (st) $('#equity').__v = st.account.startBalance;
+  upd = await readUpdate();
+  renderUpdate();
+  send({ type: 'checkUpdate', force: false });
   render();
   enterView();
   requestAnimationFrame(moveInk);
@@ -839,7 +885,7 @@ function endTour(finished) {
   const t = touring;
   document.removeEventListener('keydown', t.onKey, true);
   t.layer.remove();
-  touring = null;
+  touring = null; renderUpdate();
   st = t.realSt;
   ({ openRow, histFilter, statsPeriod, quotes, solUsd } = t.saved);
   setTab(finished ? 'wallet' : t.saved.tab);

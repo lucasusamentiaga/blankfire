@@ -5,6 +5,7 @@ import {
 } from '../lib/core.js';
 import { tr, setLang, getLang } from '../lib/i18n.js';
 import { Tour } from './tour.js';
+import { UPD_KEY, updateView, updateCard, readUpdate, onUpdateAction } from '../lib/update.js';
 
 const ICON = {
   mark: '<svg viewBox="0 0 100 100" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M57 5C61 25 79 38 79 62A29 29 0 0 1 21 62C21 47 28 38 36 31C37 39 41 43 45 45C43 31 49 17 57 5ZM50 48.5A13.5 13.5 0 0 1 50 75.5A13.5 13.5 0 0 1 50 48.5Z"/></svg>',
@@ -162,6 +163,8 @@ class Panel {
   async init() {
     const res = await send({ type: 'state' });
     if (res.ok) this.st = res.data;
+    this.upd = await readUpdate();
+    send({ type: 'checkUpdate', force: false });
     setLang(this.settings.lang);
     // Primera vez: fijamos el idioma detectado para que panel, ventana y avisos coincidan.
     if (this.st && !this.st.settings?.lang) {
@@ -173,6 +176,7 @@ class Panel {
     this.host.hidden = !!this.st?.ui?.panel?.hidden;
 
     chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes[UPD_KEY]) { this.upd = changes[UPD_KEY].newValue || {}; this.renderUpdate(); }
       if (area !== 'local' || !changes.fogueo) return;
       // Datos dañados o a medio reparar: esperamos a que el motor los arregle.
       const nv = changes.fogueo.newValue;
@@ -240,6 +244,7 @@ class Panel {
         <button class="icon-btn collapse" data-act="collapse" aria-label="${tr('Minimizar panel')}" aria-expanded="true">${ICON.chevron}</button>
       </div>
       <div class="body"><div class="body-inner">
+        <div data-ref="updArea"></div>
         <div data-ref="onboard"></div>
         <div data-ref="viewTrade">
           <div data-ref="tokenArea"></div>
@@ -318,6 +323,23 @@ class Panel {
     this.el = wrap;
     this.refs = {};
     wrap.querySelectorAll('[data-ref]').forEach((n) => { this.refs[n.dataset.ref] = n; });
+    this.updSig = null;
+    this.refs.updArea.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-upd]');
+      if (!b || this.tour) return;
+      const act = b.dataset.upd;
+      if (act === 'reload') {
+        // Recarga la extensión y luego esta pestaña, para que el panel nuevo entre solo.
+        b.disabled = true; b.textContent = tr('Recargando…');
+        onUpdateAction('reload', this.upd);   // la extensión se recarga y vuelve a abrir esta pestaña con el panel nuevo
+        return;
+      }
+      const card = this.refs.updArea.firstElementChild;
+      if (card && !reducedMotion()) {
+        card.classList.add('leaving');
+        setTimeout(() => onUpdateAction(act, this.upd), 200);
+      } else onUpdateAction(act, this.upd);
+    });
 
     wrap.addEventListener('click', (e) => {
       // Durante el recorrido solo vale lo que pide el paso «Pruébalo» (nunca comprar ni vender de verdad).
@@ -577,6 +599,7 @@ class Panel {
 
   renderAll() {
     if (!this.el) return;
+    this.renderUpdate();
     this.renderHead();
     this.renderOnboard();
     this.renderToken();
@@ -658,6 +681,19 @@ class Panel {
     } else {
       r.headChip.className = 'head-chip num';
     }
+  }
+
+  // Aviso de versión nueva (o de «recién actualizado»). Solo se repinta si cambia algo.
+  renderUpdate() {
+    const area = this.refs?.updArea;
+    if (!area) return;
+    const view = this.tour ? null : updateView(this.upd);
+    const sig = view ? `${view}|${this.upd.latest}|${this.upd.notes?.version}|${getLang()}` : '';
+    // La llama de la cabecera lleva un punto ámbar mientras haya versión nueva, aunque la hayas pospuesto.
+    this.el.querySelector('.head .mark')?.classList.toggle('has-upd', updateView(this.upd, { respectSnooze: false }) === 'available');
+    if (sig === this.updSig) return;
+    this.updSig = sig;
+    area.innerHTML = view ? updateCard(this.upd, view) : '';
   }
 
   floatDelta(d) {

@@ -24,9 +24,18 @@ Extensión para Chrome y Opera GX (Manifest V3). Español e inglés.
 2. Abre `chrome://extensions` (en Opera GX, `opera://extensions`).
 3. Activa el **Modo de desarrollador**.
 4. Pulsa **Cargar descomprimida** y elige la carpeta `Fogueo`.
-   5. Abre un token en [trade.padre.gg](https://trade.padre.gg): el panel aparece solo. <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> lo muestra u oculta.
+5. Abre un token en [trade.padre.gg](https://trade.padre.gg): el panel aparece solo. <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> lo muestra u oculta.
 
 > La carpeta se llama `Fogueo` (el nombre original del proyecto) a propósito: el navegador identifica la extensión por su ruta, y cambiarla borraría tu cuenta de práctica.
+
+## Actualizar
+
+Cuando se publica una versión nueva aquí, Blankfire te avisa solo: sale una tarjeta en el panel de Padre y en la ventana del icono, y una notificación del sistema. Para actualizar:
+
+1. Haz doble clic en **`actualizar.bat`** (en la carpeta del proyecto). Descarga la versión nueva con Git. Si no usas Git, descarga el [ZIP](https://github.com/lucasusamentiaga/blankfire/archive/refs/heads/main.zip) y reemplaza la carpeta `Fogueo`.
+2. Pulsa **Recargar Blankfire** en la tarjeta. La extensión se recarga y Padre se refresca solo. Tu cuenta, posiciones y ajustes se quedan.
+
+En **Ajustes** de la ventana ves tu versión y puedes buscar actualizaciones a mano. Las novedades de cada versión están en [`updates.json`](updates.json).
 
 ## Estructura
 
@@ -38,6 +47,8 @@ Fogueo/              La extensión
   popup/             Ventana del icono: cartera, historial, estadísticas y ajustes
   lib/               Lógica compartida (simulación, formato) e idiomas
   _locales/          Nombre y descripción en español e inglés
+updates.json         Novedades de cada versión (las enseña el aviso de actualización)
+actualizar.bat       Descarga la última versión con Git
 Marca Blankfire/     Lámina de la marca, filosofía visual y fuentes para regenerar los iconos
 tests/               Pruebas de extremo a extremo con Playwright
 ```
