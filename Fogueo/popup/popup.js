@@ -435,7 +435,7 @@ let updChecking = false;
 function renderUpdate() {
   const box = $('#updArea');
   if (!box) return;
-  const view = touring ? null : updateView(upd, { respectSnooze: false });
+  const view = touring ? null : updateView(upd);
   const sig = view ? `${view}|${upd.latest}|${upd.notes?.version}|${getLang()}` : '';
   if (sig !== updSig) { updSig = sig; box.innerHTML = view ? updateCard(upd, view, { compact: true }) : ''; }
   const vr = $('.ver-row');
@@ -445,9 +445,11 @@ function versionRow() {
   const cur = installedVersion();
   const newer = upd.latest && cmpVer(upd.latest, cur) > 0;
   const mins = upd.checkedAt ? Math.max(0, Math.round((Date.now() - upd.checkedAt) / 60000)) : null;
+  const ago = mins == null ? '' : mins < 1 ? tr('comprobado ahora') : mins < 90 ? tr('comprobado hace {n} min', { n: mins }) : tr('comprobado hace {n} h', { n: Math.round(mins / 60) });
   const state = updChecking ? `<span class="ver-s">${tr('Buscando…')}</span>`
     : newer ? `<span class="ver-s new">${tr('Hay una nueva: {v}', { v: esc(upd.latest) })}</span>`
-      : mins != null ? `<span class="ver-s ok">${tr('Al día')} · ${mins < 1 ? tr('comprobado ahora') : tr('comprobado hace {n} min', { n: mins })}</span>` : '';
+      : upd.failed ? `<span class="ver-s warn">${tr('No se pudo comprobar (GitHub no responde)')}</span>`
+        : mins != null ? `<span class="ver-s ok">${tr('Al día')} · ${ago}</span>` : '';
   return `<div class="ver-row"><span class="ver-l">${tr('Versión')} <b class="num">${esc(cur)}</b>${state}</span>
     <span class="ver-a"><a class="ghost" href="${REPO}" target="_blank" rel="noopener">GitHub</a><button class="ghost" data-act="checkUpd" ${updChecking ? 'disabled' : ''}>${tr('Buscar actualizaciones')}</button></span></div>`;
 }
@@ -623,6 +625,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if ((changes.fogueo.newValue?.settings?.lang || null) !== (st?.settings?.lang || null) && changes.fogueo.newValue?.settings?.lang) { location.reload(); return; }
   if (touring) { touring.realSt = changes.fogueo.newValue; return; }
   st = changes.fogueo.newValue;
+  // Posición nueva abierta desde Padre con la ventana abierta: pedimos su precio ya, sin esperar al siguiente refresco.
+  if (Object.keys(st.account.positions).some((k) => !quotes[k])) loadQuotes().then(() => { renderSummary(); if (tab === 'wallet' && !document.activeElement?.matches?.('input, textarea')) renderWallet(); });
   // No repintamos ajustes ni una nota abierta mientras se escribe.
   const typing = document.activeElement?.matches?.('input, textarea');
   renderSummary();

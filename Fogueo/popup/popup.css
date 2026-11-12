@@ -619,3 +619,5 @@ a.upd-link { font-weight: 600; }
 .ver-s.new { color: var(--fx-brand-hi); font-weight: 600; }
 .ver-a { display: inline-flex; gap: 6px; }
 .ver-a a.ghost { text-decoration: none; display: inline-flex; align-items: center; }
+
+.ver-s.warn { color: var(--fx-brand-hi); }

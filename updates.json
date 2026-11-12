@@ -1,6 +1,21 @@
 {
   "_info": "Novedades de cada versión. Blankfire las enseña en el aviso de actualización (máx. 4 líneas por idioma).",
   "releases": {
+    "1.12.1": {
+      "date": "2026-11-12",
+      "es": [
+        "Precios al segundo: DexScreener podía darte uno de hasta 30 s de antigüedad",
+        "El panel ya no se desliza de lado y editar el Stop se ve bien",
+        "«Más tarde» también funciona en la ventana; si GitHub falla ya no dice «Al día»",
+        "Los ajustes dañados se reparan solos y faltaban 3 textos en inglés"
+      ],
+      "en": [
+        "Live prices: DexScreener could hand you one up to 30 s old",
+        "The panel no longer slides sideways and editing the Stop looks right",
+        "“Later” works in the popup too; if GitHub fails it no longer says “Up to date”",
+        "Damaged settings repair themselves, and 3 English texts were missing"
+      ]
+    },
     "1.12.0": {
       "date": "2026-11-04",
       "es": [
@@ -16,8 +31,16 @@
     },
     "1.11.0": {
       "date": "2026-11-04",
-      "es": ["Avisos con título y cifras en fichas", "Importe con dólares y % del saldo", "Recorridos con mini-gráficos"],
-      "en": ["Alerts with a title and figures as chips", "Amount shows dollars and % of balance", "Tours with mini charts"]
+      "es": [
+        "Avisos con título y cifras en fichas",
+        "Importe con dólares y % del saldo",
+        "Recorridos con mini-gráficos"
+      ],
+      "en": [
+        "Alerts with a title and figures as chips",
+        "Amount shows dollars and % of balance",
+        "Tours with mini charts"
+      ]
     }
   }
 }

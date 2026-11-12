@@ -176,10 +176,10 @@ svg { display: block; }
 .target.sl.on b { color: var(--fx-down); }
 .target-edit { flex: 1; display: flex; align-items: center; height: 30px; border-radius: var(--fx-r-sm); background: var(--fx-bg); border: 1px solid var(--fx-brand-ring); padding: 0 4px 0 8px; gap: 4px; }
 .target-edit input { width: 100%; min-width: 0; background: none; border: 0; outline: none; font-family: var(--fx-font-num); font-weight: 600; font-size: 13px; }
-.target-edit span { font-size: 12px; color: var(--fx-ink-3); }
+.target-edit span { font-size: 12px; color: var(--fx-ink-3); white-space: nowrap; flex: none; }
 
 /* Recorrido stop ← entrada → take */
-.range { grid-column: 1 / -1; padding: 4px 0 2px; }
+.range { grid-column: 1 / -1; padding: 4px 0 2px; overflow-x: clip; overflow-clip-margin: 10px; }
 .range-track { position: relative; height: 6px; border-radius: 3px; background: var(--fx-raise-2); }
 .range-fill {
   position: absolute; inset: 0; border-radius: 3px;
@@ -654,7 +654,7 @@ button.pos-pnl:hover small { text-decoration: underline; text-underline-offset: 
    Recorrido guiado
    ========================================================= */
 /* El cuerpo del panel hace scroll si no cabe en pantalla */
-.body-inner { max-height: calc(100vh - 64px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--fx-line) transparent; }
+.body-inner { max-height: calc(100vh - 64px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--fx-line) transparent; }
 .fx.is-collapsed .body-inner { overflow: hidden; }
 
 

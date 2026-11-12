@@ -40,6 +40,12 @@ function repair(st) {
   fix(!isObj(st.settings), () => { st.settings = {}; });
   const merged = { ...DEFAULT_SETTINGS, ...st.settings };
   fix(!(isNum(merged.startBalance) && merged.startBalance > 0), () => { merged.startBalance = DEFAULT_SETTINGS.startBalance; });
+  // Cualquier ajuste numérico dañado (texto, NaN, negativo) vuelve a su valor por defecto.
+  for (const [k, d] of Object.entries(DEFAULT_SETTINGS)) {
+    if (typeof d === 'number') fix(!(isNum(merged[k]) && merged[k] >= 0), () => { merged[k] = d; });
+    else if (typeof d === 'boolean') fix(typeof merged[k] !== 'boolean', () => { merged[k] = d; });
+    else if (Array.isArray(d)) fix(!Array.isArray(merged[k]) || !merged[k].length || !merged[k].every((n) => isNum(n) && n > 0), () => { merged[k] = [...d]; });
+  }
   st.settings = merged;
   fix(!isObj(st.account), () => { st.account = freshAccount(st.settings.startBalance); });
   const a = st.account;
@@ -88,8 +94,11 @@ function mutate(fn) {
 const quoteCache = new Map(); // key -> {at, quote}
 let solCache = { at: 0, usd: null };
 
+// DexScreener sirve sus respuestas desde una caché de hasta 30 s. Para que el precio sea el de ahora:
+// sin caché del navegador y con un parámetro que cambia cada 2 s (las peticiones del mismo instante la comparten).
 async function getJson(url) {
-  const res = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(7000) });
+  const fresh = `${url}${url.includes('?') ? '&' : '?'}_=${Math.floor(Date.now() / 2000)}`;
+  const res = await fetch(fresh, { headers: { accept: 'application/json' }, cache: 'no-store', signal: AbortSignal.timeout(7000) });
   if (!res.ok) throw new Error(tr('DexScreener respondió {s}', { s: res.status }));
   return res.json();
 }
@@ -98,7 +107,7 @@ async function getJson(url) {
 let jupBackoffUntil = 0;
 async function jupJson(url) {
   if (Date.now() < jupBackoffUntil) throw new Error(tr('Jupiter: esperando por límite de peticiones'));
-  const res = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(7000) });
+  const res = await fetch(url, { headers: { accept: 'application/json' }, cache: 'no-store', signal: AbortSignal.timeout(7000) });
   if (res.status === 429) { jupBackoffUntil = Date.now() + 6000; throw new Error(tr('Jupiter: demasiadas peticiones')); }
   if (!res.ok) throw new Error(tr('Jupiter respondió {s}', { s: res.status }));
   return res.json();
@@ -742,7 +751,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 chrome.storage.local.get(KEY).then((g) => setLang(g[KEY]?.settings?.lang));
 chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch[KEY]) setLang(ch[KEY].newValue?.settings?.lang); });
 
-chrome.alarms.create('fogueo-watch', { periodInMinutes: 0.5 });
+// Solo se crea si no existe: recrearla en cada arranque del motor reiniciaría la cuenta atrás.
+function ensureAlarm(name, periodInMinutes) {
+  chrome.alarms.get(name, (a) => { if (!a || a.periodInMinutes !== periodInMinutes) chrome.alarms.create(name, { periodInMinutes }); });
+}
+ensureAlarm('fogueo-watch', 0.5);
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'fogueo-watch') checkTriggers(); });
 
 // ---------- Aviso de nueva versión ----------
@@ -762,7 +775,9 @@ async function checkUpdate(force = false) {
   if (updChecking) return updChecking;
   updChecking = (async () => {
     const info = await readUpdate();
-    if (!force && info.checkedAt && Date.now() - info.checkedAt < UPDATE_EVERY) return info;
+    // triedAt = último intento (salga bien o mal); checkedAt = última vez que GitHub respondió.
+    const wait = info.failed ? 15 * 60e3 : UPDATE_EVERY;
+    if (!force && info.triedAt && Date.now() - info.triedAt < wait) return info;
     try {
       const m = await ghJson(`${RAW}Fogueo/manifest.json`);
       const latest = String(m?.version || '');
@@ -774,7 +789,7 @@ async function checkUpdate(force = false) {
         const clean = (a) => (Array.isArray(a) ? a.filter((x) => typeof x === 'string').map((x) => x.slice(0, 160)).slice(0, 4) : []);
         if (r) notes = { version: latest, es: clean(r.es), en: clean(r.en) };
       } catch { /* sin novedades: la tarjeta sale igual */ }
-      const next = { latest, notes, checkedAt: Date.now() };
+      const next = { latest, notes, checkedAt: Date.now(), triedAt: Date.now(), failed: false };
       const cur = installedVersion();
       if (cmpVer(latest, cur) > 0 && info.notifiedFor !== latest) {
         next.notifiedFor = latest;
@@ -783,13 +798,14 @@ async function checkUpdate(force = false) {
       await patchUpdate(next);
       return { ...info, ...next };
     } catch {
-      await patchUpdate({ checkedAt: Date.now() - UPDATE_EVERY + 15 * 60e3 });   // reintenta en 15 min
-      return info;
+      const next = { triedAt: Date.now(), failed: true };   // reintenta en 15 min, sin fingir que se comprobó
+      await patchUpdate(next);
+      return { ...info, ...next };
     }
   })().finally(() => { updChecking = null; });
   return updChecking;
 }
-chrome.alarms.create('blankfire-update', { periodInMinutes: 60 });
+ensureAlarm('blankfire-update', 60);
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'blankfire-update') checkUpdate(); });
 
 chrome.runtime.onInstalled.addListener(async (d) => {

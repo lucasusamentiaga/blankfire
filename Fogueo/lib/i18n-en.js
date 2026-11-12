@@ -623,5 +623,10 @@ export const EN = {
  "Versión": "Version",
  "Buscar actualizaciones": "Check for updates",
  "Blankfire {v} ya está disponible": "Blankfire {v} is out",
- "Abre Padre o la ventana de Blankfire para actualizar en dos pasos. Tus datos se quedan.": "Open Padre or the Blankfire popup to update in two steps. Your data stays."
+ "Abre Padre o la ventana de Blankfire para actualizar en dos pasos. Tus datos se quedan.": "Open Padre or the Blankfire popup to update in two steps. Your data stays.",
+ "Hacia el take profit": "Heading to take profit",
+ "Hacia el stop loss": "Heading to stop loss",
+ "Nada con este filtro": "Nothing with this filter",
+ "comprobado hace {n} h": "checked {n} h ago",
+ "No se pudo comprobar (GitHub no responde)": "Couldn't check (GitHub isn't responding)"
 };

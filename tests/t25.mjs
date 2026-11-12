@@ -12,7 +12,11 @@ const NOTES = { releases: { '9.9.9': { es: ['Primera novedad', 'Segunda novedad'
 async function run(lang) {
   const L = lang === 'en' ? 'en-US' : 'es-ES';
   ghVersion = '9.9.9'; ghDown = false;
-  const ctx = await chromium.launchPersistentContext(TDIR+'p25-' + Date.now(), { headless: true, channel: 'chromium', locale: L, viewport: { width: 1100, height: 900 }, deviceScaleFactor: 2, args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--lang=' + L] });
+  // Opera/Chrome con «Modo desarrollador» activado, como hace falta para cargar la extensión desde la carpeta
+  // (sin él, Chromium desactiva las extensiones sin empaquetar al recargarlas).
+  const UD = TDIR+'p25-' + Date.now(); fs.mkdirSync(UD + '/Default', { recursive: true });
+  fs.writeFileSync(UD + '/Default/Preferences', JSON.stringify({ extensions: { ui: { developer_mode: true } } }));
+  const ctx = await chromium.launchPersistentContext(UD, { headless: true, channel: 'chromium', locale: L, viewport: { width: 1100, height: 900 }, deviceScaleFactor: 2, args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--lang=' + L] });
   await ctx.route('https://raw.githubusercontent.com/**', (r) => {
     ghHits++;
     if (ghDown) return r.fulfill({ status: 503, body: 'down' });
@@ -57,7 +61,12 @@ async function run(lang) {
   const pop = await ctx.newPage(); pop.on('pageerror', (e) => errs.push('POP ' + e.message));
   await pop.setViewportSize({ width: 400, height: 640 });
   await pop.goto(`chrome-extension://${extId}/popup/popup.html`); await pop.waitForTimeout(1000); await pop.keyboard.press('Escape'); await pop.waitForTimeout(400);
-  ok(await pop.locator('#updArea .upd').count() === 1, tag + 'Ventana: la tarjeta sale aunque la pospusieras en el panel');
+  ok(await pop.locator('#updArea .upd').count() === 0, tag + 'Ventana: también respeta «Más tarde» (si no, el botón no haría nada aquí)');
+  await pop.evaluate(() => new Promise((res) => chrome.storage.local.get('blankfireUpdate', (g) => chrome.storage.local.set({ blankfireUpdate: { ...g.blankfireUpdate, snooze: null } }, res))));
+  await pop.waitForTimeout(500);
+  ok(await pop.locator('#updArea .upd').count() === 1, tag + 'Ventana: sin posponer, la tarjeta sale');
+  await pop.locator('#updArea [data-upd="later"].upd-link').click(); await pop.waitForTimeout(500);
+  ok(await pop.locator('#updArea .upd').count() === 0, tag + 'Ventana: «Más tarde» la quita');
   await pop.screenshot({ path: `${TDIR}shots25-${lang}-popup.png` });
   await pop.locator('[data-tab="settings"]').click(); await pop.waitForTimeout(400);
   const vr = await pop.locator('.ver-row').innerText();
@@ -92,7 +101,10 @@ async function run(lang) {
     await P.locator('.upd [data-upd="reload"]').click();
     await nav; await pg.waitForTimeout(3500);
     const back = await pg.evaluate(() => { const r = document.querySelector('#fogueo-root')?.shadowRoot; return r ? { bal: r.querySelector('[data-ref="bal"]')?.textContent, upd: !!r.querySelector('.upd') } : null; });
-    ok(back && back.bal === stBefore && back.upd, 'Recargar Blankfire: la extensión se recarga, la pestaña también, el panel vuelve con el mismo saldo (' + JSON.stringify(back) + ')');
+    const alive = await ctx.newPage(); const ok2 = await alive.goto(`chrome-extension://${extId}/popup/popup.html`).then(() => true).catch(() => false);
+    const fresh = await pg.evaluate(() => performance.getEntriesByType('navigation')[0]?.startTime === 0 && performance.timeOrigin > Date.now() - 15000);
+    ok(ok2 && fresh && back && back.bal === stBefore && back.upd, 'Recargar Blankfire: la extensión vuelve, Padre se recarga de verdad y el panel sale con el mismo saldo (' + JSON.stringify({ alive: ok2, fresh, ...back }) + ')');
+    await alive.close().catch(() => {});
   }
   ok(!errs.length, tag + 'Sin errores JS' + (errs.length ? ': ' + errs.join(' | ') : ''));
   await ctx.close();
