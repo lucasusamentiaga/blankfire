@@ -4,12 +4,12 @@ const TDIR = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$
 import fs from 'fs';
 const EXT=new URL('../Fogueo', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'), SOL='So11111111111111111111111111111111111111112';
 const TOKEN='52u2Z2PZkPgX8nzzZvN7ADCroDBTRiT4VNkpAgm3pump';
-const OUT=TDIR+'en'; fs.rmSync(OUT,{recursive:true,force:true}); fs.mkdirSync(OUT);
+const OUT=TDIR + 'en'; fs.rmSync(OUT,{recursive:true,force:true}); fs.mkdirSync(OUT);
 const ok=(c,m)=>console.log((c?'OK  ':'FAIL')+' '+m);
 const ES=/[áéíóúñ¿¡]|\b(de|del|el|la|los|las|que|con|para|por|tu|tus|sin|una|en|es|hoy|ayer|hace|compra|venta|comprar|vender|saldo|aquí|cuenta|ajustes|todo|más|cada|desde|hasta)\b/i;
 const SKIP=new Set(['ES','Español','English / Español']);
 const leftovers=(txt)=>txt.split(/\n+/).map(s=>s.trim().replace(/^(@aria-label: )?(ES|EN) · /,'$1')).filter(s=>s && !SKIP.has(s) && ES.test(s));
-const ctx = await chromium.launchPersistentContext(TDIR+'p9-'+Date.now(), { headless:true, channel:'chromium', locale:'en-US', viewport:{width:1280,height:900}, args:[`--disable-extensions-except=${EXT}`,`--load-extension=${EXT}`,'--lang=en-US'] });
+const ctx = await chromium.launchPersistentContext(TDIR + 'p9-'+Date.now(), { headless:true, channel:'chromium', locale:'en-US', viewport:{width:1280,height:900}, args:[`--disable-extensions-except=${EXT}`,`--load-extension=${EXT}`,'--lang=en-US'] });
 await ctx.route('https://api.dexscreener.com/**', (route) => {
   const u=route.request().url();
   if (u.includes(SOL)&&!u.includes(TOKEN)) return route.fulfill({json:[{chainId:'solana',pairAddress:'x',baseToken:{address:SOL,symbol:'SOL'},quoteToken:{symbol:'USDC'},priceUsd:'182',liquidity:{usd:9e6}}]});
@@ -17,7 +17,7 @@ await ctx.route('https://api.dexscreener.com/**', (route) => {
   return route.fulfill({json: u.includes('/search')?{pairs:[p]}:[p]});
 });
 await ctx.route('https://lite-api.jup.ag/**', (r) => r.fulfill({json: r.request().url().includes('/price/v3')?{}:[{id:TOKEN,symbol:'DOUG',name:'Doug',usdPrice:0.00004,launchpad:'pump.fun'}]}));
-const fake=fs.readFileSync(TDIR+'fake-padre.html','utf8');
+const fake=fs.readFileSync(TDIR + 'fake-padre.html','utf8');
 await ctx.route('https://trade.padre.gg/**', (r) => r.fulfill({ body: fake, contentType:'text/html' }));
 let [sw]=ctx.serviceWorkers(); if(!sw) sw=await ctx.waitForEvent('serviceworker');
 const extId=sw.url().split('/')[2];
@@ -89,7 +89,7 @@ await pop.waitForTimeout(1500);
 ok((await pop.locator('[data-tab="wallet"]').innerText())==='Wallet', 'Popup sigue al panel: '+await pop.locator('[data-tab="wallet"]').innerText());
 // manifiesto
 const man=await sw.evaluate(()=>chrome.runtime.getManifest());
-ok(man.name.startsWith('Blankfire') && man.version==='1.12.1', 'Manifiesto: '+man.name+' '+man.version);
+ok(man.name.startsWith('Blankfire') && man.version==='1.13.0', 'Manifiesto: '+man.name+' '+man.version);
 // error de background traducido
 const r=await sw.evaluate(async()=>{ return await new Promise(res=>chrome.runtime.sendMessage({type:'cancelOrder',id:'nope'},res)).catch(e=>String(e)); }).catch(e=>'n/a');
 ok(errs.length===0, 'Sin errores JS'+(errs.length?': '+errs.join(' | '):''));

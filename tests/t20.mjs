@@ -7,7 +7,7 @@ const EXT = new URL('../Fogueo', import.meta.url).pathname.replace(/^\/([A-Za-z]
 const A = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', B = 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm';
 let mode = 'ok', p = { [A]: 0.00002, [B]: 2 }, delay = 0;
 let fails = 0; const ok = (c, m) => { if (!c) fails++; console.log((c ? 'OK  ' : 'FAIL') + ' ' + m); };
-const ctx = await chromium.launchPersistentContext(TDIR+'p20-' + Date.now(), { headless: true, channel: 'chromium', locale: 'es-ES', viewport: { width: 1200, height: 900 }, args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--lang=es-ES'] });
+const ctx = await chromium.launchPersistentContext(TDIR + 'p20-' + Date.now(), { headless: true, channel: 'chromium', locale: 'es-ES', viewport: { width: 1200, height: 900 }, args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--lang=es-ES'] });
 const pair = (a) => ({ chainId: 'solana', dexId: 'raydium', pairAddress: 'P' + a.slice(0, 25), baseToken: { address: a, symbol: a === A ? 'BONK' : 'WIF', name: 'x' }, quoteToken: { symbol: 'SOL' }, priceUsd: String(p[a]), liquidity: { usd: 5e6 }, marketCap: p[a] * 1e9, priceChange: {}, info: {} });
 await ctx.route('https://api.dexscreener.com/**', async (r) => {
   const u = r.request().url();
@@ -21,7 +21,9 @@ await ctx.route('https://api.dexscreener.com/**', async (r) => {
   return r.fulfill({ json: u.includes('/search') ? { pairs: ps } : ps });
 });
 await ctx.route('https://lite-api.jup.ag/**', (r) => (mode === 'ok' || mode === 'empty' ? r.fulfill({ json: r.request().url().includes('/price/v3') ? {} : [] }) : r.fulfill({ status: 429, body: '' })));
-const fake = fs.readFileSync(TDIR+'fake-padre.html', 'utf8');
+const fake = fs.readFileSync(TDIR + 'fake-padre.html', 'utf8');
+// GeckoTerminal (respaldo desde 1.13.0) cae a la vez que el resto, para probar el caso «no hay precio en ningún sitio».
+await ctx.route('https://api.geckoterminal.com/**', (r) => r.fulfill({ status: mode === 'ok' ? 404 : 500, body: '' }));
 await ctx.route('https://trade.padre.gg/**', (r) => r.fulfill({ body: fake, contentType: 'text/html' }));
 let [sw] = ctx.serviceWorkers(); if (!sw) sw = await ctx.waitForEvent('serviceworker');
 const extId = sw.url().split('/')[2];

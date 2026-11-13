@@ -1,6 +1,21 @@
 {
   "_info": "Novedades de cada versión. Blankfire las enseña en el aviso de actualización (máx. 4 líneas por idioma).",
   "releases": {
+    "1.13.0": {
+      "date": "2026-11-13",
+      "es": [
+        "Nuevo Blankfire Pro: «Qué pasó después» te enseña el precio una hora tras tu venta",
+        "Errores de cada trade detectados solos: FOMO, sin stop, posición grande, vender pronto…",
+        "Análisis con IA (Gemini, con tu clave gratis): nota, fallos y una lección por trade",
+        "Si Jupiter pide clave, los precios siguen llegando por GeckoTerminal"
+      ],
+      "en": [
+        "New Blankfire Pro: “What happened next” shows the price for an hour after you sell",
+        "Each trade's mistakes flagged automatically: FOMO, no stop, oversized, selling early…",
+        "AI review (Gemini, with your free key): score, mistakes and one lesson per trade",
+        "If Jupiter asks for a key, prices keep coming through GeckoTerminal"
+      ]
+    },
     "1.12.1": {
       "date": "2026-11-12",
       "es": [

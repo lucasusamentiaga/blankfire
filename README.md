@@ -16,7 +16,11 @@ Extensión para Chrome y Opera GX (Manifest V3). Español e inglés.
 - **Estadísticas**: acierto, profit factor, plan vs. impulso, rachas, costes y un consejo automático.
 - **Disciplina**: límite de pérdida diaria que bloquea las compras hasta el día siguiente.
 - **Recorridos guiados** del panel y de la ventana, con pasos «Pruébalo» y una compra y venta guiadas que enseñan lo que se llevan las comisiones.
-- Precios de **DexScreener** y **Jupiter** (para tokens recién creados). No toca tu wallet ni tu cuenta de Padre.
+- **Blankfire Pro**:
+  - **Qué pasó después**: gráfica del precio desde 20 min antes de entrar hasta 60 min después de vender, con el máximo y el mínimo tras tu venta y cuánto SOL te dejaste (o te ahorraste).
+  - **Errores del trade** detectados al momento con reglas claras: entrar persiguiendo la subida, sin stop, posición demasiado grande, vender pronto, stop demasiado ajustado, devolver la ganancia, comisiones, trade de venganza…
+  - **Análisis con IA** (Google Gemini, con tu propia clave gratuita): nota de la ejecución, fallos, lo que hiciste bien y una lección para el próximo trade.
+- Precios de **DexScreener** y **Jupiter** (para tokens recién creados), con **GeckoTerminal** de respaldo si Jupiter empieza a pedir clave. No toca tu wallet ni tu cuenta de Padre.
 
 ## Instalar (sin empaquetar)
 
@@ -37,6 +41,32 @@ Cuando se publica una versión nueva aquí, Blankfire te avisa solo: sale una ta
 
 En **Ajustes** de la ventana ves tu versión y puedes buscar actualizaciones a mano. Las novedades de cada versión están en [`updates.json`](updates.json).
 
+## Blankfire Pro
+
+### Análisis con IA (cada usuario)
+
+1. Entra en [aistudio.google.com/apikey](https://aistudio.google.com/apikey) con tu cuenta de Google.
+2. Pulsa **Create API key** y cópiala.
+3. En la ventana de Blankfire: **Ajustes → Blankfire Pro**, pégala en «Análisis con IA (Gemini)» y pulsa **Guardar** (se prueba sola).
+4. En **Historial**, abre un trade cerrado y pulsa **Analizar**.
+
+La clave se guarda solo en tu navegador, aparte de tu cuenta, y el panel de Padre nunca la ve. A Gemini se le envían los datos del trade y tus notas, nunca nada de tu wallet. El nivel gratuito de Gemini tiene límites por minuto y por día.
+
+### Cobrar el Pro (para el autor)
+
+Mientras `PRO_CONFIG.checkoutUrl` esté vacío en [`Fogueo/lib/pro.js`](Fogueo/lib/pro.js), el Pro funciona gratis para todos como **beta**. Para empezar a cobrar con [Lemon Squeezy](https://www.lemonsqueezy.com) (de Stripe; cobra, hace las facturas con IVA y genera una clave de licencia por compra):
+
+1. Crea tu cuenta y tu tienda en Lemon Squeezy y completa la activación de la tienda (datos para cobrar).
+2. Crea un producto «Blankfire Pro» con su precio (pago único o suscripción).
+3. En el producto, activa **License keys** (generar claves de licencia) y pon un límite de activaciones (p. ej. 2 navegadores).
+4. Publica el producto y copia su enlace de compra (**Share**).
+5. Copia el número de tu tienda (Settings → Stores) y el del producto.
+6. Rellena `checkoutUrl`, `storeId` y `productId` en `Fogueo/lib/pro.js`, sube el cambio y recarga Blankfire.
+
+La extensión activa y comprueba la licencia con la License API pública de Lemon Squeezy (sin claves secretas ni servidor propio): la vuelve a comprobar cada 3 días y, sin conexión, sigue valiendo 14 días. Solo acepta licencias de tu tienda y tu producto.
+
+> Como el código es abierto, alguien con conocimientos podría saltarse la comprobación editando el código. Para un candado real haría falta un servidor propio que haga el análisis.
+
 ## Estructura
 
 ```
@@ -45,7 +75,7 @@ Fogueo/              La extensión
   background.js      Service worker: cuenta, precios, simulación, TP/SL y órdenes
   content/           Panel dentro de Padre (Shadow DOM) y recorrido guiado
   popup/             Ventana del icono: cartera, historial, estadísticas y ajustes
-  lib/               Lógica compartida (simulación, formato) e idiomas
+  lib/               Lógica compartida (simulación, formato, Pro: review.js y pro.js) e idiomas
   _locales/          Nombre y descripción en español e inglés
 updates.json         Novedades de cada versión (las enseña el aviso de actualización)
 actualizar.bat       Descarga la última versión con Git

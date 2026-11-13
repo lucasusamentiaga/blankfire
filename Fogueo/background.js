@@ -6,10 +6,14 @@ import {
 } from './lib/core.js';
 import { tr, setLang } from './lib/i18n.js';
 import { RAW, cmpVer, installedVersion, readUpdate, patchUpdate } from './lib/update.js';
+import { PRO_KEY, LS_API, REVALIDATE_MS, isPro, proSelling, licenseMatches, PRO_CONFIG, maskKey } from './lib/pro.js';
+import { buildSeries, tradeFacts, tradeFlags, tradeContext, candleWindow } from './lib/review.js';
 
 const KEY = 'fogueo';
 const DS = 'https://api.dexscreener.com';
-const JUP = 'https://lite-api.jup.ag';
+const JUP = 'https://lite-api.jup.ag';        // sin clave (Jupiter lo va a cerrar, sin fecha)
+const JUP_KEYED = 'https://api.jup.ag';        // con clave gratuita de portal.jup.ag (60 peticiones/min)
+const GT = 'https://api.geckoterminal.com/api/v2';   // respaldo sin clave (30 peticiones/min, precios algo más lentos)
 const MAX_QUOTE_AGE = 15000; // no se opera con precios de más de 15 s
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const QUOTE_TTL = 2500;
@@ -105,12 +109,76 @@ async function getJson(url) {
 
 // Jupiter: cubre los tokens recién creados (pump.fun, bonding curve) que DexScreener aún no lista.
 let jupBackoffUntil = 0;
-async function jupJson(url) {
+// ---------- Claves del usuario (Gemini, Jupiter) ----------
+// Fuera del estado principal: el panel de Padre nunca las recibe.
+const KEYS_KEY = 'blankfireKeys';
+let userKeys = { gemini: '', jupiter: '' };
+chrome.storage.local.get(KEYS_KEY).then((g) => { userKeys = { ...userKeys, ...(g[KEYS_KEY] || {}) }; }).catch(() => {});
+chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch[KEYS_KEY]) userKeys = { gemini: '', jupiter: '', ...(ch[KEYS_KEY].newValue || {}) }; });
+
+// Avisos de servicio que enseña la ventana (p. ej. «Jupiter ya pide clave»).
+const NOTICE_KEY = 'blankfireNotice';
+async function setNotice(patch) {
+  const cur = (await chrome.storage.local.get(NOTICE_KEY))[NOTICE_KEY] || {};
+  const next = { ...cur, ...patch };
+  if (JSON.stringify(next) !== JSON.stringify(cur)) await chrome.storage.local.set({ [NOTICE_KEY]: next });
+}
+
+// Jupiter: con clave va a api.jup.ag; sin clave, a lite-api mientras exista.
+async function jupJson(path) {
   if (Date.now() < jupBackoffUntil) throw new Error(tr('Jupiter: esperando por límite de peticiones'));
-  const res = await fetch(url, { headers: { accept: 'application/json' }, cache: 'no-store', signal: AbortSignal.timeout(7000) });
+  const key = (userKeys.jupiter || '').trim();
+  const base = key ? JUP_KEYED : JUP;
+  const headers = { accept: 'application/json' };
+  if (key) headers['x-api-key'] = key;
+  const res = await fetch(base + path, { headers, cache: 'no-store', signal: AbortSignal.timeout(7000) });
   if (res.status === 429) { jupBackoffUntil = Date.now() + 6000; throw new Error(tr('Jupiter: demasiadas peticiones')); }
+  if (res.status === 401 || res.status === 403 || res.status === 410 || (!key && res.status === 404)) {
+    jupBackoffUntil = Date.now() + 60000;   // no insistimos: usamos el respaldo un minuto
+    setNotice(key ? { jupiterKeyBad: true } : { jupiterNeedsKey: true });
+    throw new Error(tr('Jupiter respondió {s}', { s: res.status }));
+  }
   if (!res.ok) throw new Error(tr('Jupiter respondió {s}', { s: res.status }));
+  setNotice(key ? { jupiterKeyBad: false } : { jupiterNeedsKey: false });
   return res.json();
+}
+
+// GeckoTerminal: respaldo para tokens recién lanzados si Jupiter no responde.
+let gtNextAt = 0;
+async function gtJson(path) {
+  const wait = gtNextAt - Date.now();
+  if (wait > 4000) throw new Error('GeckoTerminal ocupado');   // no hacemos esperar más de 4 s a nadie
+  gtNextAt = Math.max(Date.now(), gtNextAt) + 2100;   // ≤ 30 por minuto
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  const res = await fetch(GT + path, { headers: { accept: 'application/json' }, cache: 'no-store', signal: AbortSignal.timeout(8000) });
+  if (res.status === 429) { gtNextAt = Date.now() + 15000; throw new Error('GeckoTerminal 429'); }
+  if (!res.ok) throw new Error(`GeckoTerminal ${res.status}`);
+  return res.json();
+}
+
+async function gtQuote(mint) {
+  const j = await gtJson(`/networks/solana/tokens/${mint}?include=top_pools`);
+  const a = j?.data?.attributes;
+  const price = Number(a?.price_usd);
+  if (!(price > 0)) return null;
+  const pools = (j.included || []).filter((x) => x.type === 'pool');
+  const top = pools[0];
+  const dex = top?.relationships?.dex?.data?.id || null;
+  const onCurve = dex === 'pump-fun' || (!dex && /pump$/.test(mint));
+  const info = launchInfo.get(mint);
+  return {
+    stage: onCurve ? 'new' : info?.launchpad ? 'graduated' : (/(pump|bonk)$/.test(mint) ? 'graduated' : null),
+    graduatedAt: info?.graduatedAt || null,
+    pairCreatedAt: top?.attributes?.pool_created_at ? Date.parse(top.attributes.pool_created_at) : null,
+    chain: 'solana', address: mint, pairAddress: onCurve ? null : (top?.attributes?.address || null),
+    symbol: a.symbol, name: a.name, icon: a.image_url && a.image_url !== 'missing.png' ? a.image_url : (info?.icon || null),
+    dex: dex || 'geckoterminal', source: 'geckoterminal',
+    priceUsd: price,
+    liquidityUsd: Number(a.total_reserve_in_usd) || info?.liquidityUsd || null,
+    marketCapUsd: Number(a.market_cap_usd ?? a.fdv_usd) || null,
+    change: { m5: null, h1: null, h24: null },
+    at: Date.now(),
+  };
 }
 
 function jupToQuote(t) {
@@ -143,7 +211,7 @@ async function jupQuotes(mints) {
   const list = mints.filter((m) => SOL_ADDR.test(m));
   for (let i = 0; i < list.length; i += 100) {
     const slice = list.slice(i, i + 100);
-    const arr = await jupJson(`${JUP}/tokens/v2/search?query=${slice.join(',')}`);
+    const arr = await jupJson(`/tokens/v2/search?query=${slice.join(',')}`);
     (Array.isArray(arr) ? arr : []).forEach((t) => {
       if (slice.includes(t.id) && Number(t.usdPrice) > 0) out[t.id] = jupToQuote(t);
     });
@@ -220,7 +288,7 @@ async function solUsd() {
   } catch (e) { /* probamos Jupiter */ }
   if (!solCache.usd || Date.now() - solCache.at >= SOL_TTL) {
     try {
-      const j = await jupJson(`${JUP}/price/v3?ids=${SOL_MINT}`);
+      const j = await jupJson(`/price/v3?ids=${SOL_MINT}`);
       const usd = Number(j?.[SOL_MINT]?.usdPrice);
       if (usd > 0) solCache = { at: Date.now(), usd };
     } catch (e) { /* conservamos el último valor */ }
@@ -255,13 +323,12 @@ async function resolveAddress(address) {
     quoteCache.set(`${q.chain}:${q.address}`, { at: Date.now(), quote: q });
     return q;
   }
-  // Token recién creado (o DexScreener caído): Jupiter.
+  // Token recién creado (o DexScreener caído): Jupiter y, si no, GeckoTerminal.
   if (SOL_ADDR.test(address)) {
-    try {
-      const got = await jupQuotes([address]);
-      const q = got[address];
-      if (q) { quoteCache.set(`solana:${address}`, { at: Date.now(), quote: q }); return q; }
-    } catch (e) { if (dsError) throw dsError; }
+    let q = null;
+    try { q = (await jupQuotes([address]))[address] || null; } catch (e) { /* respaldo abajo */ }
+    if (!q) { try { q = await gtQuote(address); } catch (e) { /* nada */ } }
+    if (q) { quoteCache.set(`solana:${address}`, { at: Date.now(), quote: q }); return q; }
   }
   if (dsError) throw dsError;
   return null;
@@ -280,7 +347,7 @@ async function refreshQuotes(keys, { force = false } = {}) {
   const missing = []; // direcciones de Solana que DexScreener no devolvió → Jupiter
   await Promise.all(Object.entries(byChain).map(async ([chain, addrs]) => {
     // Los tokens que ya sabemos que solo están en Jupiter no gastan petición en DexScreener.
-    const viaJup = chain === 'solana' ? addrs.filter((a) => quoteCache.get(`solana:${a}`)?.quote.source === 'jupiter') : [];
+    const viaJup = chain === 'solana' ? addrs.filter((a) => ['jupiter', 'geckoterminal'].includes(quoteCache.get(`solana:${a}`)?.quote.source)) : [];
     missing.push(...viaJup);
     const viaDs = addrs.filter((a) => !viaJup.includes(a));
     for (let i = 0; i < viaDs.length; i += 30) {
@@ -303,13 +370,17 @@ async function refreshQuotes(keys, { force = false } = {}) {
     }
   }));
   if (missing.length) {
-    try {
-      const got = await jupQuotes([...new Set(missing)]);
-      Object.entries(got).forEach(([addr, q]) => {
-        quoteCache.set(`solana:${addr}`, { at: Date.now(), quote: q });
-        out[`solana:${addr}`] = q;
-      });
-    } catch (e) { /* abajo usamos la última cotización conocida */ }
+    const want = [...new Set(missing)];
+    let got = {};
+    try { got = await jupQuotes(want); } catch (e) { /* Jupiter caído o pide clave: probamos GeckoTerminal */ }
+    // Respaldo (máx. 3 tokens por vuelta para no pasar de 30 peticiones/min).
+    for (const addr of want.filter((a) => !got[a]).slice(0, 3)) {
+      try { const q = await gtQuote(addr); if (q) got[addr] = q; } catch (e) { break; }
+    }
+    Object.entries(got).forEach(([addr, q]) => {
+      quoteCache.set(`solana:${addr}`, { at: Date.now(), quote: q });
+      out[`solana:${addr}`] = q;
+    });
   }
   // Lo que no se pudo refrescar se devuelve con su hora real (el panel avisa si está viejo).
   keys.forEach((k) => { if (!out[k] && quoteCache.get(k)) out[k] = quoteCache.get(k).quote; });
@@ -393,6 +464,7 @@ async function doBuy({ key, solIn, tpPct, slPct, trailing, note, url, via = 'man
     if (note) pos.entryNote = pos.entryNote ? `${pos.entryNote}\n${note}` : note;
     if (tpPct > 0) pos.tp = { pct: tpPct };
     if (slPct > 0) pos.sl = { pct: slPct, trailing: !!trailing };
+    if (prevQty === 0) { pos.slAtEntry = !!pos.sl; pos.tpAtEntry = !!pos.tp; }
     // Al ampliar, el máximo se reexpresa sobre el nuevo coste (mismo precio máximo, más tokens).
     if (prevQty > 0 && (pos.peakPct ?? 0) > 0 && pos.costSol > 0) {
       const peakValue = (1 + pos.peakPct / 100) * prevCost * (pos.qty / prevQty);
@@ -445,8 +517,11 @@ async function doSell({ key, pct, note, reason = 'manual' }) {
         pnlPct: pos.investedSol > 0 ? ((pos.returnedSol - pos.investedSol) / pos.investedSol) * 100 : 0,
         entryMcUsd: pos.entryMcUsd, exitMcUsd: quote.marketCapUsd, avgEntryUsd: pos.avgEntryUsd,
         feesSol: pos.feesSol, reason, entryNote: pos.entryNote, exitNote: pos.exitNote, lesson: '', fills: pos.fills,
+        pairAddress: pos.pairAddress || quote.pairAddress || null, exitPriceUsd: sim.fillPrice, exitMidUsd: quote.priceUsd,
+        slAtEntry: pos.slAtEntry, tpAtEntry: pos.tpAtEntry, sl: pos.sl || null, tp: pos.tp || null, peakPct: pos.peakPct ?? null,
       };
       st.account.rounds.unshift(round);
+      watchAfter(round);
       delete st.account.positions[key];
     }
     pushEquity(st, quotes, sol);
@@ -724,6 +799,30 @@ const handlers = {
 
   async checkUpdate({ force = true } = {}) { return checkUpdate(!!force); },
 
+  // ---------- Pro ----------
+  async proStatus() { return proInfo(); },
+  async proActivate({ key }) { return proActivate(key); },
+  async proDeactivate() { return proDeactivate(); },
+  async proRecheck() { return proValidate(true); },
+  async saveKeys({ gemini, jupiter }) {
+    const cur = { gemini: '', jupiter: '', ...((await chrome.storage.local.get(KEYS_KEY))[KEYS_KEY] || {}) };
+    const clean = (v) => String(v ?? '').trim().slice(0, 200);
+    if (gemini !== undefined) cur.gemini = clean(gemini);
+    if (jupiter !== undefined) cur.jupiter = clean(jupiter);
+    await chrome.storage.local.set({ [KEYS_KEY]: cur });
+    userKeys = cur;
+    if (jupiter !== undefined) { jupBackoffUntil = 0; await setNotice({ jupiterKeyBad: false }); }
+    return { gemini: !!cur.gemini, jupiter: !!cur.jupiter };
+  },
+  async keysStatus() {
+    const k = (await chrome.storage.local.get(KEYS_KEY))[KEYS_KEY] || {};
+    const notice = (await chrome.storage.local.get(NOTICE_KEY))[NOTICE_KEY] || {};
+    return { gemini: !!k.gemini, jupiter: !!k.jupiter, notice };
+  },
+  async testGemini() { return geminiTest(); },
+  async afterData({ id }) { return afterData(id); },
+  async aiReview({ id }) { return aiReview(id); },
+
   // Recarga la extensión desde la carpeta (coge los archivos nuevos tras actualizar.bat). Tus datos no se tocan.
   async reloadExt() {
     // Al volver, recargamos las pestañas de Padre para que el panel nuevo entre solo.
@@ -756,7 +855,241 @@ function ensureAlarm(name, periodInMinutes) {
   chrome.alarms.get(name, (a) => { if (!a || a.periodInMinutes !== periodInMinutes) chrome.alarms.create(name, { periodInMinutes }); });
 }
 ensureAlarm('fogueo-watch', 0.5);
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'fogueo-watch') checkTriggers(); });
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'fogueo-watch') { checkTriggers(); sampleAfter(); } });
+
+// =====================================================================
+// Pro · «Qué pasó después» — seguimos el precio 60 min tras cerrar cada trade.
+// =====================================================================
+const AFTER_KEY = 'blankfireAfter';
+const AFTER_MIN = 60;
+async function afterStore() { return (await chrome.storage.local.get(AFTER_KEY))[AFTER_KEY] || {}; }
+async function watchAfter(round) {
+  try {
+    const all = await afterStore();
+    all[round.id] = { key: round.key, closedAt: round.closedAt, samples: [[round.closedAt, round.exitMidUsd || round.exitPriceUsd]] };
+    // Limpieza: fuera lo de hace más de 7 días.
+    for (const [id, w] of Object.entries(all)) if (Date.now() - w.closedAt > 7 * 24 * 3600e3) delete all[id];
+    await chrome.storage.local.set({ [AFTER_KEY]: all });
+  } catch (e) { /* sin seguimiento: la gráfica tirará de GeckoTerminal */ }
+}
+let sampling = false;
+async function sampleAfter() {
+  if (sampling) return;
+  sampling = true;
+  try {
+    const all = await afterStore();
+    const live = Object.entries(all).filter(([, w]) => Date.now() - w.closedAt <= AFTER_MIN * 60e3 + 30e3);
+    if (!live.length) return;
+    const keys = [...new Set(live.map(([, w]) => w.key))];
+    const quotes = await refreshQuotes(keys);
+    let changed = false;
+    for (const [, w] of live) {
+      const q = quotes[w.key];
+      const last = w.samples[w.samples.length - 1];
+      if (q?.priceUsd > 0 && q.at && (!last || q.at - last[0] >= 25e3)) { w.samples.push([q.at, q.priceUsd]); changed = true; }
+      if (w.samples.length > 200) w.samples.splice(1, w.samples.length - 200);
+    }
+    if (changed) await chrome.storage.local.set({ [AFTER_KEY]: all });
+  } catch (e) { /* lo intentamos en la siguiente vuelta */ } finally { sampling = false; }
+}
+
+// Pool en GeckoTerminal para un token (si no lo sabemos ya por DexScreener).
+async function gtPoolFor(round) {
+  if (round.pairAddress) return round.pairAddress;
+  const j = await gtJson(`/networks/solana/tokens/${round.address}/pools?page=1`);
+  return j?.data?.[0]?.attributes?.address || null;
+}
+
+async function afterData(id) {
+  if (!(await proUnlocked())) throw new Error(tr('Esto es del plan Pro.'));
+  const st = await load();
+  const round = st.account.rounds.find((r) => r.id === id);
+  if (!round) throw new Error(tr('No encuentro esa operación.'));
+  const samples = (await afterStore())[id]?.samples || [];
+  let candles = [], source = samples.length > 1 ? 'blankfire' : null, gtError = null;
+  if (round.chain === 'solana' || round.key?.startsWith('solana:')) {
+    try {
+      const pool = await gtPoolFor(round);
+      if (pool) {
+        const w = candleWindow(round);
+        const j = await gtJson(`/networks/solana/pools/${pool}/ohlcv/${w.timeframe}?aggregate=${w.aggregate}&before_timestamp=${Math.ceil(w.to / 1000)}&limit=${w.limit}&currency=usd&token=base`);
+        candles = (j?.data?.attributes?.ohlcv_list || []).filter((c) => c[0] * 1000 >= w.from);
+        if (candles.length) source = source ? 'both' : 'geckoterminal';
+      }
+    } catch (e) { gtError = e.message; }
+  }
+  const series = buildSeries(candles, samples);
+  const facts = tradeFacts(round, series);
+  const ctx = tradeContext(round, st.account);
+  const flags = tradeFlags(round, facts, ctx);
+  return { series: series.map((x) => [x.t, x.p]), facts, flags, ctx, source, gtError };
+}
+
+// =====================================================================
+// Pro · licencia (Lemon Squeezy)
+// =====================================================================
+async function proInfo() {
+  const info = (await chrome.storage.local.get(PRO_KEY))[PRO_KEY] || {};
+  return { ...info, key: undefined, keyHint: info.key ? maskKey(info.key) : '', hasKey: !!info.key, selling: proSelling(), checkoutUrl: PRO_CONFIG.checkoutUrl, unlocked: isPro(info) };
+}
+async function proUnlocked() { return isPro((await chrome.storage.local.get(PRO_KEY))[PRO_KEY]); }
+async function lsPost(path, params) {
+  const res = await fetch(`${LS_API}/${path}`, {
+    method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(params), signal: AbortSignal.timeout(10000),
+  });
+  let j = null; try { j = await res.json(); } catch { /* sin cuerpo */ }
+  return { status: res.status, j: j || {} };
+}
+async function proActivate(rawKey) {
+  const key = String(rawKey || '').trim();
+  if (!/^[A-Za-z0-9-]{16,64}$/.test(key)) throw new Error(tr('Esa clave no tiene el formato de una licencia.'));
+  if (!proSelling()) throw new Error(tr('El Pro aún está en beta gratis: no hace falta licencia.'));
+  let r;
+  try { r = await lsPost('activate', { license_key: key, instance_name: `Blankfire · ${navigator.userAgent.includes('OPR') ? 'Opera' : 'Chrome'}` }); }
+  catch (e) { throw new Error(tr('No se pudo conectar con la tienda. Revisa tu conexión e inténtalo otra vez.')); }
+  const lk = r.j.license_key || {};
+  if (!r.j.activated) {
+    const msg = String(r.j.error || '');
+    if (/limit/i.test(msg)) throw new Error(tr('Esta licencia ya está activada en el máximo de navegadores. Desactívala en otro o escríbeme.'));
+    if (/not found|invalid/i.test(msg) || r.status === 404) throw new Error(tr('No encuentro esa licencia. Cópiala tal cual del email de compra.'));
+    throw new Error(tr('La tienda no aceptó la licencia: {e}', { e: msg || r.status }));
+  }
+  if (!licenseMatches(r.j.meta)) throw new Error(tr('Esa licencia es de otro producto.'));
+  const info = { key, instanceId: r.j.instance?.id || null, status: lk.status === 'expired' || lk.status === 'disabled' ? lk.status : 'active', validatedAt: Date.now(), expiresAt: lk.expires_at || null, email: r.j.meta?.customer_email || null, name: r.j.meta?.customer_name || null, variant: r.j.meta?.variant_name || null };
+  await chrome.storage.local.set({ [PRO_KEY]: info });
+  return proInfo();
+}
+async function proValidate(force = false) {
+  const info = (await chrome.storage.local.get(PRO_KEY))[PRO_KEY];
+  if (!info?.key || !proSelling()) return proInfo();
+  if (!force && Date.now() - (info.validatedAt || 0) < REVALIDATE_MS) return proInfo();
+  try {
+    const r = await lsPost('validate', { license_key: info.key, ...(info.instanceId ? { instance_id: info.instanceId } : {}) });
+    const lk = r.j.license_key || {};
+    if (r.j.valid && licenseMatches(r.j.meta)) info.status = lk.status === 'expired' ? 'expired' : 'active';
+    else if (r.status >= 400 && r.status < 500 || r.j.valid === false) info.status = lk.status === 'expired' ? 'expired' : lk.status === 'disabled' ? 'disabled' : 'invalid';
+    if (info.status === 'active') info.validatedAt = Date.now();
+    info.expiresAt = lk.expires_at ?? info.expiresAt ?? null;
+    await chrome.storage.local.set({ [PRO_KEY]: info });
+  } catch (e) { /* sin conexión: vale hasta 14 días desde la última comprobación */ }
+  return proInfo();
+}
+async function proDeactivate() {
+  const info = (await chrome.storage.local.get(PRO_KEY))[PRO_KEY];
+  if (info?.key && info.instanceId) { try { await lsPost('deactivate', { license_key: info.key, instance_id: info.instanceId }); } catch { /* la borramos igual */ } }
+  await chrome.storage.local.remove(PRO_KEY);
+  return proInfo();
+}
+
+// =====================================================================
+// Pro · análisis del trade con IA (Gemini, con la clave gratuita del usuario)
+// =====================================================================
+const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/models';
+const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-2.5-flash'];
+let geminiModel = null;   // el primero que responde se queda para las siguientes
+
+async function gemini(body) {
+  const key = (userKeys.gemini || '').trim();
+  if (!key) throw new Error(tr('Falta tu clave de Gemini. Pégala en Ajustes → Blankfire Pro.'));
+  const models = geminiModel ? [geminiModel, ...GEMINI_MODELS.filter((m) => m !== geminiModel)] : GEMINI_MODELS;
+  let last = null;
+  for (const m of models) {
+    let res;
+    try {
+      res = await fetch(`${GEMINI}/${m}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body), signal: AbortSignal.timeout(45000) });
+    } catch (e) { throw new Error(tr('No se pudo conectar con Gemini. Revisa tu conexión.')); }
+    let j = null; try { j = await res.json(); } catch { /* sin cuerpo */ }
+    if (res.ok) { geminiModel = m; return { j, model: m }; }
+    const reason = j?.error?.details?.find?.((d) => d.reason)?.reason || j?.error?.status || '';
+    const msg = j?.error?.message || '';
+    if (res.status === 404 || /not found|is not supported for generateContent/i.test(msg)) { last = msg; continue; }
+    if (reason === 'API_KEY_INVALID' || /API key not valid/i.test(msg)) throw new Error(tr('Google dice que tu clave de Gemini no es válida. Cópiala otra vez desde AI Studio.'));
+    if (res.status === 429) throw new Error(tr('Has llegado al límite gratis de Gemini por ahora. Prueba dentro de un minuto (o mañana, si es el límite diario).'));
+    if (/location is not supported/i.test(msg)) throw new Error(tr('Gemini no está disponible desde tu país con esta clave.'));
+    if (res.status === 403) throw new Error(tr('Tu clave de Gemini no tiene permiso para usar la API. Revísala en AI Studio.'));
+    throw new Error(tr('Gemini respondió {s}: {e}', { s: res.status, e: msg.slice(0, 120) }));
+  }
+  throw new Error(tr('Ningún modelo de Gemini respondió ({e}).', { e: String(last || '').slice(0, 80) }));
+}
+
+async function geminiTest() {
+  const { j, model } = await gemini({ contents: [{ role: 'user', parts: [{ text: 'Responde solo: OK' }] }], generationConfig: { maxOutputTokens: 64 } });
+  const txt = j?.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
+  return { ok: true, model, reply: txt.slice(0, 20) };
+}
+
+const AI_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    score: { type: 'INTEGER', description: '0-10: calidad de la ejecución (no del resultado)' },
+    verdict: { type: 'STRING', description: 'Una frase de veredicto, máx. 140 caracteres' },
+    after: { type: 'STRING', description: 'Qué pasó con el precio después de vender y qué significa, máx. 280 caracteres' },
+    errors: { type: 'ARRAY', items: { type: 'OBJECT', properties: { title: { type: 'STRING' }, detail: { type: 'STRING' }, severity: { type: 'STRING', enum: ['high', 'mid', 'low'] } }, required: ['title', 'detail', 'severity'] } },
+    good: { type: 'ARRAY', items: { type: 'STRING' } },
+    lesson: { type: 'STRING', description: 'La lección concreta para el próximo trade, máx. 200 caracteres' },
+  },
+  required: ['score', 'verdict', 'after', 'errors', 'good', 'lesson'],
+};
+
+function aiPrompt(lang) {
+  const L = lang === 'en' ? 'English' : 'español de España (tutea)';
+  return `Eres un coach de trading de memecoins de Solana (pump.fun, PumpSwap, Raydium) que revisa trades de PRÁCTICA con dinero ficticio.
+Analiza el trade que te paso en JSON: los números ya están calculados y son fiables; no inventes datos que no estén.
+- Juzga la EJECUCIÓN (entrada, tamaño, stop, salida, disciplina), no solo si ganó o perdió.
+- "after": explica qué hizo el precio en los 60 min tras vender (afterMaxPct/afterMinPct/after60Pct, en % frente al precio de venta) y qué habría pasado si aguantaba. Si coverMin < 10 di que aún hay pocos datos.
+- "errors": de 0 a 4 errores reales, ordenados por gravedad; usa los "flags" calculados como base y añade alguno solo si los datos lo justifican. Cada uno con un título corto (máx. 40 caracteres) y un detalle concreto con cifras (máx. 180).
+- "good": de 0 a 3 cosas bien hechas, frases cortas.
+- "lesson": una sola acción concreta para el próximo trade.
+- No des consejos financieros ni recomiendes comprar tokens. Nada de emojis.
+Responde en ${L}.`;
+}
+
+function aiPayload(round, data, account) {
+  const r2 = (n, d = 2) => (n == null || !isFinite(n) ? null : Math.round(n * 10 ** d) / 10 ** d);
+  const recent = (account.rounds || []).filter((r) => r.closedAt <= round.closedAt && r.id !== round.id).slice(0, 5).map((r) => r2(r.pnlPct, 1));
+  return {
+    token: { symbol: round.symbol, stage: round.entryMcUsd < 70000 ? 'probable bonding curve / recién lanzado' : 'con pool propio' },
+    trade: {
+      openedAt: new Date(round.openedAt).toISOString(), holdMin: data.facts.holdMin,
+      investedSol: r2(round.investedSol, 4), returnedSol: r2(round.returnedSol, 4), pnlSol: r2(round.pnlSol, 4), pnlPct: r2(round.pnlPct, 1),
+      feesSol: r2(round.feesSol, 4), entryMcUsd: r2(round.entryMcUsd, 0), exitMcUsd: r2(round.exitMcUsd, 0),
+      exitReason: round.reason, stopAtEntry: round.slAtEntry ?? null, takeAtEntry: round.tpAtEntry ?? null,
+      stop: round.sl ? { pct: round.sl.pct, trailing: !!round.sl.trailing } : null, take: round.tp ? { pct: round.tp.pct } : null,
+      buys: (round.fills || []).filter((f) => f.side === 'buy').length, sells: (round.fills || []).filter((f) => f.side === 'sell').length,
+      sizePctOfEquity: r2(data.ctx.sizePct, 1), minutesSincePreviousLoss: data.ctx.revengeMin,
+    },
+    facts: Object.fromEntries(Object.entries(data.facts).filter(([k]) => !['entryPrice', 'exitPrice', 'points'].includes(k)).map(([k, v]) => [k, r2(v, 1)])),
+    flags: data.flags.errors.map((f) => f.id), positives: data.flags.wins.map((f) => f.id),
+    trader: { followedPlan: round.followedPlan ?? null, tags: round.tags || [], entryNote: (round.entryNote || '').slice(0, 300), exitNote: (round.exitNote || '').slice(0, 300), recentTradesPnlPct: recent },
+  };
+}
+
+async function aiReview(id) {
+  if (!(await proUnlocked())) throw new Error(tr('Esto es del plan Pro.'));
+  const data = await afterData(id);
+  const st = await load();
+  const round = st.account.rounds.find((r) => r.id === id);
+  if (!round) throw new Error(tr('No encuentro esa operación.'));
+  const { j, model } = await gemini({
+    systemInstruction: { parts: [{ text: aiPrompt(st.settings.lang) }] },
+    contents: [{ role: 'user', parts: [{ text: JSON.stringify(aiPayload(round, data, st.account)) }] }],
+    generationConfig: { temperature: 0.4, maxOutputTokens: 8192, responseMimeType: 'application/json', responseSchema: AI_SCHEMA },
+  });
+  const txt = j?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
+  let out;
+  try { out = JSON.parse(txt.replace(/^```(?:json)?|```$/g, '').trim()); } catch { throw new Error(tr('Gemini devolvió una respuesta rara. Prueba otra vez.')); }
+  const cut = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const ai = {
+    at: Date.now(), model, coverMin: data.facts.coverMin, lang: st.settings.lang === 'en' ? 'en' : 'es',
+    score: Math.max(0, Math.min(10, Math.round(Number(out.score) || 0))),
+    verdict: cut(out.verdict, 160), after: cut(out.after, 320), lesson: cut(out.lesson, 220),
+    errors: (Array.isArray(out.errors) ? out.errors : []).slice(0, 4).map((e) => ({ title: cut(e?.title, 60), detail: cut(e?.detail, 220), severity: ['high', 'mid', 'low'].includes(e?.severity) ? e.severity : 'mid' })).filter((e) => e.title),
+    good: (Array.isArray(out.good) ? out.good : []).slice(0, 3).map((g) => cut(g, 120)).filter(Boolean),
+  };
+  await mutate((s2) => { const r = s2.account.rounds.find((x) => x.id === id); if (r) r.ai = ai; return true; });
+  return { ai, data };
+}
 
 // ---------- Aviso de nueva versión ----------
 // Mira en GitHub la versión del manifest publicado (y sus novedades en updates.json) cada 3 h.
@@ -806,7 +1139,7 @@ async function checkUpdate(force = false) {
   return updChecking;
 }
 ensureAlarm('blankfire-update', 60);
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'blankfire-update') checkUpdate(); });
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'blankfire-update') { checkUpdate(); proValidate(); } });
 
 chrome.runtime.onInstalled.addListener(async (d) => {
   load().then(updateBadge);

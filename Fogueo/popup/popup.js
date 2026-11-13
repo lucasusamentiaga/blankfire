@@ -5,6 +5,7 @@ import {
 import { tr, setLang, getLang, locale } from '../lib/i18n.js';
 import { vChips, vFlow, vLegend, vMeter } from '../lib/viz.js';
 import { UPD_KEY, updateView, updateCard, readUpdate, onUpdateAction, installedVersion, cmpVer, REPO } from '../lib/update.js';
+import { afterSection, proSettings, jupiterBanner } from './pro-ui.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -17,7 +18,7 @@ function translateDom(root) {
   const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   for (let n = w.nextNode(); n; n = w.nextNode()) {
     const par = n.parentElement;
-    if (!par || par.closest('textarea, script, style, .ptour-body, .ptour-viz')) continue;
+    if (!par || par.closest('textarea, script, style, .ptour-body, .ptour-viz, .ai-box')) continue;
     const raw = n.nodeValue, key = raw.trim();
     if (!key) continue;
     const t = tr(key);
@@ -70,6 +71,64 @@ let openRow = null;
 let justOpened = null;   // el detalle recién abierto se despliega con animación (solo esa vez)
 let confirmReset = false;
 let touring = null;
+
+// ---------- Pro ----------
+let pro = null;                                   // estado de la licencia (sin la clave)
+let keysSt = { gemini: false, jupiter: false, notice: {} };
+const afterCache = {};                            // id → { loading, error, data, at, aiLoading, aiError }
+let proUi = { msg: {}, busy: null };
+async function loadPro() {
+  const [a, b] = await Promise.all([send({ type: 'proStatus' }), send({ type: 'keysStatus' })]);
+  if (a.ok) pro = a.data;
+  if (b.ok) keysSt = b.data;
+  const badge = $('#proBadge');
+  if (badge) badge.hidden = !(pro?.unlocked && pro.selling);
+}
+const proUnlocked = () => !!pro?.unlocked;
+function afterBox(r) {
+  if (String(r.id).startsWith('demo-') || !pro) return '';
+  const c = afterCache[r.id] || {};
+  return `<div class="after-slot" data-after="${esc(r.id)}">${afterSection(r, { unlocked: proUnlocked(), selling: pro.selling, hasGemini: keysSt.gemini, ...c })}</div>`;
+}
+function paintAfter(id) {
+  const slot = document.querySelector(`.after-slot[data-after="${CSS.escape(id)}"]`);
+  const r = st.account.rounds.find((x) => x.id === id);
+  if (!slot || !r) return;
+  const c = afterCache[id] || {};
+  slot.innerHTML = afterSection(r, { unlocked: proUnlocked(), selling: pro?.selling, hasGemini: keysSt.gemini, ...c });
+  translateDom(slot);
+}
+async function fetchAfter(id, force) {
+  const r = st.account.rounds.find((x) => x.id === id);
+  if (!r || !proUnlocked() || String(id).startsWith('demo-')) return;
+  const c = afterCache[id] || (afterCache[id] = {});
+  // Mientras dura la hora de seguimiento, refrescamos cada minuto; después, el resultado ya no cambia.
+  const live = Date.now() - r.closedAt < 62 * 60e3;
+  if (!force && c.data && (!live || Date.now() - c.at < 60e3)) return;
+  if (c.loading) return;
+  c.loading = true; c.error = null; paintAfter(id);
+  const res = await send({ type: 'afterData', id });
+  c.loading = false;
+  if (res.ok) { c.data = res.data; c.at = Date.now(); } else c.error = res.error || tr('No se pudo cargar.');
+  paintAfter(id);
+}
+async function runAi(id) {
+  const c = afterCache[id] || (afterCache[id] = {});
+  if (c.aiLoading) return;
+  c.aiLoading = true; c.aiError = null; paintAfter(id);
+  const res = await send({ type: 'aiReview', id });
+  c.aiLoading = false;
+  if (res.ok) {
+    c.data = res.data.data; c.at = Date.now();
+    const r = st.account.rounds.find((x) => x.id === id);
+    if (r) r.ai = res.data.ai;
+  } else c.aiError = res.error || tr('No se pudo analizar.');
+  paintAfter(id);
+}
+function goSettings(sel) {
+  setTab('settings');
+  requestAnimationFrame(() => { const el = $(sel); if (el) { el.scrollIntoView({ block: 'start', behavior: reducedMotion() ? 'auto' : 'smooth' }); el.querySelector?.('input')?.focus({ preventScroll: true }); } });
+}
 
 function avatar(item) {
   const initial = esc((item.symbol || '?').slice(0, 1).toUpperCase());
@@ -178,7 +237,7 @@ function renderWallet() {
       return `<div><span class="t">${tTime(f.t)}</span><span>${what} $${esc(f.symbol)} <span class="muted">${tr('a {mc}', { mc: fmtCompact(f.mc, '$') })}</span></span><span class="num">${f.side === 'buy' ? '−' : '+'}${fmtSol(f.sol)}</span></div>`;
     }).join('') + '</div>';
   }
-  v.innerHTML = html;
+  v.innerHTML = jupiterBanner(keysSt.notice, keysSt) + html;
   fixImages(v);
   translateDom(v);
 }
@@ -196,6 +255,7 @@ function roundDetail(r, opening) {
       <div><span>Duración</span><b>${fmtDuration(r.closedAt - r.openedAt)}</b></div>
     </div>
     <div class="fills">${fills}</div>
+    ${afterBox(r)}
     <div class="rv">
       <div class="rv-q"><span>¿Seguiste tu plan?</span><span class="yn">
         <button data-plan="yes" data-id="${esc(r.id)}" aria-pressed="${r.followedPlan === true}">Sí</button>
@@ -236,6 +296,7 @@ function renderHistory() {
   }
   v.innerHTML = html;
   justOpened = null;
+  if (openRow && !touring) fetchAfter(openRow);
   fixImages(v);
   translateDom(v);
 }
@@ -356,6 +417,9 @@ function renderSettings() {
   const hidden = !!st.ui?.panel?.hidden;
   const row = (key, label, help, unit, val, dig = 3) => `<div class="f-row"><label for="s-${key}">${label}<small>${help}</small></label><span class="inp"><input id="s-${key}" data-set="${key}" inputmode="decimal" value="${fmtNum(val, dig)}"><span>${unit}</span></span></div>`;
   v.innerHTML = `
+    <h2 id="proSec">Blankfire Pro</h2>
+    <div class="form pro-form">${proSettings(pro, keysSt, keysSt.notice, proUi)}</div>
+
     <h2>Simulación</h2>
     <div class="form">
       ${row('feePct', 'Comisión de Padre', 'Por cada compra y venta. Padre cobra ~1%.', '%', s.feePct, 2)}
@@ -532,6 +596,7 @@ document.addEventListener('click', async (e) => {
   }
   const act = t.closest('[data-act]')?.dataset.act;
   if (!act) return;
+  if (await proAction(act, t.closest('[data-act]'))) return;
   if (act === 'csv') exportCsv();
   if (act === 'lang') { await switchLang(); return; }
   if (act === 'tour') { startTour(); return; }
@@ -576,6 +641,68 @@ document.addEventListener('click', async (e) => {
   }
 });
 
+// Acciones del Pro (licencia, claves, análisis). Devuelve true si la ha atendido.
+async function proAction(act, btn) {
+  const id = btn?.dataset.id;
+  const say = (k, ok, text) => { proUi.msg = { ...proUi.msg, [k]: { ok, text } }; };
+  const redraw = () => { if (tab === 'settings') renderSettings(); };
+  switch (act) {
+    case 'goPro': goSettings('#proSec'); return true;
+    case 'goKeys': goSettings('#keys'); return true;
+    case 'afterRetry': fetchAfter(id, true); return true;
+    case 'aiRun': runAi(id); return true;
+    case 'proOn': {
+      const key = $('#pro-key')?.value || '';
+      proUi.busy = 'pro'; proUi.msg = {}; redraw();
+      const r = await send({ type: 'proActivate', key });
+      proUi.busy = null;
+      if (r.ok) { pro = r.data; say('pro', true, tr('¡Listo! Blankfire Pro está activo.')); } else say('pro', false, r.error);
+      await loadPro(); redraw(); return true;
+    }
+    case 'proOff': {
+      const r = await send({ type: 'proDeactivate' });
+      say('pro', r.ok, r.ok ? tr('Licencia desactivada en este navegador. Puedes usarla en otro.') : r.error);
+      await loadPro(); redraw(); return true;
+    }
+    case 'proRecheck': {
+      const r = await send({ type: 'proRecheck' });
+      say('pro', r.ok && r.data?.unlocked, r.ok ? (r.data?.unlocked ? tr('Licencia comprobada.') : tr('La licencia no está activa.')) : r.error);
+      await loadPro(); redraw(); return true;
+    }
+    case 'keySave': {
+      const k = btn.dataset.k, inp = $(`#k-${k}`), val = (inp?.value || '').trim();
+      if (!val) { say(k, false, tr('Pega la clave primero.')); redraw(); return true; }
+      if (k === 'gemini' && !/^[A-Za-z0-9_-]{20,}$/.test(val)) { say(k, false, tr('Esa clave no parece de Gemini (suelen empezar por AIza).')); redraw(); return true; }
+      const r = await send({ type: 'saveKeys', [k]: val });
+      if (r.ok) {
+        keysSt = { ...keysSt, ...r.data };
+        if (k === 'gemini') {
+          proUi.busy = 'test'; say(k, true, tr('Guardada. Probándola…')); redraw();
+          const tst = await send({ type: 'testGemini' });
+          proUi.busy = null;
+          say(k, tst.ok, tst.ok ? tr('Clave guardada y funcionando ({m}).', { m: tst.data.model }) : tr('Guardada, pero Gemini dice: {e}', { e: tst.error }));
+        } else say(k, true, tr('Clave guardada.'));
+      } else say(k, false, r.error);
+      await loadPro(); redraw(); return true;
+    }
+    case 'keyDel': {
+      const k = btn.dataset.k;
+      const r = await send({ type: 'saveKeys', [k]: '' });
+      if (r.ok) keysSt = { ...keysSt, ...r.data };
+      say(k, true, tr('Clave borrada.'));
+      await loadPro(); redraw(); return true;
+    }
+    case 'keyTest': {
+      proUi.busy = 'test'; redraw();
+      const r = await send({ type: 'testGemini' });
+      proUi.busy = null;
+      say('gemini', r.ok, r.ok ? tr('La clave funciona ({m}).', { m: r.data.model }) : r.error);
+      redraw(); return true;
+    }
+    default: return false;
+  }
+}
+
 async function saveSettings() {
   const settings = {};
   document.querySelectorAll('[data-set]').forEach((i) => { const n = parseNum(i.value); if (isFinite(n)) settings[i.dataset.set] = n; });
@@ -618,6 +745,9 @@ function exportCsv() {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes[UPD_KEY]) { upd = changes[UPD_KEY].newValue || {}; renderUpdate(); }
+  if (area === 'local' && (changes.blankfirePro || changes.blankfireKeys || changes.blankfireNotice)) {
+    loadPro().then(() => { if (!document.activeElement?.matches?.('input, textarea') && !touring) render(); });
+  }
   if (area !== 'local' || !changes.fogueo) return;
   // Datos dañados o a medio reparar: esperamos a que el motor los arregle.
   const nv = changes.fogueo.newValue;
@@ -659,6 +789,7 @@ function applyStaticLang() {
   applyStaticLang();
   if (st) $('#equity').__v = st.account.startBalance;
   upd = await readUpdate();
+  await loadPro();
   renderUpdate();
   send({ type: 'checkUpdate', force: false });
   render();

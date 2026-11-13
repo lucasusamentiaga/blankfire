@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "__MSG_extName__",
   "short_name": "Blankfire",
-  "version": "1.12.1",
+  "version": "1.13.0",
   "description": "__MSG_extDesc__",
   "icons": {
     "16": "icons/icon16.png",
@@ -31,6 +31,10 @@
   "host_permissions": [
     "https://api.dexscreener.com/*",
     "https://lite-api.jup.ag/*",
+    "https://api.jup.ag/*",
+    "https://api.geckoterminal.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.lemonsqueezy.com/*",
     "https://trade.padre.gg/*"
   ],
   "content_scripts": [
