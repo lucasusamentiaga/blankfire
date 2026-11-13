@@ -1,6 +1,21 @@
 {
   "_info": "Novedades de cada versión. Blankfire las enseña en el aviso de actualización (máx. 4 líneas por idioma).",
   "releases": {
+    "1.13.1": {
+      "date": "2026-11-13",
+      "es": [
+        "La IA ya no te pide clave de Gemini: irá por el servidor de Blankfire",
+        "Detección del FOMO con el cambio de la última hora, aunque no haya velas",
+        "La gráfica guarda también el precio mientras tienes la posición abierta",
+        "Términos de uso y privacidad, y aviso de +18"
+      ],
+      "en": [
+        "AI no longer asks for a Gemini key: it will run on Blankfire's server",
+        "FOMO detection from the last hour's change, even without candles",
+        "The chart also records the price while your position is open",
+        "Terms of use and privacy, plus an 18+ notice"
+      ]
+    },
     "1.13.0": {
       "date": "2026-11-13",
       "es": [

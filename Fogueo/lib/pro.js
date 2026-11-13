@@ -2,13 +2,19 @@
 // Lemon Squeezy cobra, hace las facturas con IVA y genera una clave de licencia por compra.
 // La extensión activa y comprueba esa clave con su License API pública (no necesita ninguna clave secreta).
 //
-// Para empezar a cobrar, rellena estos tres datos con los de tu tienda (ver README · «Cobrar el Pro»):
+// Para empezar a cobrar, rellena estos datos con los de tu tienda y tu servidor (ver README · «Cobrar el Pro»):
 export const PRO_CONFIG = {
+  aiUrl: '',         // servidor del análisis con IA, p. ej. https://xxxx.supabase.co/functions/v1/blankfire-ai
   checkoutUrl: '',   // enlace de compra del producto, p. ej. https://blankfire.lemonsqueezy.com/buy/xxxx
   storeId: null,     // número de tu tienda (Settings → Stores)
   productId: null,   // número del producto Blankfire Pro
 };
 // Mientras checkoutUrl esté vacío, el Pro funciona gratis para todos como «beta».
+// Mientras aiUrl esté vacío, el análisis con IA sale como «próximamente» (el resto del Pro funciona igual).
+export const LEGAL = {
+  terms: 'https://github.com/lucasusamentiaga/blankfire/blob/main/docs/terminos.md',
+  privacy: 'https://github.com/lucasusamentiaga/blankfire/blob/main/docs/privacidad.md',
+};
 
 export const PRO_KEY = 'blankfirePro';
 export const LS_API = 'https://api.lemonsqueezy.com/v1/licenses';

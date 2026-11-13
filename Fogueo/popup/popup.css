@@ -716,3 +716,6 @@ a.upd-link { font-weight: 600; }
 .ap, .ap > *, .ai-box, .ai-box > *, .ap-errs li > div, .ai-top > div, .ai-cta > div, .ap-lock > div { min-width: 0; }
 .ap-errs b, .ap-errs span, .ai-verdict, .ai-after, .ai-lesson p, .ap-wins span { overflow-wrap: anywhere; }
 .pro-card a.btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; font-family: var(--fx-font); }
+.pro-form .legal { margin: 0; font-size: 11px; color: var(--fx-ink-3); text-wrap: pretty; }
+.pro-form .legal a, .ap-note a { color: var(--fx-ink-2); }
+.ai-cta.soon { border-style: solid; border-color: var(--fx-line-soft); }

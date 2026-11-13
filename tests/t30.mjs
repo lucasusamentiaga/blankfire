@@ -1,16 +1,19 @@
-// Pro de punta a punta: «Qué pasó después» + errores + análisis con Gemini (beta), respaldo de GeckoTerminal
+// Pro de punta a punta: «Qué pasó después» + errores + análisis con IA a través del servidor de Blankfire
+// (se ejecuta el código real del servidor con Gemini, Lemon Squeezy y la base de datos simulados), respaldo de GeckoTerminal
 // cuando Jupiter pide clave, y licencia de pago con Lemon Squeezy (copia de la extensión con tienda configurada).
 import { chromium } from 'playwright';
 const TDIR = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 import fs from 'fs';
+const serverHandle = await (async () => { const src = fs.readFileSync(new URL('../server/supabase/functions/blankfire-ai/index.ts', import.meta.url), 'utf8'); const tmp = new URL('./.bfai-server.mjs', import.meta.url); fs.writeFileSync(tmp, src); return (await import(tmp.href)).handle; })();
+const AI_URL = 'https://testbf.supabase.co/functions/v1/blankfire-ai';
 const SRC = new URL('../Fogueo', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'), SOL = 'So11111111111111111111111111111111111111112';
 const A = '52u2Z2PZkPgX8nzzZvN7ADCroDBTRiT4VNkpAgm3pump';
 const B = 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm';
 let fails = 0; const ok = (c, m) => { if (!c) fails++; console.log((c ? 'OK  ' : 'FAIL') + ' ' + m); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function launch(ext, { lang = 'es', jupDown = false, lsMode = null } = {}) {
-  const st = { price: 0.00002, gtCalls: 0, gemini: [], ls: [], jupDown };
+async function launch(ext, { lang = 'es', jupDown = false, serverEnv = null } = {}) {
+  const st = { price: 0.00002, gtCalls: 0, gemini: [], ls: [], jupDown, aiCalls: [], serverLs: [], serverEnv: { BLANKFIRE_GEMINI_KEY: 'srv-paid-key', SUPABASE_URL: 'https://db.test', SUPABASE_SERVICE_ROLE_KEY: 'svc', BLANKFIRE_BETA_CAP: '3', ...(serverEnv || {}) } };
   const ctx = await chromium.launchPersistentContext(TDIR + 'p30-' + Date.now(), { headless: true, channel: 'chromium', locale: lang === 'en' ? 'en-US' : 'es-ES', viewport: { width: 420, height: 760 }, args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`, `--lang=${lang === 'en' ? 'en-US' : 'es-ES'}`] });
   await ctx.route('https://raw.githubusercontent.com/**', (r) => r.fulfill({ status: 404, body: '' }));
   await ctx.route('https://api.dexscreener.com/**', (r) => {
@@ -35,14 +38,33 @@ async function launch(ext, { lang = 'es', jupDown = false, lsMode = null } = {})
     if (u.pathname.includes('/pools')) return r.fulfill({ json: { data: [{ attributes: { address: 'POOLPUMP1' } }] } });
     return r.fulfill({ status: 404, body: '' });
   });
-  await ctx.route('https://generativelanguage.googleapis.com/**', async (r) => {
-    const req = r.request(); const key = req.headers()['x-goog-api-key']; const body = req.postDataJSON();
-    st.gemini.push({ url: req.url(), key, body });
-    if (key !== 'AIzaTESTKEY_1234567890abcdef') return r.fulfill({ status: 400, json: { error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT', details: [{ reason: 'API_KEY_INVALID' }] } } });
-    if (req.url().includes('gemini-flash-latest')) return r.fulfill({ status: 404, json: { error: { code: 404, message: 'models/gemini-flash-latest is not found', status: 'NOT_FOUND' } } });
-    const isTest = JSON.stringify(body).includes('Responde solo: OK');
-    const out = isTest ? 'OK' : JSON.stringify({ score: 4, verdict: lang === 'en' ? 'Decent entry, panicked exit.' : 'Entrada correcta, salida con prisa.', after: lang === 'en' ? 'It tripled after you sold.' : 'Después de vender se triplicó.', errors: [{ title: lang === 'en' ? 'Sold too early' : 'Vendiste pronto', detail: '+200 %', severity: 'high' }, { title: 'x'.repeat(200), detail: 'y', severity: 'weird' }], good: ['Stop'], lesson: lang === 'en' ? 'Set a trailing stop.' : 'Pon un stop dinámico.' });
-    return r.fulfill({ json: { candidates: [{ content: { parts: [{ text: out }] } }] } });
+  // Servidor de Blankfire: código real de server/…/blankfire-ai con dependencias simuladas.
+  const usage = new Map();
+  const lsMeta = { store_id: 77, product_id: 99 };
+  const fakeFetch = async (url, init = {}) => {
+    const u = String(url);
+    const J = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+    if (u.includes('/rest/v1/rpc/')) {
+      const fn = u.split('/rpc/')[1], a = JSON.parse(init.body || '{}');
+      if (fn === 'blankfire_ai_take') { const n = usage.get(a.p_subject) || 0; if (n >= a.p_cap) return J(200, -1); usage.set(a.p_subject, n + 1); return J(200, n + 1); }
+      if (fn === 'blankfire_ai_refund') { usage.set(a.p_subject, Math.max(0, (usage.get(a.p_subject) || 0) - 1)); return J(200, null); }
+      return J(200, null);
+    }
+    if (u.includes('lemonsqueezy.com')) { const p = new URLSearchParams(String(init.body)); st.serverLs.push(p.get('license_key')); return J(200, { valid: st.lsValid !== false, license_key: { status: st.lsValid === false ? 'disabled' : 'active' }, meta: lsMeta }); }
+    if (u.includes('generativelanguage.googleapis.com')) {
+      const body = JSON.parse(init.body);
+      st.gemini.push({ url: u, key: init.headers['x-goog-api-key'], body });
+      if (u.includes('gemini-flash-lite-latest')) return J(404, { error: { code: 404, message: 'not found' } });
+      const out = JSON.stringify({ score: 4, verdict: lang === 'en' ? 'Decent entry, panicked exit.' : 'Entrada correcta, salida con prisa.', after: lang === 'en' ? 'It tripled after you sold.' : 'Después de vender se triplicó.', errors: [{ title: lang === 'en' ? 'Sold too early' : 'Vendiste pronto', detail: '+200 %', severity: 'high' }, { title: 'x'.repeat(200), detail: 'y', severity: 'weird' }], good: ['Stop'], lesson: lang === 'en' ? 'Set a trailing stop.' : 'Pon un stop dinámico.' });
+      return J(200, { candidates: [{ content: { parts: [{ text: out }] } }] });
+    }
+    return J(404, {});
+  };
+  await ctx.route(AI_URL, async (r) => {
+    const req = r.request();
+    st.aiCalls.push(req.postDataJSON());
+    const res = await serverHandle(new Request(req.url(), { method: req.method(), headers: req.headers(), body: req.postData() }), { ...st.serverEnv }, fakeFetch);
+    return r.fulfill({ status: res.status, headers: Object.fromEntries(res.headers), body: await res.text() });
   });
   await ctx.route('https://api.lemonsqueezy.com/**', async (r) => {
     const req = r.request(); const p = new URLSearchParams(req.postData() || ''); const path = new URL(req.url()).pathname;
@@ -81,7 +103,7 @@ async function makeTrade(T, { sl } = {}) {
     const r = g.fogueo.account.rounds[0];
     r.openedAt -= SH; r.closedAt -= SH; (r.fills || []).forEach((f) => { f.t -= SH; });
     g.fogueo.account.fills.forEach((f) => { f.t -= SH; });
-    const a = g.blankfireAfter || {}; Object.values(a).forEach((x) => { x.closedAt -= SH; x.samples = []; });
+    const a = g.blankfireAfter || {}; Object.values(a).forEach((x) => { x.closedAt -= SH; x.samples = (x.samples || []).map(([t, p]) => [t - SH, p]); });
     chrome.storage.local.set({ fogueo: g.fogueo, blankfireAfter: a }, res);
   })), SH);
   const round = (await T.send({ type: 'state' })).data.account.rounds[0];
@@ -91,9 +113,36 @@ async function makeTrade(T, { sl } = {}) {
   return { b, round };
 }
 
-// ===================== 1 · Beta (sin tienda): todo el Pro abierto =====================
+// Copias de la extensión con la configuración del Pro cambiada (como lo haría el autor en lib/pro.js).
+const copies = [];
+function makeExt(patch) {
+  const dir = TDIR + 'extpro-' + Date.now() + '-' + copies.length;
+  fs.cpSync(SRC, dir, { recursive: true });
+  const pj = dir + '/lib/pro.js';
+  let t = fs.readFileSync(pj, 'utf8');
+  for (const [k, v] of Object.entries(patch)) t = t.replace(new RegExp(`${k}: [^,]+,`), `${k}: ${JSON.stringify(v)},`);
+  fs.writeFileSync(pj, t);
+  copies.push(dir);
+  return dir;
+}
+const EXT_AI = makeExt({ aiUrl: AI_URL });
+
+// ===================== 0 · Sin servidor configurado: la IA sale como «pronto» =====================
 {
   const T = await launch(SRC);
+  await makeTrade(T);
+  await T.pop.reload(); await T.pop.waitForTimeout(700);
+  await T.pop.locator('[data-tab="history"]').click(); await T.pop.locator('.row[data-row]').first().click();
+  await T.pop.waitForSelector('.ap .ap-chart', { timeout: 8000 });
+  ok(await T.pop.locator('.ai-cta.soon').count() === 1 && !(await T.pop.locator('[data-act="aiRun"]').count()), 'Sin servidor de IA: «Análisis con IA · Pronto», sin botón');
+  const r = await T.send({ type: 'aiReview', id: (await T.send({ type: 'state' })).data.account.rounds[0].id });
+  ok(!r.ok && /aún no está activado/.test(r.error), 'Y el motor lo dice claro si se le pide');
+  await T.ctx.close();
+}
+
+// ===================== 1 · Beta (sin tienda): todo el Pro abierto =====================
+{
+  const T = await launch(EXT_AI);
   const { b, round } = await makeTrade(T);
   ok(b.ok && round?.pairAddress === 'POOLPUMP1' && round.exitMidUsd > 0 && round.slAtEntry === false, `El trade guarda pool, precio de salida y si tenía stop (${round?.pairAddress}, ${round?.exitMidUsd}, sl=${round?.slAtEntry})`);
   const after = (await T.pop.evaluate(() => chrome.storage.local.get('blankfireAfter'))).blankfireAfter || {};
@@ -110,26 +159,13 @@ async function makeTrade(T, { sl } = {}) {
   await T.pop.waitForSelector('.ap .ap-chart', { timeout: 8000 });
   const txt = await T.pop.locator('.ap').innerText();
   ok(/Qué pasó después/.test(txt) && /Máximo después/.test(txt) && /Vendiste demasiado pronto/.test(txt), 'Detalle: gráfica, cifras y errores en el historial');
-  ok(/Añade tu clave gratuita de Gemini/.test(txt), 'Sin clave de Gemini: invita a añadirla');
+  ok(await T.pop.locator('[data-act="aiRun"]').count() === 1 && /nunca tu cartera/.test(txt), 'Con servidor configurado: botón «Analizar», sin pedir ninguna clave');
   await T.pop.locator('.ap').screenshot({ path: TDIR + 'vis30-after.png' });
-  // Añadir clave: botón lleva a Ajustes
-  await T.pop.locator('[data-act="goKeys"]').click(); await T.pop.waitForTimeout(500);
-  ok(await T.pop.locator('#k-gemini').isVisible(), '«Añadir clave» lleva al campo de Gemini');
-  const proTxt = await T.pop.locator('.pro-card').innerText();
+  await T.pop.locator('[data-tab="settings"]').click(); await T.pop.waitForTimeout(400);
+  const proTxt = await T.pop.locator('.pro-form').innerText();
   ok(/Beta gratis/.test(proTxt) && !(await T.pop.locator('.pro-card a.btn').count()), 'Ajustes: tarjeta Pro en beta, sin botón de compra');
-  await T.pop.fill('#k-gemini', 'AIzaMALA_000000000000000000');
-  await T.pop.locator('[data-act="keySave"][data-k="gemini"]').click();
-  await T.pop.waitForSelector('.key-msg', { timeout: 8000 }); await T.pop.waitForTimeout(400);
-  ok(/no es válida/.test(await T.pop.locator('.key-msg').innerText()), 'Clave mala: dice que no es válida → ' + await T.pop.locator('.key-msg').innerText());
-  await T.pop.fill('#k-gemini', 'AIzaTESTKEY_1234567890abcdef');
-  await T.pop.locator('[data-act="keySave"][data-k="gemini"]').click();
-  await T.pop.waitForFunction(() => /funcionando/.test(document.querySelector('.key-msg')?.textContent || ''), null, { timeout: 8000 });
-  ok(true, 'Clave buena: guardada y funcionando (' + await T.pop.locator('.key-msg').innerText() + ')');
-  const ki = T.st.gemini.at(-1);
-  ok(ki.url.includes('gemini-flash-lite-latest') && ki.key === 'AIzaTESTKEY_1234567890abcdef', 'Si un modelo no existe, prueba el siguiente; la clave va en cabecera, no en la URL');
-  ok(!ki.url.includes('AIza'), 'La clave no aparece en la URL');
-  const main = await T.pop.evaluate(() => chrome.storage.local.get('fogueo'));
-  ok(!JSON.stringify(main).includes('AIzaTEST'), 'La clave no se guarda en el estado que ve el panel de Padre');
+  ok(!(await T.pop.locator('#k-gemini').count()) && !/Gemini/.test(proTxt), 'Ya no se pide clave de Gemini al usuario');
+  ok(/mayores de 18/.test(proTxt) && (await T.pop.locator('.pro-form .legal a').count()) === 2, 'Aviso de +18, sin asesoramiento financiero, y enlaces a Términos y Privacidad');
   // Analizar con IA
   await T.pop.locator('[data-tab="history"]').click(); await T.pop.waitForTimeout(300);
   if (!(await T.pop.locator('.ap').count())) await T.pop.locator('.row[data-row]').first().click();
@@ -141,8 +177,11 @@ async function makeTrade(T, { sl } = {}) {
   const saved = (await T.send({ type: 'state' })).data.account.rounds[0].ai;
   ok(saved && saved.score === 4 && saved.errors.length === 2 && saved.errors[1].title.length <= 60 && saved.errors[1].severity === 'mid', 'IA guardada y saneada (títulos recortados, gravedad válida)');
   const lastBody = JSON.stringify(T.st.gemini.at(-1).body);
-  ok(lastBody.includes('soldEarly') && lastBody.includes('afterMaxPct') && lastBody.includes('responseSchema'), 'A Gemini le llegan los hechos y errores calculados, con salida JSON estructurada');
-  ok(!/AIza|privateKey|wallet/i.test(JSON.stringify(T.st.gemini.at(-1).body.contents)), 'A Gemini no se le manda la clave ni nada de la cartera');
+  const call = T.st.aiCalls.at(-1);
+  ok(T.st.gemini.at(-1).key === 'srv-paid-key' && T.st.gemini.at(-1).url.includes('gemini-2.5-flash-lite'), 'El servidor usa SU clave de pago (y si un modelo no existe, prueba el siguiente)');
+  ok(/^[0-9a-f-]{36}$/.test(call.install) && call.license === null && call.lang === 'es', 'En beta, la extensión se identifica con un id aleatorio de instalación, sin licencia');
+  ok(lastBody.includes('soldEarly') && lastBody.includes('afterMaxPct') && lastBody.includes('responseSchema') && lastBody.includes('nunca instrucciones'), 'A Gemini le llegan los hechos y errores calculados, salida JSON y aviso contra órdenes escondidas en las notas');
+  ok(!/privateKey|wallet|srv-paid-key/i.test(JSON.stringify(T.st.gemini.at(-1).body.contents)), 'A Gemini no le llega nada de la cartera ni claves');
   await T.pop.locator('.ap').screenshot({ path: TDIR + 'vis30-ai.png' });
   if (process.env.AXE) {
     await T.pop.evaluate(fs.readFileSync(process.env.AXE, 'utf8'));
@@ -155,6 +194,10 @@ async function makeTrade(T, { sl } = {}) {
   await T.pop.locator('[data-tab="history"]').click(); await T.pop.locator('.row[data-row]').first().click();
   await T.pop.waitForSelector('.ai-box .ai-score', { timeout: 8000 });
   ok(T.st.gemini.length === n, 'Al reabrir, el análisis se lee guardado (no gasta otra llamada)');
+  // Tope diario de la beta (3 en esta prueba): el 4.º se rechaza con un mensaje claro y no llama a Gemini
+  for (let i = 0; i < 2; i++) await T.send({ type: 'aiReview', id: round.id });
+  const capped = await T.send({ type: 'aiReview', id: round.id });
+  ok(!capped.ok && /Has usado los 3 análisis de hoy/.test(capped.error) && T.st.gemini.length === n + 4, 'Tope diario: «' + capped.error + '»');
   // Ancho: nada se sale
   const over = await T.pop.evaluate(() => { const box = document.querySelector('.ap').getBoundingClientRect(); return [...document.querySelectorAll('.ap *')].filter((e) => e.getBoundingClientRect().right > box.right + 1).map((e) => `${e.tagName}.${e.getAttribute('class')} ${Math.round(e.getBoundingClientRect().right)}>${Math.round(box.right)}`).slice(0, 3); });
   ok(!over.length && (await T.pop.evaluate(() => document.querySelector('.views').scrollWidth <= document.querySelector('.views').clientWidth)), 'Sin desbordes horizontales ' + over.join(','));
@@ -176,9 +219,8 @@ async function makeTrade(T, { sl } = {}) {
 
 // ===================== 2 · Inglés =====================
 {
-  const T = await launch(SRC, { lang: 'en' });
+  const T = await launch(EXT_AI, { lang: 'en' });
   const { round } = await makeTrade(T);
-  await T.send({ type: 'saveKeys', gemini: 'AIzaTESTKEY_1234567890abcdef' });
   await T.pop.reload(); await T.pop.waitForTimeout(700);
   await T.pop.locator('[data-tab="history"]').click(); await T.pop.locator('.row[data-row]').first().click();
   await T.pop.waitForSelector('.ap .ap-chart', { timeout: 8000 });
@@ -190,7 +232,7 @@ async function makeTrade(T, { sl } = {}) {
   ok((await T.send({ type: 'state' })).data.account.rounds[0].ai.lang === 'en', 'La IA responde en el idioma de la app');
   await T.pop.locator('[data-tab="settings"]').click(); await T.pop.waitForTimeout(300);
   const set = await T.pop.locator('.pro-form').innerText();
-  ok(/Free beta/.test(set) && /AI review \(Gemini\)/.test(set) && !/Usa tu propia|Pégala/.test(set), 'EN: ajustes del Pro en inglés');
+  ok(/Free beta/.test(set) && /18\+ only/.test(set) && !/Usa tu propia|Pégala|mayores/.test(set), 'EN: ajustes del Pro en inglés');
   await T.pop.locator('.ap, .pro-form').first().screenshot({ path: TDIR + 'vis30-en-settings.png' }).catch(() => {});
   void round;
   await T.ctx.close();
@@ -198,11 +240,8 @@ async function makeTrade(T, { sl } = {}) {
 
 // ===================== 3 · Vendiendo: licencia de Lemon Squeezy =====================
 {
-  const EXT = TDIR + 'extpro-' + Date.now();
-  fs.cpSync(SRC, EXT, { recursive: true });
-  const pj = EXT + '/lib/pro.js';
-  fs.writeFileSync(pj, fs.readFileSync(pj, 'utf8').replace("checkoutUrl: '',", "checkoutUrl: 'https://blankfire.lemonsqueezy.com/buy/test',").replace('storeId: null,', 'storeId: 77,').replace('productId: null,', 'productId: 99,'));
-  const T = await launch(EXT);
+  const EXT = makeExt({ checkoutUrl: 'https://blankfire.lemonsqueezy.com/buy/test', storeId: 77, productId: 99, aiUrl: AI_URL });
+  const T = await launch(EXT, { serverEnv: { BLANKFIRE_STORE_ID: '77', BLANKFIRE_PRODUCT_ID: '99' } });
   const { round } = await makeTrade(T);
   const lock = await T.send({ type: 'afterData', id: round.id });
   ok(!lock.ok && /plan Pro/.test(lock.error), 'Sin licencia: el motor no da los datos Pro');
@@ -230,10 +269,15 @@ async function makeTrade(T, { sl } = {}) {
   ok(await T.pop.locator('#proBadge').isVisible(), 'Insignia Pro en la cabecera');
   const stored = (await T.pop.evaluate(() => chrome.storage.local.get(['blankfirePro', 'fogueo'])));
   ok(stored.blankfirePro.instanceId === 'inst-1' && !JSON.stringify(stored.fogueo).includes('A1B2C3D4'), 'Licencia guardada aparte del estado del panel');
+  const gt0 = T.st.gtCalls;
   const ad = await T.send({ type: 'afterData', id: round.id });
-  ok(ad.ok && ad.data.series.length > 5, 'Con licencia: los datos Pro funcionan');
+  ok(ad.ok && ad.data.series.length >= 1 && ad.data.source !== 'geckoterminal' && T.st.gtCalls === gt0, `Con licencia: los datos Pro salen del seguimiento propio, sin pedir velas a GeckoTerminal (sin licencia comercial) · ${ad.data?.series?.length} puntos`);
+  const air = await T.send({ type: 'aiReview', id: round.id });
+  ok(air.ok && T.st.aiCalls.at(-1).license === 'A1B2C3D4-E5F6-4A7B-8C9D-0123456789AB' && T.st.serverLs.at(-1) === 'A1B2C3D4-E5F6-4A7B-8C9D-0123456789AB', 'Con licencia: el servidor la comprueba en Lemon Squeezy antes de analizar');
   // Revalidación: la tienda la desactiva → se bloquea
   T.st.lsValid = false;
+  const blocked = await T.send({ type: 'aiReview', id: round.id });
+  ok(!blocked.ok && /no está activa/.test(blocked.error), 'Candado real: con la licencia anulada, el servidor no analiza aunque la extensión crea que sí');
   await T.pop.locator('[data-act="proRecheck"]').click(); await T.pop.waitForTimeout(900);
   const s2 = await T.send({ type: 'proStatus' });
   ok(!s2.data.unlocked && s2.data.status === 'disabled', 'Licencia desactivada en la tienda → Pro bloqueado al comprobar');
@@ -245,8 +289,8 @@ async function makeTrade(T, { sl } = {}) {
   ok(!s3.data.unlocked && T.st.ls.some((x) => x.path.endsWith('/deactivate')), 'Desactivar en este navegador libera la licencia en la tienda');
   ok(!T.errs.length, 'Sin errores de JavaScript ' + T.errs.join(' | '));
   await T.ctx.close();
-  fs.rmSync(EXT, { recursive: true, force: true });
 }
 
+copies.forEach((d) => fs.rmSync(d, { recursive: true, force: true }));
 console.log(fails ? `\n${fails} FALLO(S)` : '\nTodo OK');
 process.exit(fails ? 1 : 0);

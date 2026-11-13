@@ -1,7 +1,7 @@
 // Blankfire Pro — piezas de la ventana: «Qué pasó después», errores del trade, análisis con IA y ajustes del Pro.
 import { tr } from '../lib/i18n.js';
 import { fmtPct, fmtSol, fmtCompact } from '../lib/core.js';
-import { maskKey } from '../lib/pro.js';
+import { maskKey, LEGAL } from '../lib/pro.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const sgn = (n, d = 0) => fmtPct(n, d, { sign: true });
@@ -20,7 +20,7 @@ export const PRO_ICON = I;
 function flagText(f) {
   const v = f.vars || {};
   switch (f.id) {
-    case 'fomo': return [tr('Entraste persiguiendo la subida'), tr('Había subido {pct} en los 15 min antes de tu compra. Comprar tras un pico así suele pillar el techo.', { pct: sgn(v.pct) })];
+    case 'fomo': return [tr('Entraste persiguiendo la subida'), tr('Había subido {pct} en {win} antes de tu compra. Comprar tras un pico así suele pillar el techo.', { pct: sgn(v.pct), win: v.win === 60 ? tr('la hora') : tr('los 15 min') })];
     case 'noStop': return [tr('Sin stop al entrar'), tr('Abriste sin stop loss: si el token se desploma, nada te saca a tiempo.')];
     case 'oversized': return [tr('Posición demasiado grande'), tr('Metiste el {pct} de tu patrimonio en un solo trade. Con memecoins, entre el 2 y el 10 % es lo razonable.', { pct: fmtPct(v.pct, 0) })];
     case 'soldEarly': return [tr('Vendiste demasiado pronto'), tr('Después de tu venta subió hasta {pct} {when}: aguantando habrías sacado hasta {sol} SOL más.', { pct: sgn(v.pct), when: mins(v.min), sol: fmtSol(v.sol) })];
@@ -76,7 +76,7 @@ function factChips(f, round) {
   if (f.afterMinPct != null && f.afterMinPct < -0.5) chips.push(`<span class="ap-chip ${f.afterMinPct < 0 ? 'down' : ''}"><small>${tr('Mínimo después')}</small><b class="num">${sgn(f.afterMinPct)}</b><em>${esc(mins(f.afterMinMin))}</em></span>`);
   if (f.after60Pct != null) chips.push(`<span class="ap-chip ${f.after60Pct >= 0 ? 'up' : 'down'}"><small>${tr('A los 60 min')}</small><b class="num">${sgn(f.after60Pct)}</b></span>`);
   else if (f.after15Pct != null) chips.push(`<span class="ap-chip ${f.after15Pct >= 0 ? 'up' : 'down'}"><small>${tr('A los 15 min')}</small><b class="num">${sgn(f.after15Pct)}</b></span>`);
-  if (f.prePumpPct != null && Math.abs(f.prePumpPct) >= 5) chips.push(`<span class="ap-chip ${f.prePumpPct >= 40 ? 'amber' : ''}"><small>${tr('15 min antes de entrar')}</small><b class="num">${sgn(f.prePumpPct)}</b></span>`);
+  if (f.prePumpPct != null && Math.abs(f.prePumpPct) >= 5) chips.push(`<span class="ap-chip ${f.prePumpPct >= 40 ? 'amber' : ''}"><small>${f.prePumpWin === 60 ? tr('1 h antes de entrar') : tr('15 min antes de entrar')}</small><b class="num">${sgn(f.prePumpPct)}</b></span>`);
   if (f.peakPct != null && f.peakPct > 0) chips.push(`<span class="ap-chip"><small>${tr('Tu máximo dentro')}</small><b class="num">${sgn(f.peakPct)}</b></span>`);
   let sum = '';
   if (f.missedSol > 0.0005 && f.afterMaxPct >= 15) sum = tr('Aguantando hasta el máximo habrías sacado hasta <b>{sol} SOL</b> más.', { sol: fmtSol(f.missedSol) });
@@ -92,13 +92,14 @@ function coverLine(data, round) {
   const parts = [];
   if (live) parts.push(tr('Seguimos el precio 60 min tras tu venta (llevamos {n} min).', { n: Math.round((Date.now() - round.closedAt) / 60e3) }));
   else if (f.coverMin < 50) parts.push(tr('Solo hay datos de {n} min tras tu venta.', { n: f.coverMin }));
-  if (src) parts.push(tr('Precios: {src}.', { src }));
+  if (src && data.source === 'blankfire') parts.push(tr('Precios: {src}.', { src }));
+  else if (src) parts.push(tr('Datos on-chain: {src}.', { src: src.replace('GeckoTerminal', '<a href="https://www.geckoterminal.com" target="_blank" rel="noopener">GeckoTerminal</a>') }));
   return parts.length ? `<p class="ap-note">${parts.join(' ')}</p>` : '';
 }
 
 // ---------- Bloque «Qué pasó después» dentro del detalle de un trade ----------
 export function afterSection(round, s) {
-  // s = { unlocked, selling, loading, error, data, aiLoading, aiError, hasGemini }
+  // s = { unlocked, selling, loading, error, data, aiLoading, aiError, aiReady }
   const head = `<div class="ap-h"><span class="ap-t">${I.spark}<span>${tr('Qué pasó después')}</span></span><span class="pro-tag">Pro</span></div>`;
   if (!s.unlocked) {
     return `<section class="ap locked">${head}
@@ -127,10 +128,10 @@ export function afterSection(round, s) {
 
 function aiBlock(round, s) {
   const ai = round.ai;
-  if (s.aiLoading) return `<div class="ai-box loading" aria-busy="true"><div class="ai-h">${I.spark}<span>${tr('Gemini está revisando tu trade…')}</span></div><div class="ap-skel"><i></i><i></i></div></div>`;
+  if (s.aiLoading) return `<div class="ai-box loading" aria-busy="true"><div class="ai-h">${I.spark}<span>${tr('La IA está revisando tu trade…')}</span></div><div class="ap-skel"><i></i><i></i></div></div>`;
   if (!ai) {
-    if (!s.hasGemini) return `<div class="ai-cta"><div><b>${tr('Análisis con IA')}</b><span>${tr('Añade tu clave gratuita de Gemini y la IA te explicará los fallos de este trade.')}</span></div><button class="btn plain sm" data-act="goKeys">${tr('Añadir clave')}</button></div>`;
-    return `<div class="ai-cta"><div><b>${tr('Análisis con IA')}</b><span>${tr('Gemini revisa la entrada, el tamaño, el stop y la salida, y te da una lección concreta.')}</span></div><button class="btn brand sm" data-act="aiRun" data-id="${esc(round.id)}">${I.spark}${tr('Analizar')}</button></div>${s.aiError ? `<p class="ap-err">${esc(s.aiError)}</p>` : ''}`;
+    if (!s.aiReady) return `<div class="ai-cta soon"><div><b>${tr('Análisis con IA')}</b><span>${tr('Muy pronto: la IA revisará la entrada, el tamaño, el stop y la salida de cada trade.')}</span></div><span class="pro-tag">${tr('Pronto')}</span></div>`;
+    return `<div class="ai-cta"><div><b>${tr('Análisis con IA')}</b><span>${tr('La IA revisa la entrada, el tamaño, el stop y la salida, y te da una lección concreta. Se envían los datos del trade y tus notas, nunca tu cartera.')}</span></div><button class="btn brand sm" data-act="aiRun" data-id="${esc(round.id)}">${I.spark}${tr('Analizar')}</button></div>${s.aiError ? `<p class="ap-err">${esc(s.aiError)}</p>` : ''}`;
   }
   const sc = ai.score;
   const tone = sc <= 4 ? 'down' : sc <= 6 ? 'amber' : 'up';
@@ -146,16 +147,17 @@ function aiBlock(round, s) {
     ${errs ? `<ul class="ap-errs">${errs}</ul>` : ''}
     ${good ? `<ul class="ap-wins">${good}</ul>` : ''}
     ${ai.lesson ? `<div class="ai-lesson"><small>${tr('Para el próximo trade')}</small><p>${esc(ai.lesson)}</p></div>` : ''}
-    <div class="ai-foot"><span>${esc(ai.model || 'Gemini')} · ${ago < 1 ? tr('ahora') : ago < 90 ? tr('hace {n} min', { n: ago }) : tr('hace {n} h', { n: Math.round(ago / 60) })}${ai.coverMin < 50 ? ` · ${tr('con {n} min de datos tras vender', { n: ai.coverMin })}` : ''}</span><button class="link-btn" data-act="aiRun" data-id="${esc(round.id)}">${tr('Volver a analizar')}</button></div>
+    <div class="ai-foot"><span>${esc(ai.model || 'Gemini')}${ai.cap ? ` · ${esc(tr('{n} de {c} hoy', { n: ai.used, c: ai.cap }))}` : ''} · ${ago < 1 ? tr('ahora') : ago < 90 ? tr('hace {n} min', { n: ago }) : tr('hace {n} h', { n: Math.round(ago / 60) })}${ai.coverMin < 50 ? ` · ${tr('con {n} min de datos tras vender', { n: ai.coverMin })}` : ''}</span><button class="link-btn" data-act="aiRun" data-id="${esc(round.id)}">${tr('Volver a analizar')}</button></div>
     ${s.aiError ? `<p class="ap-err">${esc(s.aiError)}</p>` : ''}
   </div>`;
 }
 
 // ---------- Ajustes · Blankfire Pro ----------
 export function proSettings(pro, keys, notice, ui) {
-  // pro = proInfo del motor; keys = { gemini: bool, jupiter: bool }; ui = { msg, busy }
+  // pro = proInfo del motor; keys = { jupiter: bool, ai: bool }; ui = { msg, busy }
   const st = !pro ? 'loading' : !pro.selling ? 'beta' : pro.unlocked ? 'active' : pro.status === 'active' ? 'stale' : pro.status && pro.status !== 'none' ? pro.status : 'free';
-  const feats = [tr('Qué pasó con el precio después de vender'), tr('Errores del trade detectados al momento'), tr('Análisis con IA y una lección por trade')];
+  const feats = [tr('Qué pasó con el precio después de vender'), tr('Errores del trade detectados al momento'), keys.ai ? tr('Análisis con IA y una lección por trade') : tr('Análisis con IA y una lección por trade (muy pronto)')];
+  const legal = `<p class="legal">${tr('Solo para mayores de 18 años. Es una herramienta de práctica: nada de esto es asesoramiento financiero.')} <a href="${LEGAL.terms}" target="_blank" rel="noopener">${tr('Términos')}</a> · <a href="${LEGAL.privacy}" target="_blank" rel="noopener">${tr('Privacidad')}</a></p>`;
   let card;
   if (st === 'beta') {
     card = `<div class="pro-card beta"><div class="pro-h"><span class="pro-tag">Pro</span><b>${tr('Beta gratis')}</b></div><p>${tr('Todo el Pro funciona gratis mientras está en beta.')}</p><ul>${feats.map((x) => `<li>${I.check}${x}</li>`).join('')}</ul></div>`;
@@ -170,20 +172,15 @@ export function proSettings(pro, keys, notice, ui) {
       ${why ? `<p class="warn">${why}</p>` : ''}
       <ul>${feats.map((x) => `<li>${I.check}${x}</li>`).join('')}</ul>
       <div class="btn-row"><a class="btn brand" href="${esc(pro.checkoutUrl)}" target="_blank" rel="noopener">${tr('Comprar Pro')}</a></div>
+      <p class="hint">${tr('El pago, las facturas y el IVA los gestiona Lemon Squeezy.')}</p>
       <label class="field"><span>${tr('¿Ya lo compraste? Pega la clave de licencia del email')}</span>
         <span class="key-row"><span class="inp key">${I.key}<input id="pro-key" autocomplete="off" spellcheck="false" placeholder="${esc(tr('Clave de licencia'))}"></span><button class="btn plain" data-act="proOn" ${ui.busy === 'pro' ? 'disabled' : ''}>${ui.busy === 'pro' ? tr('Activando…') : tr('Activar')}</button></span>
       </label></div>`;
   }
   const msg = (k) => (ui.msg?.[k] ? `<p class="key-msg ${ui.msg[k].ok ? 'ok' : 'bad'}" role="status">${esc(ui.msg[k].text)}</p>` : '');
   const jupWarn = notice?.jupiterNeedsKey && !keys.jupiter ? `<p class="warn">${I.warn}${tr('Jupiter ya pide clave para los tokens recién lanzados. Mientras, uso GeckoTerminal, que es algo más lento.')}</p>` : notice?.jupiterKeyBad ? `<p class="warn">${I.warn}${tr('Jupiter no acepta tu clave. Revísala en portal.jup.ag.')}</p>` : '';
-  return `${card}${msg('pro')}
-    <h3 id="keys">${tr('Análisis con IA (Gemini)')}</h3>
-    <p class="hint">${tr('Usa tu propia clave gratuita de Google. Se envían a Gemini los datos del trade y tus notas, nunca tu cartera.')}</p>
-    <ol class="steps-mini"><li>${tr('Entra en <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> con tu cuenta de Google.')}</li><li>${tr('Pulsa «Create API key» y cópiala.')}</li><li>${tr('Pégala aquí y pulsa Guardar.')}</li></ol>
-    <span class="key-row"><span class="inp key">${I.key}<input id="k-gemini" type="password" autocomplete="off" spellcheck="false" placeholder="${keys.gemini ? esc(tr('Guardada · escribe para cambiarla')) : 'AIza…'}"></span><button class="btn plain" data-act="keySave" data-k="gemini">${tr('Guardar')}</button></span>
-    <div class="btn-row">${keys.gemini ? `<button class="ghost" data-act="keyTest" ${ui.busy === 'test' ? 'disabled' : ''}>${ui.busy === 'test' ? tr('Probando…') : tr('Probar la clave')}</button><button class="ghost" data-act="keyDel" data-k="gemini">${tr('Borrar')}</button>` : ''}</div>
-    ${msg('gemini')}
-    <h3>${tr('Jupiter (opcional)')}</h3>
+  return `${card}${msg('pro')}${legal}
+    <h3 id="keys">${tr('Jupiter (opcional)')}</h3>
     <p class="hint">${tr('Solo hace falta si Jupiter deja de responder sin clave. Es gratis en <a href="https://portal.jup.ag" target="_blank" rel="noopener">portal.jup.ag</a>.')}</p>
     ${jupWarn}
     <span class="key-row"><span class="inp key">${I.key}<input id="k-jupiter" type="password" autocomplete="off" spellcheck="false" placeholder="${keys.jupiter ? esc(tr('Guardada · escribe para cambiarla')) : tr('Sin clave')}"></span><button class="btn plain" data-act="keySave" data-k="jupiter">${tr('Guardar')}</button></span>

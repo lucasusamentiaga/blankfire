@@ -75,7 +75,9 @@ export function tradeFacts(round, series, now = Date.now()) {
   const f = {
     entryPrice: eP, exitPrice: xP,
     holdMin: Math.max(0, Math.round((tOut - tIn) / MIN)),
-    prePumpPct: pre && eP ? pct(eP, pre) : null,          // cuánto había subido en los 15 min antes de entrar
+    // Cuánto venía subiendo antes de entrar: con velas, 15 min; si no, el cambio de 1 h que daba DexScreener al comprar.
+    prePumpPct: pre && eP ? pct(eP, pre) : Number.isFinite(round.preChange?.h1) ? round.preChange.h1 : null,
+    prePumpWin: pre && eP ? 15 : Number.isFinite(round.preChange?.h1) ? 60 : null,
     peakPct: peak && eP ? Math.max(pct(peak.v, eP), round.pnlPct ?? -Infinity) : null,   // máximo mientras estabas dentro
     afterMaxPct: maxAfter && xP ? pct(maxAfter.v, xP) : null,
     afterMaxMin: maxAfter ? Math.round((maxAfter.t - tOut) / MIN) : null,
@@ -98,7 +100,7 @@ export function tradeFlags(round, facts, ctx = {}) {
   const errors = [], wins = [];
   const reason = round.reason || 'manual';
   const stopped = reason === 'sl' || reason === 'trail';
-  if (facts.prePumpPct != null && facts.prePumpPct >= 40) errors.push({ id: 'fomo', sev: facts.prePumpPct >= 80 ? 'high' : 'mid', vars: { pct: facts.prePumpPct } });
+  if (facts.prePumpPct != null && facts.prePumpPct >= 40) errors.push({ id: 'fomo', sev: facts.prePumpPct >= 80 ? 'high' : 'mid', vars: { pct: facts.prePumpPct, win: facts.prePumpWin } });
   if (!round.slAtEntry && round.slAtEntry !== undefined) errors.push({ id: 'noStop', sev: round.pnlPct <= -30 ? 'high' : 'mid', vars: {} });
   if (ctx.sizePct != null && ctx.sizePct > 20) errors.push({ id: 'oversized', sev: ctx.sizePct > 40 ? 'high' : 'mid', vars: { pct: ctx.sizePct } });
   if (!stopped && facts.afterMaxPct != null && facts.afterMaxPct >= 50 && round.pnlSol > -Infinity) errors.push({ id: 'soldEarly', sev: facts.afterMaxPct >= 150 ? 'high' : 'mid', vars: { pct: facts.afterMaxPct, min: facts.afterMaxMin, sol: facts.missedSol } });

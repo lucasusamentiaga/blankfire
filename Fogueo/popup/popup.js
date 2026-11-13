@@ -74,7 +74,7 @@ let touring = null;
 
 // ---------- Pro ----------
 let pro = null;                                   // estado de la licencia (sin la clave)
-let keysSt = { gemini: false, jupiter: false, notice: {} };
+let keysSt = { jupiter: false, ai: false, notice: {} };
 const afterCache = {};                            // id → { loading, error, data, at, aiLoading, aiError }
 let proUi = { msg: {}, busy: null };
 async function loadPro() {
@@ -88,14 +88,14 @@ const proUnlocked = () => !!pro?.unlocked;
 function afterBox(r) {
   if (String(r.id).startsWith('demo-') || !pro) return '';
   const c = afterCache[r.id] || {};
-  return `<div class="after-slot" data-after="${esc(r.id)}">${afterSection(r, { unlocked: proUnlocked(), selling: pro.selling, hasGemini: keysSt.gemini, ...c })}</div>`;
+  return `<div class="after-slot" data-after="${esc(r.id)}">${afterSection(r, { unlocked: proUnlocked(), selling: pro.selling, aiReady: keysSt.ai, ...c })}</div>`;
 }
 function paintAfter(id) {
   const slot = document.querySelector(`.after-slot[data-after="${CSS.escape(id)}"]`);
   const r = st.account.rounds.find((x) => x.id === id);
   if (!slot || !r) return;
   const c = afterCache[id] || {};
-  slot.innerHTML = afterSection(r, { unlocked: proUnlocked(), selling: pro?.selling, hasGemini: keysSt.gemini, ...c });
+  slot.innerHTML = afterSection(r, { unlocked: proUnlocked(), selling: pro?.selling, aiReady: keysSt.ai, ...c });
   translateDom(slot);
 }
 async function fetchAfter(id, force) {
@@ -672,17 +672,8 @@ async function proAction(act, btn) {
     case 'keySave': {
       const k = btn.dataset.k, inp = $(`#k-${k}`), val = (inp?.value || '').trim();
       if (!val) { say(k, false, tr('Pega la clave primero.')); redraw(); return true; }
-      if (k === 'gemini' && !/^[A-Za-z0-9_-]{20,}$/.test(val)) { say(k, false, tr('Esa clave no parece de Gemini (suelen empezar por AIza).')); redraw(); return true; }
       const r = await send({ type: 'saveKeys', [k]: val });
-      if (r.ok) {
-        keysSt = { ...keysSt, ...r.data };
-        if (k === 'gemini') {
-          proUi.busy = 'test'; say(k, true, tr('Guardada. Probándola…')); redraw();
-          const tst = await send({ type: 'testGemini' });
-          proUi.busy = null;
-          say(k, tst.ok, tst.ok ? tr('Clave guardada y funcionando ({m}).', { m: tst.data.model }) : tr('Guardada, pero Gemini dice: {e}', { e: tst.error }));
-        } else say(k, true, tr('Clave guardada.'));
-      } else say(k, false, r.error);
+      if (r.ok) { keysSt = { ...keysSt, ...r.data }; say(k, true, tr('Clave guardada.')); } else say(k, false, r.error);
       await loadPro(); redraw(); return true;
     }
     case 'keyDel': {
@@ -691,13 +682,6 @@ async function proAction(act, btn) {
       if (r.ok) keysSt = { ...keysSt, ...r.data };
       say(k, true, tr('Clave borrada.'));
       await loadPro(); redraw(); return true;
-    }
-    case 'keyTest': {
-      proUi.busy = 'test'; redraw();
-      const r = await send({ type: 'testGemini' });
-      proUi.busy = null;
-      say('gemini', r.ok, r.ok ? tr('La clave funciona ({m}).', { m: r.data.model }) : r.error);
-      redraw(); return true;
     }
     default: return false;
   }

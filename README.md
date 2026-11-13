@@ -19,7 +19,7 @@ Extensión para Chrome y Opera GX (Manifest V3). Español e inglés.
 - **Blankfire Pro**:
   - **Qué pasó después**: gráfica del precio desde 20 min antes de entrar hasta 60 min después de vender, con el máximo y el mínimo tras tu venta y cuánto SOL te dejaste (o te ahorraste).
   - **Errores del trade** detectados al momento con reglas claras: entrar persiguiendo la subida, sin stop, posición demasiado grande, vender pronto, stop demasiado ajustado, devolver la ganancia, comisiones, trade de venganza…
-  - **Análisis con IA** (Google Gemini, con tu propia clave gratuita): nota de la ejecución, fallos, lo que hiciste bien y una lección para el próximo trade.
+  - **Análisis con IA** (Google Gemini): nota de la ejecución, fallos, lo que hiciste bien y una lección para el próximo trade.
 - Precios de **DexScreener** y **Jupiter** (para tokens recién creados), con **GeckoTerminal** de respaldo si Jupiter empieza a pedir clave. No toca tu wallet ni tu cuenta de Padre.
 
 ## Instalar (sin empaquetar)
@@ -43,29 +43,38 @@ En **Ajustes** de la ventana ves tu versión y puedes buscar actualizaciones a m
 
 ## Blankfire Pro
 
-### Análisis con IA (cada usuario)
+«Qué pasó después» y los errores del trade se calculan en tu navegador. El **análisis con IA** pasa por un pequeño servidor de Blankfire ([`server/`](server)), por dos motivos:
 
-1. Entra en [aistudio.google.com/apikey](https://aistudio.google.com/apikey) con tu cuenta de Google.
-2. Pulsa **Create API key** y cópiala.
-3. En la ventana de Blankfire: **Ajustes → Blankfire Pro**, pégala en «Análisis con IA (Gemini)» y pulsa **Guardar** (se prueba sola).
-4. En **Historial**, abre un trade cerrado y pulsa **Analizar**.
+- **Legal:** las condiciones de la API de Gemini solo permiten el nivel **de pago** cuando la app se ofrece a usuarios del Espacio Económico Europeo, Suiza o Reino Unido, y la API es para desarrolladores, no para que cada consumidor use su clave. Así que la clave es una sola, la del autor, con facturación activada, y nunca sale del servidor.
+- **Candado real:** el servidor comprueba la licencia en Lemon Squeezy antes de cada análisis y pone topes diarios (por licencia y en total) para que el gasto no se dispare. Cada análisis con Gemini Flash-Lite cuesta del orden de una décima de céntimo.
 
-La clave se guarda solo en tu navegador, aparte de tu cuenta, y el panel de Padre nunca la ve. A Gemini se le envían los datos del trade y tus notas, nunca nada de tu wallet. El nivel gratuito de Gemini tiene límites por minuto y por día.
+Mientras `PRO_CONFIG.aiUrl` esté vacío, la IA sale como «Pronto» y el resto del Pro funciona igual.
+
+Con el Pro de pago, la gráfica de «Qué pasó después» usa solo el seguimiento propio de Blankfire (precios de DexScreener, cuya API permite uso comercial). Las velas de GeckoTerminal solo se usan en la beta gratuita, porque su API sin clave no incluye licencia comercial.
+
+### Activar la IA (para el autor)
+
+1. Crea un proyecto en [Google Cloud](https://console.cloud.google.com) solo para Blankfire, **activa la facturación** y pon una alerta de presupuesto (p. ej. 5 €/mes).
+2. En [AI Studio](https://aistudio.google.com/apikey) crea una clave de API dentro de ese proyecto.
+3. En Supabase (un proyecto aparte de tus otras apps es lo más limpio): **SQL Editor** → pega y ejecuta [`server/supabase/blankfire.sql`](server/supabase/blankfire.sql).
+4. **Edge Functions** → crea la función `blankfire-ai` con el código de [`server/supabase/functions/blankfire-ai/index.ts`](server/supabase/functions/blankfire-ai/index.ts) y **desactiva «Verify JWT»** (la función hace su propia comprobación).
+5. **Edge Functions → Secrets**: añade `BLANKFIRE_GEMINI_KEY` con la clave del paso 2 (y, cuando cobres, `BLANKFIRE_STORE_ID` y `BLANKFIRE_PRODUCT_ID`).
+6. Pon la URL de la función en `aiUrl` de [`Fogueo/lib/pro.js`](Fogueo/lib/pro.js) y publica.
 
 ### Cobrar el Pro (para el autor)
 
-Mientras `PRO_CONFIG.checkoutUrl` esté vacío en [`Fogueo/lib/pro.js`](Fogueo/lib/pro.js), el Pro funciona gratis para todos como **beta**. Para empezar a cobrar con [Lemon Squeezy](https://www.lemonsqueezy.com) (de Stripe; cobra, hace las facturas con IVA y genera una clave de licencia por compra):
+Mientras `PRO_CONFIG.checkoutUrl` esté vacío, el Pro funciona gratis para todos como **beta** (con la IA limitada a 5 análisis al día por navegador). Para cobrar con [Lemon Squeezy](https://www.lemonsqueezy.com) (de Stripe), que actúa como **vendedor** (*merchant of record*): cobra, factura, gestiona el IVA de cada país y los reembolsos.
 
-1. Crea tu cuenta y tu tienda en Lemon Squeezy y completa la activación de la tienda (datos para cobrar).
+1. Crea tu cuenta y tu tienda en Lemon Squeezy y completa la activación (datos para cobrar).
 2. Crea un producto «Blankfire Pro» con su precio (pago único o suscripción).
-3. En el producto, activa **License keys** (generar claves de licencia) y pon un límite de activaciones (p. ej. 2 navegadores).
-4. Publica el producto y copia su enlace de compra (**Share**).
-5. Copia el número de tu tienda (Settings → Stores) y el del producto.
-6. Rellena `checkoutUrl`, `storeId` y `productId` en `Fogueo/lib/pro.js`, sube el cambio y recarga Blankfire.
+3. En el producto, activa **License keys** y pon un límite de activaciones (p. ej. 2 navegadores).
+4. Enlaza en la tienda los [Términos](docs/terminos.md) y la [Privacidad](docs/privacidad.md), después de completar en ellos tu NIF y tu email de contacto.
+5. Publica el producto y copia su enlace de compra (**Share**), el número de tu tienda y el del producto.
+6. Rellena `checkoutUrl`, `storeId` y `productId` en `Fogueo/lib/pro.js`, y los mismos números en los secretos del servidor.
 
-La extensión activa y comprueba la licencia con la License API pública de Lemon Squeezy (sin claves secretas ni servidor propio): la vuelve a comprobar cada 3 días y, sin conexión, sigue valiendo 14 días. Solo acepta licencias de tu tienda y tu producto.
+La extensión activa la licencia con la License API pública de Lemon Squeezy y la vuelve a comprobar cada 3 días (sin conexión sigue valiendo 14). Como el código es abierto, alguien podría saltarse esa comprobación en su copia, pero no conseguiría análisis con IA: eso lo decide el servidor.
 
-> Como el código es abierto, alguien con conocimientos podría saltarse la comprobación editando el código. Para un candado real haría falta un servidor propio que haga el análisis.
+> **Antes de la primera venta:** en España, cobrar por un producto de forma continuada suele exigir el alta en Hacienda (modelo 036/037) y, según la habitualidad, en autónomos (RETA). Consúltalo con una asesoría.
 
 ## Estructura
 
@@ -80,6 +89,8 @@ Fogueo/              La extensión
 updates.json         Novedades de cada versión (las enseña el aviso de actualización)
 actualizar.bat       Descarga la última versión con Git
 Marca Blankfire/     Lámina de la marca, filosofía visual y fuentes para regenerar los iconos
+server/              Servidor del análisis con IA (Supabase Edge Function + SQL)
+docs/                Términos de uso y política de privacidad
 tests/               Pruebas de extremo a extremo con Playwright
 ```
 
@@ -116,4 +127,4 @@ Hecho por **Lucas Usamentiaga**.
 
 ## Aviso
 
-Blankfire es una herramienta de práctica. Los resultados son una aproximación: en real, la ejecución puede ser peor en tokens muy nuevos o con poca liquidez. Nada de esto es asesoramiento financiero.
+Blankfire es una herramienta de práctica, solo para mayores de 18 años. Los resultados son una aproximación: en real, la ejecución puede ser peor en tokens muy nuevos o con poca liquidez. Nada de esto es asesoramiento financiero. Blankfire no está afiliado a Padre, pump.fun, Jupiter, DexScreener, GeckoTerminal ni Google. [Términos](docs/terminos.md) · [Privacidad](docs/privacidad.md)

@@ -43,6 +43,10 @@ const fresh = tradeFacts(round, s.filter((x) => x.t <= T0 + 12 * MIN), T0 + 12 *
 ok(fresh.after15Pct === null && fresh.after60Pct === null && fresh.coverMin <= 2, 'Venta reciente: sin «a los 15/60 min»');
 ok(tradeFacts(round, [], now).afterMaxPct === null, 'Serie vacía: sin cifras');
 
+// Sin velas de antes de entrar: usa el cambio de 1 h que daba DexScreener al comprar
+const fp = tradeFacts({ ...round, preChange: { m5: 12, h1: 65 } }, s.filter((x) => x.t >= T0), now);
+ok(fp.prePumpPct === 65 && fp.prePumpWin === 60 && tradeFlags(round, fp, {}).errors.some((e) => e.id === 'fomo' && e.vars.win === 60), 'FOMO sin velas: con el +65 % de la última hora al comprar');
+ok(f.prePumpWin === 15, 'Con velas, la ventana es de 15 min');
 // Contexto
 const acc = { startBalance: 10, equity: [{ t: T0 - 5 * MIN, v: 4 }], rounds: [round, { id: 'p', closedAt: T0 - 2 * MIN, pnlSol: -1 }] };
 const cx = tradeContext(round, acc);

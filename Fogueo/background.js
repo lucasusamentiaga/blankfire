@@ -109,12 +109,16 @@ async function getJson(url) {
 
 // Jupiter: cubre los tokens recién creados (pump.fun, bonding curve) que DexScreener aún no lista.
 let jupBackoffUntil = 0;
-// ---------- Claves del usuario (Gemini, Jupiter) ----------
+// ---------- Clave opcional del usuario (Jupiter) ----------
 // Fuera del estado principal: el panel de Padre nunca las recibe.
 const KEYS_KEY = 'blankfireKeys';
-let userKeys = { gemini: '', jupiter: '' };
-chrome.storage.local.get(KEYS_KEY).then((g) => { userKeys = { ...userKeys, ...(g[KEYS_KEY] || {}) }; }).catch(() => {});
-chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch[KEYS_KEY]) userKeys = { gemini: '', jupiter: '', ...(ch[KEYS_KEY].newValue || {}) }; });
+let userKeys = { jupiter: '' };
+chrome.storage.local.get(KEYS_KEY).then((g) => {
+  const k = g[KEYS_KEY] || {};
+  userKeys = { jupiter: k.jupiter || '' };
+  if ('gemini' in k) chrome.storage.local.set({ [KEYS_KEY]: { jupiter: k.jupiter || '' } });   // ya no se usa: se borra
+}).catch(() => {});
+chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch[KEYS_KEY]) userKeys = { jupiter: '', ...(ch[KEYS_KEY].newValue || {}) }; });
 
 // Avisos de servicio que enseña la ventana (p. ej. «Jupiter ya pide clave»).
 const NOTICE_KEY = 'blankfireNotice';
@@ -464,7 +468,11 @@ async function doBuy({ key, solIn, tpPct, slPct, trailing, note, url, via = 'man
     if (note) pos.entryNote = pos.entryNote ? `${pos.entryNote}\n${note}` : note;
     if (tpPct > 0) pos.tp = { pct: tpPct };
     if (slPct > 0) pos.sl = { pct: slPct, trailing: !!trailing };
-    if (prevQty === 0) { pos.slAtEntry = !!pos.sl; pos.tpAtEntry = !!pos.tp; }
+    if (prevQty === 0) {
+      pos.slAtEntry = !!pos.sl; pos.tpAtEntry = !!pos.tp;
+      // Cuánto venía subiendo justo antes de entrar (para detectar el FOMO sin pedir velas a nadie).
+      pos.preChange = { m5: Number.isFinite(quote.change?.m5) ? quote.change.m5 : null, h1: Number.isFinite(quote.change?.h1) ? quote.change.h1 : null };
+    }
     // Al ampliar, el máximo se reexpresa sobre el nuevo coste (mismo precio máximo, más tokens).
     if (prevQty > 0 && (pos.peakPct ?? 0) > 0 && pos.costSol > 0) {
       const peakValue = (1 + pos.peakPct / 100) * prevCost * (pos.qty / prevQty);
@@ -518,7 +526,7 @@ async function doSell({ key, pct, note, reason = 'manual' }) {
         entryMcUsd: pos.entryMcUsd, exitMcUsd: quote.marketCapUsd, avgEntryUsd: pos.avgEntryUsd,
         feesSol: pos.feesSol, reason, entryNote: pos.entryNote, exitNote: pos.exitNote, lesson: '', fills: pos.fills,
         pairAddress: pos.pairAddress || quote.pairAddress || null, exitPriceUsd: sim.fillPrice, exitMidUsd: quote.priceUsd,
-        slAtEntry: pos.slAtEntry, tpAtEntry: pos.tpAtEntry, sl: pos.sl || null, tp: pos.tp || null, peakPct: pos.peakPct ?? null,
+        slAtEntry: pos.slAtEntry, tpAtEntry: pos.tpAtEntry, preChange: pos.preChange || null, sl: pos.sl || null, tp: pos.tp || null, peakPct: pos.peakPct ?? null,
       };
       st.account.rounds.unshift(round);
       watchAfter(round);
@@ -804,22 +812,21 @@ const handlers = {
   async proActivate({ key }) { return proActivate(key); },
   async proDeactivate() { return proDeactivate(); },
   async proRecheck() { return proValidate(true); },
-  async saveKeys({ gemini, jupiter }) {
-    const cur = { gemini: '', jupiter: '', ...((await chrome.storage.local.get(KEYS_KEY))[KEYS_KEY] || {}) };
+  async saveKeys({ jupiter }) {
+    const cur = { jupiter: '', ...((await chrome.storage.local.get(KEYS_KEY))[KEYS_KEY] || {}) };
+    delete cur.gemini;   // desde 1.13.1 la IA va por el servidor de Blankfire: ya no se guarda clave de Gemini
     const clean = (v) => String(v ?? '').trim().slice(0, 200);
-    if (gemini !== undefined) cur.gemini = clean(gemini);
     if (jupiter !== undefined) cur.jupiter = clean(jupiter);
     await chrome.storage.local.set({ [KEYS_KEY]: cur });
     userKeys = cur;
     if (jupiter !== undefined) { jupBackoffUntil = 0; await setNotice({ jupiterKeyBad: false }); }
-    return { gemini: !!cur.gemini, jupiter: !!cur.jupiter };
+    return { jupiter: !!cur.jupiter };
   },
   async keysStatus() {
     const k = (await chrome.storage.local.get(KEYS_KEY))[KEYS_KEY] || {};
     const notice = (await chrome.storage.local.get(NOTICE_KEY))[NOTICE_KEY] || {};
-    return { gemini: !!k.gemini, jupiter: !!k.jupiter, notice };
+    return { jupiter: !!k.jupiter, notice, ai: !!PRO_CONFIG.aiUrl };
   },
-  async testGemini() { return geminiTest(); },
   async afterData({ id }) { return afterData(id); },
   async aiReview({ id }) { return aiReview(id); },
 
@@ -866,11 +873,13 @@ async function afterStore() { return (await chrome.storage.local.get(AFTER_KEY))
 async function watchAfter(round) {
   try {
     const all = await afterStore();
-    all[round.id] = { key: round.key, closedAt: round.closedAt, samples: [[round.closedAt, round.exitMidUsd || round.exitPriceUsd]] };
+    const held = (all['open:' + round.id]?.samples || []).filter((x) => x[0] >= round.openedAt && x[0] < round.closedAt).slice(-120);
+    delete all['open:' + round.id];
+    all[round.id] = { key: round.key, closedAt: round.closedAt, samples: [...held, [round.closedAt, round.exitMidUsd || round.exitPriceUsd]] };
     // Limpieza: fuera lo de hace más de 7 días.
-    for (const [id, w] of Object.entries(all)) if (Date.now() - w.closedAt > 7 * 24 * 3600e3) delete all[id];
+    for (const [id, w] of Object.entries(all)) if (Date.now() - (w.closedAt || w.openedAt || 0) > 7 * 24 * 3600e3) delete all[id];
     await chrome.storage.local.set({ [AFTER_KEY]: all });
-  } catch (e) { /* sin seguimiento: la gráfica tirará de GeckoTerminal */ }
+  } catch (e) { /* sin seguimiento: la gráfica tendrá menos puntos */ }
 }
 let sampling = false;
 async function sampleAfter() {
@@ -878,7 +887,15 @@ async function sampleAfter() {
   sampling = true;
   try {
     const all = await afterStore();
-    const live = Object.entries(all).filter(([, w]) => Date.now() - w.closedAt <= AFTER_MIN * 60e3 + 30e3);
+    // También vamos guardando el precio mientras la posición está abierta (para la gráfica «durante»).
+    const st = await load();
+    const openIds = new Set();
+    for (const pos of Object.values(st.account.positions || {})) {
+      const k = 'open:' + pos.id; openIds.add(k);
+      if (!all[k]) all[k] = { key: pos.key, openedAt: pos.openedAt, open: true, samples: [] };
+    }
+    for (const k of Object.keys(all)) if (k.startsWith('open:') && !openIds.has(k)) delete all[k];
+    const live = Object.entries(all).filter(([, w]) => w.open || Date.now() - w.closedAt <= AFTER_MIN * 60e3 + 30e3);
     if (!live.length) return;
     const keys = [...new Set(live.map(([, w]) => w.key))];
     const quotes = await refreshQuotes(keys);
@@ -887,7 +904,7 @@ async function sampleAfter() {
       const q = quotes[w.key];
       const last = w.samples[w.samples.length - 1];
       if (q?.priceUsd > 0 && q.at && (!last || q.at - last[0] >= 25e3)) { w.samples.push([q.at, q.priceUsd]); changed = true; }
-      if (w.samples.length > 200) w.samples.splice(1, w.samples.length - 200);
+      if (w.samples.length > (w.open ? 120 : 200)) w.samples.splice(w.open ? 0 : 1, w.samples.length - (w.open ? 120 : 200));
     }
     if (changed) await chrome.storage.local.set({ [AFTER_KEY]: all });
   } catch (e) { /* lo intentamos en la siguiente vuelta */ } finally { sampling = false; }
@@ -907,7 +924,9 @@ async function afterData(id) {
   if (!round) throw new Error(tr('No encuentro esa operación.'));
   const samples = (await afterStore())[id]?.samples || [];
   let candles = [], source = samples.length > 1 ? 'blankfire' : null, gtError = null;
-  if (round.chain === 'solana' || round.key?.startsWith('solana:')) {
+  // Las velas de GeckoTerminal solo en la beta gratis: su API sin clave no incluye licencia comercial.
+  // Con el Pro de pago, la gráfica sale del seguimiento propio de Blankfire (precios de DexScreener).
+  if (!proSelling() && (round.chain === 'solana' || round.key?.startsWith('solana:'))) {
     try {
       const pool = await gtPoolFor(round);
       if (pool) {
@@ -983,66 +1002,44 @@ async function proDeactivate() {
 }
 
 // =====================================================================
-// Pro · análisis del trade con IA (Gemini, con la clave gratuita del usuario)
+// Pro · análisis del trade con IA
 // =====================================================================
-const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/models';
-const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-2.5-flash'];
-let geminiModel = null;   // el primero que responde se queda para las siguientes
-
-async function gemini(body) {
-  const key = (userKeys.gemini || '').trim();
-  if (!key) throw new Error(tr('Falta tu clave de Gemini. Pégala en Ajustes → Blankfire Pro.'));
-  const models = geminiModel ? [geminiModel, ...GEMINI_MODELS.filter((m) => m !== geminiModel)] : GEMINI_MODELS;
-  let last = null;
-  for (const m of models) {
-    let res;
-    try {
-      res = await fetch(`${GEMINI}/${m}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body), signal: AbortSignal.timeout(45000) });
-    } catch (e) { throw new Error(tr('No se pudo conectar con Gemini. Revisa tu conexión.')); }
-    let j = null; try { j = await res.json(); } catch { /* sin cuerpo */ }
-    if (res.ok) { geminiModel = m; return { j, model: m }; }
-    const reason = j?.error?.details?.find?.((d) => d.reason)?.reason || j?.error?.status || '';
-    const msg = j?.error?.message || '';
-    if (res.status === 404 || /not found|is not supported for generateContent/i.test(msg)) { last = msg; continue; }
-    if (reason === 'API_KEY_INVALID' || /API key not valid/i.test(msg)) throw new Error(tr('Google dice que tu clave de Gemini no es válida. Cópiala otra vez desde AI Studio.'));
-    if (res.status === 429) throw new Error(tr('Has llegado al límite gratis de Gemini por ahora. Prueba dentro de un minuto (o mañana, si es el límite diario).'));
-    if (/location is not supported/i.test(msg)) throw new Error(tr('Gemini no está disponible desde tu país con esta clave.'));
-    if (res.status === 403) throw new Error(tr('Tu clave de Gemini no tiene permiso para usar la API. Revísala en AI Studio.'));
-    throw new Error(tr('Gemini respondió {s}: {e}', { s: res.status, e: msg.slice(0, 120) }));
-  }
-  throw new Error(tr('Ningún modelo de Gemini respondió ({e}).', { e: String(last || '').slice(0, 80) }));
+// Análisis con IA: va por el servidor de Blankfire (lib/pro.js → PRO_CONFIG.aiUrl), que usa una clave
+// de Gemini de pago y comprueba la licencia. Las condiciones de Gemini no permiten el nivel gratis
+// para usuarios del EEE, Suiza o Reino Unido, ni que cada consumidor use su propia clave.
+const INSTALL_KEY = 'blankfireInstall';
+async function installId() {
+  const g = (await chrome.storage.local.get(INSTALL_KEY))[INSTALL_KEY];
+  if (g && /^[A-Za-z0-9-]{16,64}$/.test(g)) return g;
+  const id = crypto.randomUUID();
+  await chrome.storage.local.set({ [INSTALL_KEY]: id });
+  return id;
 }
-
-async function geminiTest() {
-  const { j, model } = await gemini({ contents: [{ role: 'user', parts: [{ text: 'Responde solo: OK' }] }], generationConfig: { maxOutputTokens: 64 } });
-  const txt = j?.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
-  return { ok: true, model, reply: txt.slice(0, 20) };
-}
-
-const AI_SCHEMA = {
-  type: 'OBJECT',
-  properties: {
-    score: { type: 'INTEGER', description: '0-10: calidad de la ejecución (no del resultado)' },
-    verdict: { type: 'STRING', description: 'Una frase de veredicto, máx. 140 caracteres' },
-    after: { type: 'STRING', description: 'Qué pasó con el precio después de vender y qué significa, máx. 280 caracteres' },
-    errors: { type: 'ARRAY', items: { type: 'OBJECT', properties: { title: { type: 'STRING' }, detail: { type: 'STRING' }, severity: { type: 'STRING', enum: ['high', 'mid', 'low'] } }, required: ['title', 'detail', 'severity'] } },
-    good: { type: 'ARRAY', items: { type: 'STRING' } },
-    lesson: { type: 'STRING', description: 'La lección concreta para el próximo trade, máx. 200 caracteres' },
-  },
-  required: ['score', 'verdict', 'after', 'errors', 'good', 'lesson'],
+const AI_ERRORS = {
+  not_configured: 'El análisis con IA aún no está activado en el servidor de Blankfire.',
+  no_license: 'Activa tu licencia Pro para usar el análisis con IA.',
+  license_inactive: 'Tu licencia no está activa. Revísala en Ajustes → Blankfire Pro.',
+  license_other: 'Esa licencia es de otro producto.',
+  store_down: 'No se pudo comprobar tu licencia ahora mismo. Prueba en un minuto.',
+  user_cap: 'Has usado los {n} análisis de hoy. Mañana tienes más.',
+  global_cap: 'Hoy se ha llegado al tope de análisis de Blankfire. Prueba mañana.',
+  ai_busy: 'La IA está saturada ahora mismo. Prueba en un minuto.',
+  db_down: 'El servidor de Blankfire no responde. Prueba en un minuto.',
 };
-
-function aiPrompt(lang) {
-  const L = lang === 'en' ? 'English' : 'español de España (tutea)';
-  return `Eres un coach de trading de memecoins de Solana (pump.fun, PumpSwap, Raydium) que revisa trades de PRÁCTICA con dinero ficticio.
-Analiza el trade que te paso en JSON: los números ya están calculados y son fiables; no inventes datos que no estén.
-- Juzga la EJECUCIÓN (entrada, tamaño, stop, salida, disciplina), no solo si ganó o perdió.
-- "after": explica qué hizo el precio en los 60 min tras vender (afterMaxPct/afterMinPct/after60Pct, en % frente al precio de venta) y qué habría pasado si aguantaba. Si coverMin < 10 di que aún hay pocos datos.
-- "errors": de 0 a 4 errores reales, ordenados por gravedad; usa los "flags" calculados como base y añade alguno solo si los datos lo justifican. Cada uno con un título corto (máx. 40 caracteres) y un detalle concreto con cifras (máx. 180).
-- "good": de 0 a 3 cosas bien hechas, frases cortas.
-- "lesson": una sola acción concreta para el próximo trade.
-- No des consejos financieros ni recomiendes comprar tokens. Nada de emojis.
-Responde en ${L}.`;
+async function aiServer(payload, lang) {
+  if (!PRO_CONFIG.aiUrl) throw new Error(tr(AI_ERRORS.not_configured));
+  const lic = (await chrome.storage.local.get(PRO_KEY))[PRO_KEY] || {};
+  let res, j = null;
+  try {
+    res = await fetch(PRO_CONFIG.aiUrl, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(60000),
+      body: JSON.stringify({ license: lic.key || null, instance: lic.instanceId || null, install: await installId(), lang, payload }),
+    });
+    j = await res.json();
+  } catch { throw new Error(tr('No se pudo conectar con el servidor de Blankfire. Revisa tu conexión.')); }
+  if (res.ok && j?.ok) return j;
+  const code = j?.code || '';
+  throw new Error(AI_ERRORS[code] ? tr(AI_ERRORS[code], { n: j?.cap ?? '' }) : tr('El análisis con IA falló ({e}). Prueba otra vez.', { e: code || res.status }));
 }
 
 function aiPayload(round, data, account) {
@@ -1071,17 +1068,12 @@ async function aiReview(id) {
   const st = await load();
   const round = st.account.rounds.find((r) => r.id === id);
   if (!round) throw new Error(tr('No encuentro esa operación.'));
-  const { j, model } = await gemini({
-    systemInstruction: { parts: [{ text: aiPrompt(st.settings.lang) }] },
-    contents: [{ role: 'user', parts: [{ text: JSON.stringify(aiPayload(round, data, st.account)) }] }],
-    generationConfig: { temperature: 0.4, maxOutputTokens: 8192, responseMimeType: 'application/json', responseSchema: AI_SCHEMA },
-  });
-  const txt = j?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
-  let out;
-  try { out = JSON.parse(txt.replace(/^```(?:json)?|```$/g, '').trim()); } catch { throw new Error(tr('Gemini devolvió una respuesta rara. Prueba otra vez.')); }
+  const lang = st.settings.lang === 'en' ? 'en' : 'es';
+  const res = await aiServer(aiPayload(round, data, st.account), lang);
   const cut = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const out = res.ai || {};
   const ai = {
-    at: Date.now(), model, coverMin: data.facts.coverMin, lang: st.settings.lang === 'en' ? 'en' : 'es',
+    at: Date.now(), model: cut(out.model, 40) || 'Gemini', coverMin: data.facts.coverMin, lang, used: res.used ?? null, cap: res.cap ?? null,
     score: Math.max(0, Math.min(10, Math.round(Number(out.score) || 0))),
     verdict: cut(out.verdict, 160), after: cut(out.after, 320), lesson: cut(out.lesson, 220),
     errors: (Array.isArray(out.errors) ? out.errors : []).slice(0, 4).map((e) => ({ title: cut(e?.title, 60), detail: cut(e?.detail, 220), severity: ['high', 'mid', 'low'].includes(e?.severity) ? e.severity : 'mid' })).filter((e) => e.title),
