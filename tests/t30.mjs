@@ -4,7 +4,9 @@
 import { chromium } from 'playwright';
 const TDIR = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 import fs from 'fs';
-const serverHandle = await (async () => { const src = fs.readFileSync(new URL('../server/supabase/functions/blankfire-ai/index.ts', import.meta.url), 'utf8'); const tmp = new URL('./.bfai-server.mjs', import.meta.url); fs.writeFileSync(tmp, src); return (await import(tmp.href)).handle; })();
+const _src_t30 = fs.readFileSync(new URL('../server/supabase/functions/blankfire-ai/index.ts', import.meta.url), 'utf8');
+const _tmp_t30 = new URL('./.blankfire-ai.mjs', import.meta.url); fs.writeFileSync(_tmp_t30, _src_t30);
+const { handle: serverHandle } = await import(_tmp_t30.href);
 const AI_URL = 'https://testbf.supabase.co/functions/v1/blankfire-ai';
 const SRC = new URL('../Fogueo', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'), SOL = 'So11111111111111111111111111111111111111112';
 const A = '52u2Z2PZkPgX8nzzZvN7ADCroDBTRiT4VNkpAgm3pump';
@@ -12,10 +14,18 @@ const B = 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm';
 let fails = 0; const ok = (c, m) => { if (!c) fails++; console.log((c ? 'OK  ' : 'FAIL') + ' ' + m); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function launch(ext, { lang = 'es', jupDown = false, serverEnv = null } = {}) {
-  const st = { price: 0.00002, gtCalls: 0, gemini: [], ls: [], jupDown, aiCalls: [], serverLs: [], serverEnv: { BLANKFIRE_GEMINI_KEY: 'srv-paid-key', SUPABASE_URL: 'https://db.test', SUPABASE_SERVICE_ROLE_KEY: 'svc', BLANKFIRE_BETA_CAP: '3', ...(serverEnv || {}) } };
+async function launch(ext, { lang = 'es', jupDown = false, serverEnv = null, aiFlag = true } = {}) {
+  const st = { price: 0.00002, gtCalls: 0, gemini: [], ls: [], jupDown, aiCalls: [], serverLs: [], aiFlag, kofiCalls: 0, raised: 18.5, serverEnv: { BLANKFIRE_GEMINI_KEY: 'srv-paid-key', SUPABASE_URL: 'https://db.test', SUPABASE_SERVICE_ROLE_KEY: 'svc', BLANKFIRE_BETA_CAP: '3', ...(serverEnv || {}) } };
   const ctx = await chromium.launchPersistentContext(TDIR + 'p30-' + Date.now(), { headless: true, channel: 'chromium', locale: lang === 'en' ? 'en-US' : 'es-ES', viewport: { width: 420, height: 760 }, args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`, `--lang=${lang === 'en' ? 'en-US' : 'es-ES'}`] });
-  await ctx.route('https://raw.githubusercontent.com/**', (r) => r.fulfill({ status: 404, body: '' }));
+  // GitHub: misma versión publicada y el interruptor remoto de la IA (features.ai).
+  const VER = JSON.parse(fs.readFileSync(ext + '/manifest.json', 'utf8')).version;
+  await ctx.route('https://raw.githubusercontent.com/**', (r) => {
+    const u = r.request().url();
+    if (u.includes('/manifest.json')) return r.fulfill({ json: { version: VER } });
+    if (u.includes('/updates.json')) return r.fulfill({ json: { features: { ai: st.aiFlag }, releases: {} } });
+    return r.fulfill({ status: 404, body: '' });
+  });
+  await ctx.route('https://ntsjdliklscfbtczmuux.supabase.co/functions/v1/blankfire-kofi', (r) => { st.kofiCalls++; return r.fulfill({ json: { ok: true, raised: st.raised, goal: 50, supporters: 3 } }); });
   await ctx.route('https://api.dexscreener.com/**', (r) => {
     const u = r.request().url();
     if (u.includes(SOL) && !u.includes(A)) return r.fulfill({ json: [{ chainId: 'solana', pairAddress: 'x', baseToken: { address: SOL, symbol: 'SOL' }, quoteToken: { symbol: 'USDC' }, priceUsd: '150', liquidity: { usd: 9e6 } }] });
@@ -85,6 +95,7 @@ async function launch(ext, { lang = 'es', jupDown = false, serverEnv = null } = 
   const send = (m) => pop.evaluate((m) => new Promise((res) => chrome.runtime.sendMessage(m, res)), m);
   await send({ type: 'saveUi', ui: { popupToured: true, onboarded: true } });
   await send({ type: 'saveSettings', settings: { lang } });
+  await send({ type: 'checkUpdate', force: true });
   return { ctx, pop, send, st, errs, extId };
 }
 
@@ -127,16 +138,46 @@ function makeExt(patch) {
 }
 const EXT_AI = makeExt({ aiUrl: AI_URL });
 
-// ===================== 0 · Sin servidor configurado: la IA sale como «pronto» =====================
+// ===================== 0 · IA apagada desde GitHub: «Pronto»; con Ko-fi, barra de donaciones =====================
 {
-  const T = await launch(SRC);
+  const T = await launch(SRC, { aiFlag: false });
   await makeTrade(T);
   await T.pop.reload(); await T.pop.waitForTimeout(700);
   await T.pop.locator('[data-tab="history"]').click(); await T.pop.locator('.row[data-row]').first().click();
   await T.pop.waitForSelector('.ap .ap-chart', { timeout: 8000 });
-  ok(await T.pop.locator('.ai-cta.soon').count() === 1 && !(await T.pop.locator('[data-act="aiRun"]').count()), 'Sin servidor de IA: «Análisis con IA · Pronto», sin botón');
+  ok(await T.pop.locator('.ai-cta.soon').count() === 1 && !(await T.pop.locator('[data-act="aiRun"]').count()) && !(await T.pop.locator('.sup').count()), 'IA apagada y sin Ko-fi configurado: «Pronto», sin botón ni barra');
   const r = await T.send({ type: 'aiReview', id: (await T.send({ type: 'state' })).data.account.rounds[0].id });
-  ok(!r.ok && /aún no está activado/.test(r.error), 'Y el motor lo dice claro si se le pide');
+  ok(!r.ok && /aún no está activado/.test(r.error) && T.st.aiCalls.length === 0, 'Y el motor no llama al servidor mientras está apagada');
+  await T.ctx.close();
+}
+{
+  const EXT_K = makeExt({ kofiUrl: 'https://ko-fi.com/blankfiretest' });
+  const T = await launch(EXT_K, { aiFlag: false });
+  await makeTrade(T);
+  await T.pop.reload(); await T.pop.waitForTimeout(900);
+  await T.pop.locator('[data-tab="history"]').click(); await T.pop.locator('.row[data-row]').first().click();
+  await T.pop.waitForSelector('.ap .sup', { timeout: 8000 });
+  const t = await T.pop.locator('.ap .sup').innerText();
+  ok(/18,5 €|18.5 €/.test(t) && /50 €/.test(t) && /3 apoyos/.test(t) && (await T.pop.locator('.ap .sup a').getAttribute('href')) === 'https://ko-fi.com/blankfiretest', 'Barra de donaciones en el trade: 18,5 € de 50 €, 3 apoyos y botón a tu Ko-fi → ' + t.replace(/\s+/g, ' '));
+  const w = await T.pop.locator('.ap .sup-bar i').evaluate((e) => e.style.getPropertyValue('--p'));
+  ok(w === '37.0%', 'La barra va al 37 % (' + w + ')');
+  await T.pop.locator('.ap .sup').screenshot({ path: TDIR + 'vis30-kofi.png' });
+  await T.pop.locator('[data-tab="settings"]').click(); await T.pop.waitForTimeout(400);
+  ok(await T.pop.locator('.pro-form .sup').count() === 1, 'También en Ajustes → Blankfire Pro');
+  if (process.env.AXE) {
+    await T.pop.evaluate(fs.readFileSync(process.env.AXE, 'utf8'));
+    const v = await T.pop.evaluate(async () => (await axe.run({ include: ['.pro-form'] }, { resultTypes: ['violations'] })).violations.map((x) => `${x.id}: ${x.nodes[0].target.join(' ')}`));
+    ok(!v.length, 'Accesibilidad (axe) de los ajustes con la barra: ' + (v.join(', ') || 'sin problemas'));
+  }
+  const calls = T.st.kofiCalls; await T.pop.reload(); await T.pop.waitForTimeout(700);
+  ok(T.st.kofiCalls === calls, 'El progreso se guarda 10 min (no se pide en cada apertura)');
+  // Interruptor remoto: se enciende la IA en GitHub → aparece «Analizar» sin actualizar la extensión
+  T.st.aiFlag = true;
+  await T.send({ type: 'checkUpdate', force: true });
+  await T.pop.reload(); await T.pop.waitForTimeout(700);
+  await T.pop.locator('[data-tab="history"]').click(); await T.pop.locator('.row[data-row]').first().click();
+  await T.pop.waitForSelector('[data-act="aiRun"]', { timeout: 8000 });
+  ok(!(await T.pop.locator('.ap .sup').count()), 'Al encender la IA desde GitHub: botón «Analizar» y fuera la barra');
   await T.ctx.close();
 }
 

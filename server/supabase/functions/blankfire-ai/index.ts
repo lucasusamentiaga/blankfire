@@ -14,7 +14,7 @@
 //   BLANKFIRE_DAILY_CAP    tope total de análisis al día (por defecto 1000)
 //   BLANKFIRE_USER_CAP     tope por licencia y día (por defecto 30)
 //   BLANKFIRE_BETA_CAP     tope por navegador y día en beta (por defecto 5)
-// SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY los pone Supabase solo.
+// SUPABASE_URL y SUPABASE_SECRET_KEYS (o la antigua SUPABASE_SERVICE_ROLE_KEY) los pone Supabase solo.
 // Despliegue: con «verify_jwt» desactivado (la función hace su propia comprobación).
 
 const MODELS = ['gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-flash-latest'];
@@ -88,6 +88,12 @@ async function sha(s) {
   return [...new Uint8Array(b)].slice(0, 12).map((x) => x.toString(16).padStart(2, '0')).join('');
 }
 
+// Clave de servidor de Supabase: la nueva (SUPABASE_SECRET_KEYS, JSON con «default») o la antigua.
+export function serverKey(env) {
+  try { const k = JSON.parse(env.SUPABASE_SECRET_KEYS || '{}'); if (k.default) return String(k.default); } catch { /* sin claves nuevas */ }
+  return String(env.SUPABASE_SERVICE_ROLE_KEY || '');
+}
+
 function cors(origin) {
   const ok = /^chrome-extension:\/\/[a-p]{32}$/.test(origin || '') || /^moz-extension:\/\//.test(origin || '');
   return ok ? { 'access-control-allow-origin': origin, 'access-control-allow-methods': 'POST, OPTIONS', 'access-control-allow-headers': 'content-type', vary: 'origin' } : {};
@@ -132,8 +138,11 @@ export async function handle(req, env, f = fetch) {
   if (!payload) return reply(400, { ok: false, code: 'bad_payload' });
 
   // 2 · Topes: total del día y por usuario.
+  const dbKey = serverKey(env);
+  // Las claves nuevas (sb_secret_…) van solo en «apikey»; las antiguas (JWT) también en Authorization.
+  const dbHeaders = { apikey: dbKey, 'content-type': 'application/json', ...(dbKey.startsWith('eyJ') ? { authorization: `Bearer ${dbKey}` } : {}) };
   const rpc = async (fn, args) => {
-    const r = await f(`${env.SUPABASE_URL}/rest/v1/rpc/${fn}`, { method: 'POST', headers: { apikey: env.SUPABASE_SERVICE_ROLE_KEY, authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify(args) });
+    const r = await f(`${env.SUPABASE_URL}/rest/v1/rpc/${fn}`, { method: 'POST', headers: dbHeaders, body: JSON.stringify(args) });
     if (!r.ok) throw new Error('db ' + r.status);
     return r.json();
   };
@@ -160,7 +169,11 @@ export async function handle(req, env, f = fetch) {
       j = await r.json().catch(() => null);
     } catch { await refund(); return reply(502, { ok: false, code: 'ai_down' }); }
     if (r.status === 404) continue;
-    if (!r.ok) { await refund(); return reply(r.status === 429 ? 429 : 502, { ok: false, code: r.status === 429 ? 'ai_busy' : 'ai_error' }); }
+    if (!r.ok) {
+      console.error('gemini', model, r.status, j?.error?.status || '', String(j?.error?.message || '').slice(0, 300));
+      await refund();
+      return reply(r.status === 429 ? 429 : 502, { ok: false, code: r.status === 429 ? 'ai_busy' : r.status === 402 ? 'ai_no_credit' : 'ai_error', status: r.status, reason: String(j?.error?.status || '').slice(0, 40) });
+    }
     const txt = j?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
     try {
       const ai = cleanAnswer(JSON.parse(txt.replace(/^```(?:json)?|```$/g, '').trim()));

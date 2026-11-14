@@ -130,7 +130,7 @@ function aiBlock(round, s) {
   const ai = round.ai;
   if (s.aiLoading) return `<div class="ai-box loading" aria-busy="true"><div class="ai-h">${I.spark}<span>${tr('La IA está revisando tu trade…')}</span></div><div class="ap-skel"><i></i><i></i></div></div>`;
   if (!ai) {
-    if (!s.aiReady) return `<div class="ai-cta soon"><div><b>${tr('Análisis con IA')}</b><span>${tr('Muy pronto: la IA revisará la entrada, el tamaño, el stop y la salida de cada trade.')}</span></div><span class="pro-tag">${tr('Pronto')}</span></div>`;
+    if (!s.aiReady) return s.support ? supportCard(s.support, 'ai') : `<div class="ai-cta soon"><div><b>${tr('Análisis con IA')}</b><span>${tr('Muy pronto: la IA revisará la entrada, el tamaño, el stop y la salida de cada trade.')}</span></div><span class="pro-tag">${tr('Pronto')}</span></div>`;
     return `<div class="ai-cta"><div><b>${tr('Análisis con IA')}</b><span>${tr('La IA revisa la entrada, el tamaño, el stop y la salida, y te da una lección concreta. Se envían los datos del trade y tus notas, nunca tu cartera.')}</span></div><button class="btn brand sm" data-act="aiRun" data-id="${esc(round.id)}">${I.spark}${tr('Analizar')}</button></div>${s.aiError ? `<p class="ap-err">${esc(s.aiError)}</p>` : ''}`;
   }
   const sc = ai.score;
@@ -149,6 +149,22 @@ function aiBlock(round, s) {
     ${ai.lesson ? `<div class="ai-lesson"><small>${tr('Para el próximo trade')}</small><p>${esc(ai.lesson)}</p></div>` : ''}
     <div class="ai-foot"><span>${esc(ai.model || 'Gemini')}${ai.cap ? ` · ${esc(tr('{n} de {c} hoy', { n: ai.used, c: ai.cap }))}` : ''} · ${ago < 1 ? tr('ahora') : ago < 90 ? tr('hace {n} min', { n: ago }) : tr('hace {n} h', { n: Math.round(ago / 60) })}${ai.coverMin < 50 ? ` · ${tr('con {n} min de datos tras vender', { n: ai.coverMin })}` : ''}</span><button class="link-btn" data-act="aiRun" data-id="${esc(round.id)}">${tr('Volver a analizar')}</button></div>
     ${s.aiError ? `<p class="ap-err">${esc(s.aiError)}</p>` : ''}
+  </div>`;
+}
+
+// ---------- Barra de donaciones (Ko-fi): la meta que enciende la IA ----------
+const COFFEE = '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 6h9v3.2A3.8 3.8 0 0 1 7.7 13H6.3a3.8 3.8 0 0 1-3.8-3.8z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M11.5 7h.8a1.7 1.7 0 0 1 0 3.4h-1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M5.5 2.5c-.4.7.4 1 0 1.8M8.5 2.5c-.4.7.4 1 0 1.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>';
+const euro = (n) => `${(Math.round(n * 100) / 100).toLocaleString(undefined, { maximumFractionDigits: n % 1 ? 2 : 0 })} €`;
+export function supportCard(sp, where) {
+  const known = typeof sp.raised === 'number';
+  const pct = known ? Math.max(0, Math.min(100, (sp.raised / sp.goal) * 100)) : 0;
+  const done = known && sp.raised >= sp.goal;
+  return `<div class="sup ${where === 'ai' ? 'in-ai' : ''}">
+    <div class="sup-h"><span class="sup-ic">${I.spark}</span><div><b>${done ? tr('¡Meta conseguida! La IA llega muy pronto') : tr('Ayuda a encender el análisis con IA')}</b>
+      <span>${done ? tr('Gracias por apoyar Blankfire.') : tr('La IA cuesta dinero en cada análisis. Cuando las donaciones lleguen a {g}, se activa para todos.', { g: euro(sp.goal) })}</span></div></div>
+    <div class="sup-bar" role="progressbar" aria-label="${esc(tr('Donaciones para activar la IA'))}" aria-valuemin="0" aria-valuemax="${sp.goal}" aria-valuenow="${known ? sp.raised : 0}"><i style="--p:${pct.toFixed(1)}%"></i></div>
+    <div class="sup-f"><span class="num">${known ? `<b>${euro(sp.raised)}</b> ${tr('de')} ${euro(sp.goal)}` : tr('Meta: {g}', { g: euro(sp.goal) })}${sp.supporters ? ` · ${sp.supporters === 1 ? tr('1 apoyo') : tr('{n} apoyos', { n: sp.supporters })}` : ''}</span>
+      <a class="btn brand sm" href="${esc(sp.url)}" target="_blank" rel="noopener">${COFFEE}${tr('Apoyar en Ko-fi')}</a></div>
   </div>`;
 }
 
@@ -179,7 +195,7 @@ export function proSettings(pro, keys, notice, ui) {
   }
   const msg = (k) => (ui.msg?.[k] ? `<p class="key-msg ${ui.msg[k].ok ? 'ok' : 'bad'}" role="status">${esc(ui.msg[k].text)}</p>` : '');
   const jupWarn = notice?.jupiterNeedsKey && !keys.jupiter ? `<p class="warn">${I.warn}${tr('Jupiter ya pide clave para los tokens recién lanzados. Mientras, uso GeckoTerminal, que es algo más lento.')}</p>` : notice?.jupiterKeyBad ? `<p class="warn">${I.warn}${tr('Jupiter no acepta tu clave. Revísala en portal.jup.ag.')}</p>` : '';
-  return `${card}${msg('pro')}${legal}
+  return `${card}${!keys.ai && keys.support ? supportCard(keys.support, 'settings') : ''}${msg('pro')}${legal}
     <h3 id="keys">${tr('Jupiter (opcional)')}</h3>
     <p class="hint">${tr('Solo hace falta si Jupiter deja de responder sin clave. Es gratis en <a href="https://portal.jup.ag" target="_blank" rel="noopener">portal.jup.ag</a>.')}</p>
     ${jupWarn}

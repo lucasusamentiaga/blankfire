@@ -78,9 +78,10 @@ let keysSt = { jupiter: false, ai: false, notice: {} };
 const afterCache = {};                            // id → { loading, error, data, at, aiLoading, aiError }
 let proUi = { msg: {}, busy: null };
 async function loadPro() {
-  const [a, b] = await Promise.all([send({ type: 'proStatus' }), send({ type: 'keysStatus' })]);
+  const [a, b, c] = await Promise.all([send({ type: 'proStatus' }), send({ type: 'keysStatus' }), send({ type: 'supportStatus' })]);
   if (a.ok) pro = a.data;
   if (b.ok) keysSt = b.data;
+  keysSt.support = c.ok ? c.data : null;
   const badge = $('#proBadge');
   if (badge) badge.hidden = !(pro?.unlocked && pro.selling);
 }
@@ -88,14 +89,14 @@ const proUnlocked = () => !!pro?.unlocked;
 function afterBox(r) {
   if (String(r.id).startsWith('demo-') || !pro) return '';
   const c = afterCache[r.id] || {};
-  return `<div class="after-slot" data-after="${esc(r.id)}">${afterSection(r, { unlocked: proUnlocked(), selling: pro.selling, aiReady: keysSt.ai, ...c })}</div>`;
+  return `<div class="after-slot" data-after="${esc(r.id)}">${afterSection(r, { unlocked: proUnlocked(), selling: pro.selling, aiReady: keysSt.ai, support: keysSt.support, ...c })}</div>`;
 }
 function paintAfter(id) {
   const slot = document.querySelector(`.after-slot[data-after="${CSS.escape(id)}"]`);
   const r = st.account.rounds.find((x) => x.id === id);
   if (!slot || !r) return;
   const c = afterCache[id] || {};
-  slot.innerHTML = afterSection(r, { unlocked: proUnlocked(), selling: pro?.selling, aiReady: keysSt.ai, ...c });
+  slot.innerHTML = afterSection(r, { unlocked: proUnlocked(), selling: pro?.selling, aiReady: keysSt.ai, support: keysSt.support, ...c });
   translateDom(slot);
 }
 async function fetchAfter(id, force) {

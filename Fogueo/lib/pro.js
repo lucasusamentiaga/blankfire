@@ -4,13 +4,19 @@
 //
 // Para empezar a cobrar, rellena estos datos con los de tu tienda y tu servidor (ver README · «Cobrar el Pro»):
 export const PRO_CONFIG = {
-  aiUrl: '',         // servidor del análisis con IA, p. ej. https://xxxx.supabase.co/functions/v1/blankfire-ai
+  aiUrl: 'https://ntsjdliklscfbtczmuux.supabase.co/functions/v1/blankfire-ai',   // servidor del análisis con IA
   checkoutUrl: '',   // enlace de compra del producto, p. ej. https://blankfire.lemonsqueezy.com/buy/xxxx
   storeId: null,     // número de tu tienda (Settings → Stores)
   productId: null,   // número del producto Blankfire Pro
 };
 // Mientras checkoutUrl esté vacío, el Pro funciona gratis para todos como «beta».
-// Mientras aiUrl esté vacío, el análisis con IA sale como «próximamente» (el resto del Pro funciona igual).
+// La IA se enciende y apaga desde GitHub, sin publicar versión: updates.json → "features": { "ai": true }.
+// Mientras esté apagada, sale como «Pronto» con la barra de donaciones de Ko-fi.
+export const SUPPORT = {
+  kofiUrl: '',       // tu página de Ko-fi, p. ej. https://ko-fi.com/blankfire (vacío = sin barra de donaciones)
+  statusUrl: 'https://ntsjdliklscfbtczmuux.supabase.co/functions/v1/blankfire-kofi',
+  goal: 50,          // meta en euros para activar la IA (la del servidor manda si es distinta)
+};
 export const LEGAL = {
   terms: 'https://github.com/lucasusamentiaga/blankfire/blob/main/docs/terminos.md',
   privacy: 'https://github.com/lucasusamentiaga/blankfire/blob/main/docs/privacidad.md',

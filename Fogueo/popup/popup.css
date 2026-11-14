@@ -719,3 +719,20 @@ a.upd-link { font-weight: 600; }
 .pro-form .legal { margin: 0; font-size: 11px; color: var(--fx-ink-3); text-wrap: pretty; }
 .pro-form .legal a, .ap-note a { color: var(--fx-ink-2); }
 .ai-cta.soon { border-style: solid; border-color: var(--fx-line-soft); }
+
+/* Barra de donaciones (Ko-fi) */
+.sup { display: grid; gap: 9px; padding: 11px; border-radius: var(--fx-r-sm); background: linear-gradient(150deg, var(--fx-brand-wash), var(--fx-bg) 75%); border: 1px solid var(--fx-brand-ring); }
+.sup-h { display: grid; grid-template-columns: auto 1fr; gap: 9px; align-items: start; }
+.sup-h > div { min-width: 0; }
+.sup-ic svg { width: 16px; height: 16px; color: var(--fx-brand-hi); margin-top: 1px; }
+.sup-h b { display: block; font-size: 12.5px; text-wrap: pretty; }
+.sup-h span { display: block; font-size: 11.5px; color: var(--fx-ink-2); margin-top: 2px; text-wrap: pretty; }
+.sup-bar { height: 8px; border-radius: 999px; background: var(--fx-raise-2); overflow: hidden; }
+.sup-bar i { display: block; height: 100%; width: var(--p); min-width: 4px; border-radius: inherit; background: linear-gradient(90deg, var(--fx-brand), var(--fx-brand-hi)); transform-origin: left; animation: sup-fill 1s var(--fx-ease-expo) both; }
+@keyframes sup-fill { from { transform: scaleX(0); } }
+.sup-f { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11.5px; color: var(--fx-ink-3); }
+.sup-f b { color: var(--fx-ink); font-size: 13px; }
+.sup a.btn { text-decoration: none; }
+.sup a.btn svg { width: 13px; height: 13px; }
+.pro-form .sup { margin-top: 2px; }
+@media (prefers-reduced-motion: reduce) { .sup-bar i { animation: none; } }

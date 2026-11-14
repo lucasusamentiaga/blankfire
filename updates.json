@@ -1,6 +1,21 @@
 {
-  "_info": "Novedades de cada versión. Blankfire las enseña en el aviso de actualización (máx. 4 líneas por idioma).",
+  "features": {
+    "ai": false
+  },
   "releases": {
+    "1.13.2": {
+      "date": "2026-11-14",
+      "es": [
+        "Barra de donaciones: al llegar a la meta en Ko-fi se activa el análisis con IA para todos",
+        "La IA ya tiene su servidor propio listo (se enciende sin actualizar la extensión)",
+        "Mensajes más claros si la IA está en pausa"
+      ],
+      "en": [
+        "Donation bar: when the Ko-fi goal is reached, AI review switches on for everyone",
+        "AI now has its own server ready (it switches on without updating the extension)",
+        "Clearer messages when AI is paused"
+      ]
+    },
     "1.13.1": {
       "date": "2026-11-13",
       "es": [
@@ -72,5 +87,6 @@
         "Tours with mini charts"
       ]
     }
-  }
+  },
+  "_info": "Novedades de cada versión. Blankfire las enseña en el aviso de actualización (máx. 4 líneas por idioma)."
 }

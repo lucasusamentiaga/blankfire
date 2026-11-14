@@ -6,7 +6,7 @@ import {
 } from './lib/core.js';
 import { tr, setLang } from './lib/i18n.js';
 import { RAW, cmpVer, installedVersion, readUpdate, patchUpdate } from './lib/update.js';
-import { PRO_KEY, LS_API, REVALIDATE_MS, isPro, proSelling, licenseMatches, PRO_CONFIG, maskKey } from './lib/pro.js';
+import { PRO_KEY, LS_API, REVALIDATE_MS, isPro, proSelling, licenseMatches, PRO_CONFIG, maskKey, SUPPORT } from './lib/pro.js';
 import { buildSeries, tradeFacts, tradeFlags, tradeContext, candleWindow } from './lib/review.js';
 
 const KEY = 'fogueo';
@@ -825,9 +825,10 @@ const handlers = {
   async keysStatus() {
     const k = (await chrome.storage.local.get(KEYS_KEY))[KEYS_KEY] || {};
     const notice = (await chrome.storage.local.get(NOTICE_KEY))[NOTICE_KEY] || {};
-    return { jupiter: !!k.jupiter, notice, ai: !!PRO_CONFIG.aiUrl };
+    return { jupiter: !!k.jupiter, notice, ai: await aiOn() };
   },
   async afterData({ id }) { return afterData(id); },
+  async supportStatus({ force } = {}) { return supportStatus(force); },
   async aiReview({ id }) { return aiReview(id); },
 
   // Recarga la extensión desde la carpeta (coge los archivos nuevos tras actualizar.bat). Tus datos no se tocan.
@@ -1025,9 +1026,32 @@ const AI_ERRORS = {
   global_cap: 'Hoy se ha llegado al tope de análisis de Blankfire. Prueba mañana.',
   ai_busy: 'La IA está saturada ahora mismo. Prueba en un minuto.',
   db_down: 'El servidor de Blankfire no responde. Prueba en un minuto.',
+  ai_no_credit: 'El análisis con IA está en pausa ahora mismo. Vuelve a probar más tarde.',
 };
+// ¿Está encendida la IA? Hace falta servidor y el interruptor remoto de updates.json.
+async function aiOn() {
+  if (!PRO_CONFIG.aiUrl) return false;
+  return (await readUpdate()).features?.ai === true;
+}
+// Progreso de las donaciones de Ko-fi para la meta «activar la IA» (se guarda 10 min).
+const SUPPORT_KEY = 'blankfireSupport';
+async function supportStatus(force = false) {
+  if (!SUPPORT.kofiUrl || !SUPPORT.statusUrl) return null;
+  const cached = (await chrome.storage.local.get(SUPPORT_KEY))[SUPPORT_KEY];
+  if (!force && cached && Date.now() - cached.at < 10 * 60e3) return cached;
+  try {
+    const r = await fetch(SUPPORT.statusUrl, { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+    const j = await r.json();
+    if (!j?.ok) throw new Error('bad');
+    const out = { at: Date.now(), raised: Math.max(0, Number(j.raised) || 0), goal: Math.max(1, Number(j.goal) || SUPPORT.goal), supporters: Math.max(0, Number(j.supporters) || 0), url: SUPPORT.kofiUrl };
+    await chrome.storage.local.set({ [SUPPORT_KEY]: out });
+    return out;
+  } catch {
+    return cached || { at: 0, raised: null, goal: SUPPORT.goal, supporters: 0, url: SUPPORT.kofiUrl };
+  }
+}
 async function aiServer(payload, lang) {
-  if (!PRO_CONFIG.aiUrl) throw new Error(tr(AI_ERRORS.not_configured));
+  if (!(await aiOn())) throw new Error(tr(AI_ERRORS.not_configured));
   const lic = (await chrome.storage.local.get(PRO_KEY))[PRO_KEY] || {};
   let res, j = null;
   try {
@@ -1107,14 +1131,16 @@ async function checkUpdate(force = false) {
       const m = await ghJson(`${RAW}Fogueo/manifest.json`);
       const latest = String(m?.version || '');
       if (!/^\d+(\.\d+){0,3}$/.test(latest)) throw new Error('bad version');
-      let notes = null;
+      let notes = null, features = info.features || {};
       try {
         const u = await ghJson(`${RAW}updates.json`);
+        // Interruptores remotos (p. ej. encender la IA cuando haya saldo) sin publicar versión.
+        if (u && typeof u.features === 'object') features = { ai: u.features?.ai === true };
         const r = u?.releases?.[latest];
         const clean = (a) => (Array.isArray(a) ? a.filter((x) => typeof x === 'string').map((x) => x.slice(0, 160)).slice(0, 4) : []);
         if (r) notes = { version: latest, es: clean(r.es), en: clean(r.en) };
       } catch { /* sin novedades: la tarjeta sale igual */ }
-      const next = { latest, notes, checkedAt: Date.now(), triedAt: Date.now(), failed: false };
+      const next = { latest, notes, features, checkedAt: Date.now(), triedAt: Date.now(), failed: false };
       const cur = installedVersion();
       if (cmpVer(latest, cur) > 0 && info.notifiedFor !== latest) {
         next.notifiedFor = latest;

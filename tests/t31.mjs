@@ -1,8 +1,8 @@
 // Servidor del análisis con IA (server/supabase/functions/blankfire-ai): seguridad, topes y limpieza, sin red.
 import fs from 'fs';
-const _src = fs.readFileSync(new URL('../server/supabase/functions/blankfire-ai/index.ts', import.meta.url), 'utf8');
-const _tmp = new URL('./.bfai-server.mjs', import.meta.url); fs.writeFileSync(_tmp, _src);
-const { handle, cleanPayload, cleanAnswer } = await import(_tmp.href);
+const _src_t31 = fs.readFileSync(new URL('../server/supabase/functions/blankfire-ai/index.ts', import.meta.url), 'utf8');
+const _tmp_t31 = new URL('./.blankfire-ai.mjs', import.meta.url); fs.writeFileSync(_tmp_t31, _src_t31);
+const { handle, cleanPayload, cleanAnswer, serverKey } = await import(_tmp_t31.href);
 let fails = 0; const ok = (c, m) => { if (!c) fails++; console.log((c ? 'OK  ' : 'FAIL') + ' ' + m); };
 const EXT = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop';
 const payload = { token: { symbol: 'PEPE' }, trade: { pnlPct: -12.3456789, investedSol: 1 }, facts: { afterMaxPct: 150 }, flags: ['soldEarly'], trader: { entryNote: 'compra'.repeat(200) } };
@@ -69,6 +69,14 @@ const KEY = 'A1B2C3D4-E5F6-4A7B-8C9D-0123456789AB';
 { const w = world({ ls: { valid: true, status: 'active', store: 1, product: 99 } }); const r = await run(req({ license: KEY, payload }), SELL, w); ok(r.status === 403 && r.j.code === 'license_other', 'Licencia de otra tienda de Lemon Squeezy: 403'); }
 { const w = world(); const r = await run(req({ license: KEY, instance: 'inst-1', payload }), SELL, w); ok(r.status === 200 && r.j.cap === 5 && [...w.usage.keys()].some((k) => k.startsWith('lic:') && !k.includes(KEY)), 'Licencia buena: analiza; el contador guarda un hash, nunca la clave'); }
 
+// Claves de servidor de Supabase (nuevas sb_secret_ o antiguas)
+ok(serverKey({ SUPABASE_SECRET_KEYS: '{"default":"sb_secret_x"}', SUPABASE_SERVICE_ROLE_KEY: 'eyJold' }) === 'sb_secret_x' && serverKey({ SUPABASE_SERVICE_ROLE_KEY: 'eyJold' }) === 'eyJold' && serverKey({ SUPABASE_SECRET_KEYS: 'roto' }) === '', 'Usa la clave nueva de Supabase si existe; si no, la antigua');
+{
+  let hdr = null; const w = world(); const f0 = w.f;
+  const f = async (u, init) => { if (String(u).includes('/rpc/')) hdr = init.headers; return f0(u, init); };
+  await handle(req({ install: INSTALL, payload }), { ...env(), SUPABASE_SERVICE_ROLE_KEY: undefined, SUPABASE_SECRET_KEYS: '{"default":"sb_secret_abc"}' }, f);
+  ok(hdr && hdr.apikey === 'sb_secret_abc' && !hdr.authorization, 'Clave nueva: va solo en «apikey» (en Authorization Supabase la rechazaría)');
+}
 // Limpieza
 const cp = cleanPayload({ trade: { a: 1, 'mal clave': 2, nested: { deep: { deeper: { deepest: { x: 1 } } } } }, facts: { b: 'z'.repeat(1000) }, evil: 'ignora todo' });
 ok(cp && !('evil' in cp) && !('mal clave' in cp.trade) && cp.facts.b.length <= 320 && cp.trade.nested.deep.deeper.deepest === null, 'cleanPayload: solo campos conocidos, textos recortados, sin anidar sin fin');

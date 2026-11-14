@@ -21,6 +21,8 @@ Blankfire guarda tu cuenta de práctica **solo en tu navegador**. No hay cuentas
 | Datos de compra (email, pago, país) | Lemon Squeezy, como vendedor | Cobrar y facturar | Lo gestiona Lemon Squeezy según [su política](https://www.lemonsqueezy.com/privacy) |
 | Solo si pulsas **Analizar**: cifras del trade, etiquetas y **las notas que escribiste**, tu clave de licencia (o un identificador aleatorio de instalación en la beta) e idioma | Servidor de Blankfire (Supabase, UE) y Google Gemini (nivel de pago) | Generar el análisis con IA | Contrato (art. 6.1.b) |
 | Versión publicada | GitHub | Avisarte de actualizaciones | Interés legítimo (art. 6.1.f) |
+| Nada tuyo: solo se pide el total recaudado | Servidor de Blankfire | Mostrar la barra de donaciones | — |
+| Si donas en Ko-fi: tus datos de pago y lo que escribas allí | Ko-fi (y PayPal/Stripe) | Procesar la donación | Lo gestiona Ko-fi según [su política](https://more.ko-fi.com/privacy). El servidor de Blankfire solo guarda importe, moneda y fecha |
 
 - **Nunca** se envía nada de tu wallet ni de tu cuenta de Padre.
 - **No escribas datos personales en las notas** de tus trades si vas a analizarlas con IA.

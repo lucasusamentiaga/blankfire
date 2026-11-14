@@ -48,7 +48,19 @@ En **Ajustes** de la ventana ves tu versión y puedes buscar actualizaciones a m
 - **Legal:** las condiciones de la API de Gemini solo permiten el nivel **de pago** cuando la app se ofrece a usuarios del Espacio Económico Europeo, Suiza o Reino Unido, y la API es para desarrolladores, no para que cada consumidor use su clave. Así que la clave es una sola, la del autor, con facturación activada, y nunca sale del servidor.
 - **Candado real:** el servidor comprueba la licencia en Lemon Squeezy antes de cada análisis y pone topes diarios (por licencia y en total) para que el gasto no se dispare. Cada análisis con Gemini Flash-Lite cuesta del orden de una décima de céntimo.
 
-Mientras `PRO_CONFIG.aiUrl` esté vacío, la IA sale como «Pronto» y el resto del Pro funciona igual.
+La IA se enciende y se apaga desde aquí mismo, sin publicar versión: en [`updates.json`](updates.json), `"features": { "ai": true }`. Las extensiones lo leen en unas horas. Mientras esté apagada, sale como «Pronto».
+
+> **Saldo de Gemini:** la API de pago de Gemini funciona con **prepago** (mínimo 5 $). Sin saldo, el servidor responde «IA en pausa». Carga el saldo en [AI Studio → Billing](https://aistudio.google.com/billing) antes de encender la IA, y deja desactivada la recarga automática si no quieres cobros sin avisar.
+
+### Donaciones (Ko-fi): la meta que enciende la IA
+
+La extensión muestra una barra «Ayuda a encender el análisis con IA» con lo recaudado en Ko-fi frente a la meta (50 € por defecto). Se actualiza sola: Ko-fi avisa al servidor de Blankfire en cada donación ([`server/supabase/functions/blankfire-kofi`](server/supabase/functions/blankfire-kofi/index.ts)), que guarda solo el importe (ni nombres ni emails).
+
+1. Crea tu página en [ko-fi.com](https://ko-fi.com) (las donaciones no tienen comisión de Ko-fi, solo la de PayPal/Stripe).
+2. En Ko-fi → **Settings → API → Webhooks**, pon como URL: `https://ntsjdliklscfbtczmuux.supabase.co/functions/v1/blankfire-kofi`
+3. Copia el **Verification Token** de esa misma página y guárdalo en Supabase → Edge Functions → Secrets como `KOFI_TOKEN`.
+4. Pon tu enlace de Ko-fi en `SUPPORT.kofiUrl` de [`Fogueo/lib/pro.js`](Fogueo/lib/pro.js).
+5. Al llegar a la meta: carga saldo en Gemini y pon `"ai": true` en `updates.json`.
 
 Con el Pro de pago, la gráfica de «Qué pasó después» usa solo el seguimiento propio de Blankfire (precios de DexScreener, cuya API permite uso comercial). Las velas de GeckoTerminal solo se usan en la beta gratuita, porque su API sin clave no incluye licencia comercial.
 
