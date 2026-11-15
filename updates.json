@@ -3,6 +3,17 @@
     "ai": false
   },
   "releases": {
+    "1.13.3": {
+      "date": "2026-11-15",
+      "es": [
+        "Barra de donaciones activa: apoya en ko-fi.com/blankfire para encender el análisis con IA",
+        "Al llegar a 50 € la IA se activa para todos"
+      ],
+      "en": [
+        "Donation bar live: support at ko-fi.com/blankfire to switch on the AI review",
+        "At €50 the AI switches on for everyone"
+      ]
+    },
     "1.13.2": {
       "date": "2026-11-14",
       "es": [

@@ -13,7 +13,7 @@ export const PRO_CONFIG = {
 // La IA se enciende y apaga desde GitHub, sin publicar versión: updates.json → "features": { "ai": true }.
 // Mientras esté apagada, sale como «Pronto» con la barra de donaciones de Ko-fi.
 export const SUPPORT = {
-  kofiUrl: '',       // tu página de Ko-fi, p. ej. https://ko-fi.com/blankfire (vacío = sin barra de donaciones)
+  kofiUrl: 'https://ko-fi.com/blankfire',   // página de Ko-fi (vacío = sin barra de donaciones)
   statusUrl: 'https://ntsjdliklscfbtczmuux.supabase.co/functions/v1/blankfire-kofi',
   goal: 50,          // meta en euros para activar la IA (la del servidor manda si es distinta)
 };

@@ -140,7 +140,7 @@ const EXT_AI = makeExt({ aiUrl: AI_URL });
 
 // ===================== 0 · IA apagada desde GitHub: «Pronto»; con Ko-fi, barra de donaciones =====================
 {
-  const T = await launch(SRC, { aiFlag: false });
+  const T = await launch(makeExt({ kofiUrl: '' }), { aiFlag: false });
   await makeTrade(T);
   await T.pop.reload(); await T.pop.waitForTimeout(700);
   await T.pop.locator('[data-tab="history"]').click(); await T.pop.locator('.row[data-row]').first().click();
