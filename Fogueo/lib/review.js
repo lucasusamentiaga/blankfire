@@ -101,6 +101,9 @@ export function tradeFlags(round, facts, ctx = {}) {
   const reason = round.reason || 'manual';
   const stopped = reason === 'sl' || reason === 'trail';
   if (facts.prePumpPct != null && facts.prePumpPct >= 40) errors.push({ id: 'fomo', sev: facts.prePumpPct >= 80 ? 'high' : 'mid', vars: { pct: facts.prePumpPct, win: facts.prePumpWin } });
+  const sc = round.screen;
+  if (sc?.verdict === 'avoid') errors.push({ id: 'riskyEntry', sev: 'high', vars: { risks: sc.risks || [] } });
+  else if (sc?.verdict === 'care') errors.push({ id: 'riskyEntry', sev: 'low', vars: { risks: sc.risks || [], care: true } });
   if (!round.slAtEntry && round.slAtEntry !== undefined) errors.push({ id: 'noStop', sev: round.pnlPct <= -30 ? 'high' : 'mid', vars: {} });
   if (ctx.sizePct != null && ctx.sizePct > 20) errors.push({ id: 'oversized', sev: ctx.sizePct > 40 ? 'high' : 'mid', vars: { pct: ctx.sizePct } });
   if (!stopped && facts.afterMaxPct != null && facts.afterMaxPct >= 50 && round.pnlSol > -Infinity) errors.push({ id: 'soldEarly', sev: facts.afterMaxPct >= 150 ? 'high' : 'mid', vars: { pct: facts.afterMaxPct, min: facts.afterMaxMin, sol: facts.missedSol } });
@@ -113,6 +116,7 @@ export function tradeFlags(round, facts, ctx = {}) {
   // Aciertos
   if (facts.afterMinPct != null && facts.afterMinPct <= -25 && !(facts.afterMaxPct >= 20)) wins.push({ id: 'goodExit', vars: { pct: facts.afterMinPct, sol: facts.avoidedSol } });
   if (stopped && facts.after15Pct != null && facts.after15Pct <= -10) wins.push({ id: 'stopSaved', vars: { pct: facts.after15Pct } });
+  if (sc?.verdict === 'good') wins.push({ id: 'cleanEntry', vars: {} });
   if (round.followedPlan === true) wins.push({ id: 'plan', vars: {} });
   if (round.slAtEntry) wins.push({ id: 'hadStop', vars: {} });
   const order = { high: 0, mid: 1, low: 2 };

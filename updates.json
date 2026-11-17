@@ -3,6 +3,21 @@
     "ai": false
   },
   "releases": {
+    "1.14.0": {
+      "date": "2026-11-17",
+      "es": [
+        "Chequeo de monedas: top 10, dev, snipers, insiders, bundles y liquidez en verde, ámbar o rojo",
+        "Etiquetas «Bien / Ojo / Evitar» en cada tarjeta de Trenches",
+        "La revisión del trade avisa si entraste en una moneda peligrosa",
+        "Guía en 4 pasos para conseguir y pegar la clave gratuita de Jupiter, con comprobación"
+      ],
+      "en": [
+        "Coin check: top 10, dev, snipers, insiders, bundles and liquidity in green, amber or red",
+        "“Good / Care / Avoid” tags on every Trenches card",
+        "The trade review warns you if you entered a dangerous coin",
+        "4-step guide to get and paste the free Jupiter key, with a live check"
+      ]
+    },
     "1.13.3": {
       "date": "2026-11-15",
       "es": [

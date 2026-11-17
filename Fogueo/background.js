@@ -128,6 +128,20 @@ async function setNotice(patch) {
   if (JSON.stringify(next) !== JSON.stringify(cur)) await chrome.storage.local.set({ [NOTICE_KEY]: next });
 }
 
+// Limpia lo que pega el usuario: comillas, espacios o «x-api-key:» delante.
+function cleanJupKey(v) {
+  return String(v ?? '').trim().replace(/^x-api-key\s*[:=]\s*/i, '').replace(/^['"`]+|['"`]+$/g, '').replace(/\s+/g, '').slice(0, 200);
+}
+// Prueba la clave con una petición mínima: 'ok', 'bad' (Jupiter la rechaza) o 'unknown' (sin conexión).
+async function testJupKey(key) {
+  try {
+    const res = await fetch(`${JUP_KEYED}/price/v3?ids=${SOL_MINT}`, { headers: { accept: 'application/json', 'x-api-key': key }, cache: 'no-store', signal: AbortSignal.timeout(8000) });
+    if (res.ok) return 'ok';
+    if (res.status === 401 || res.status === 403) return 'bad';
+    return 'unknown';
+  } catch { return 'unknown'; }
+}
+
 // Jupiter: con clave va a api.jup.ag; sin clave, a lite-api mientras exista.
 async function jupJson(path) {
   if (Date.now() < jupBackoffUntil) throw new Error(tr('Jupiter: esperando por límite de peticiones'));
@@ -420,7 +434,20 @@ function pushEquity(st, quotes, sol) {
 
 function priceError(msg) { const e = new Error(msg); e.code = 'NO_PRICE'; return e; }
 
-async function doBuy({ key, solIn, tpPct, slPct, trailing, note, url, via = 'manual' }) {
+// Instantánea del chequeo de seguridad que manda el panel al comprar (solo números y textos cortos).
+function cleanScreen(sc) {
+  if (!sc || typeof sc !== 'object' || !['good', 'care', 'avoid', 'unknown'].includes(sc.verdict)) return null;
+  const facts = {};
+  for (const k of ['top10', 'dev', 'snipers', 'snipersN', 'insiders', 'bundles', 'liqUsd', 'mcUsd']) {
+    const n = Number(sc.facts?.[k]);
+    if (sc.facts?.[k] != null && Number.isFinite(n)) facts[k] = Math.round(n * 100) / 100;
+  }
+  for (const k of ['curve', 'devSold', 'mintAuth', 'freezeAuth']) if (typeof sc.facts?.[k] === 'boolean') facts[k] = sc.facts[k];
+  const risks = (Array.isArray(sc.risks) ? sc.risks : []).slice(0, 6).map((r) => String(r).slice(0, 48));
+  return { verdict: sc.verdict, risks, facts };
+}
+
+async function doBuy({ key, solIn, tpPct, slPct, trailing, note, url, screen, via = 'manual' }) {
   const [chain] = key.split(':');
   const sol = await solUsd();
   const quotes = await refreshQuotes([key], { force: true });
@@ -472,6 +499,9 @@ async function doBuy({ key, solIn, tpPct, slPct, trailing, note, url, via = 'man
       pos.slAtEntry = !!pos.sl; pos.tpAtEntry = !!pos.tp;
       // Cuánto venía subiendo justo antes de entrar (para detectar el FOMO sin pedir velas a nadie).
       pos.preChange = { m5: Number.isFinite(quote.change?.m5) ? quote.change.m5 : null, h1: Number.isFinite(quote.change?.h1) ? quote.change.h1 : null };
+      // Cómo estaba la moneda al entrar según el chequeo (dev, bundles, liquidez…), para la revisión.
+      const sc = cleanScreen(screen);
+      if (sc) pos.screen = sc;
     }
     // Al ampliar, el máximo se reexpresa sobre el nuevo coste (mismo precio máximo, más tokens).
     if (prevQty > 0 && (pos.peakPct ?? 0) > 0 && pos.costSol > 0) {
@@ -526,7 +556,7 @@ async function doSell({ key, pct, note, reason = 'manual' }) {
         entryMcUsd: pos.entryMcUsd, exitMcUsd: quote.marketCapUsd, avgEntryUsd: pos.avgEntryUsd,
         feesSol: pos.feesSol, reason, entryNote: pos.entryNote, exitNote: pos.exitNote, lesson: '', fills: pos.fills,
         pairAddress: pos.pairAddress || quote.pairAddress || null, exitPriceUsd: sim.fillPrice, exitMidUsd: quote.priceUsd,
-        slAtEntry: pos.slAtEntry, tpAtEntry: pos.tpAtEntry, preChange: pos.preChange || null, sl: pos.sl || null, tp: pos.tp || null, peakPct: pos.peakPct ?? null,
+        slAtEntry: pos.slAtEntry, tpAtEntry: pos.tpAtEntry, preChange: pos.preChange || null, screen: pos.screen || null, sl: pos.sl || null, tp: pos.tp || null, peakPct: pos.peakPct ?? null,
       };
       st.account.rounds.unshift(round);
       watchAfter(round);
@@ -758,6 +788,8 @@ const handlers = {
       if ('useTrail' in settings) clean.useTrail = !!settings.useTrail;
       if ('autoPreset' in settings) clean.autoPreset = !!settings.autoPreset;
       if ('poolFees' in settings) clean.poolFees = !!settings.poolFees;
+      if ('screenBadges' in settings) clean.screenBadges = !!settings.screenBadges;
+      if ('screenRigor' in settings) clean.screenRigor = ['strict', 'normal', 'loose'].includes(settings.screenRigor) ? settings.screenRigor : 'normal';
       if ('dailyLossLimit' in settings) clean.dailyLossLimit = num(settings.dailyLossLimit, 0, 1e6);
       if ('sizeMode' in settings) clean.sizeMode = settings.sizeMode === 'pct' ? 'pct' : 'sol';
       if ('lang' in settings) clean.lang = settings.lang === 'en' ? 'en' : 'es';
@@ -815,17 +847,25 @@ const handlers = {
   async saveKeys({ jupiter }) {
     const cur = { jupiter: '', ...((await chrome.storage.local.get(KEYS_KEY))[KEYS_KEY] || {}) };
     delete cur.gemini;   // desde 1.13.1 la IA va por el servidor de Blankfire: ya no se guarda clave de Gemini
-    const clean = (v) => String(v ?? '').trim().slice(0, 200);
-    if (jupiter !== undefined) cur.jupiter = clean(jupiter);
+    let check = null;
+    if (jupiter !== undefined) {
+      const key = cleanJupKey(jupiter);
+      if (key) {
+        check = await testJupKey(key);
+        if (check === 'bad') return { jupiter: !!cur.jupiter, check, checkedAt: cur.checkedAt || null };
+      }
+      cur.jupiter = key;
+      cur.checkedAt = key && check === 'ok' ? Date.now() : null;
+    }
     await chrome.storage.local.set({ [KEYS_KEY]: cur });
     userKeys = cur;
     if (jupiter !== undefined) { jupBackoffUntil = 0; await setNotice({ jupiterKeyBad: false }); }
-    return { jupiter: !!cur.jupiter };
+    return { jupiter: !!cur.jupiter, check, checkedAt: cur.checkedAt || null };
   },
   async keysStatus() {
     const k = (await chrome.storage.local.get(KEYS_KEY))[KEYS_KEY] || {};
     const notice = (await chrome.storage.local.get(NOTICE_KEY))[NOTICE_KEY] || {};
-    return { jupiter: !!k.jupiter, notice, ai: await aiOn() };
+    return { jupiter: !!k.jupiter, checkedAt: k.checkedAt || null, notice, ai: await aiOn() };
   },
   async afterData({ id }) { return afterData(id); },
   async supportStatus({ force } = {}) { return supportStatus(force); },
@@ -1070,7 +1110,7 @@ function aiPayload(round, data, account) {
   const r2 = (n, d = 2) => (n == null || !isFinite(n) ? null : Math.round(n * 10 ** d) / 10 ** d);
   const recent = (account.rounds || []).filter((r) => r.closedAt <= round.closedAt && r.id !== round.id).slice(0, 5).map((r) => r2(r.pnlPct, 1));
   return {
-    token: { symbol: round.symbol, stage: round.entryMcUsd < 70000 ? 'probable bonding curve / recién lanzado' : 'con pool propio' },
+    token: { symbol: round.symbol, stage: round.entryMcUsd < 70000 ? 'probable bonding curve / recién lanzado' : 'con pool propio', ...(round.screen ? { safetyAtEntry: { verdict: round.screen.verdict, risks: round.screen.risks, ...round.screen.facts } } : {}) },
     trade: {
       openedAt: new Date(round.openedAt).toISOString(), holdMin: data.facts.holdMin,
       investedSol: r2(round.investedSol, 4), returnedSol: r2(round.returnedSol, 4), pnlSol: r2(round.pnlSol, 4), pnlPct: r2(round.pnlPct, 1),

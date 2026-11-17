@@ -20,6 +20,8 @@ export const DEFAULT_SETTINGS = {
   pnlUnit: 'sol',         // 'sol' | 'usd'
   autoPreset: false,      // aplicar los ajustes recomendados al abrir cada token
   poolFees: true,         // sumar la comisión del pool (curva de pump.fun, PumpSwap…) a la de Padre
+  screenBadges: true,     // marcar en Trenches las monedas que pasan el chequeo
+  screenRigor: 'normal',  // 'strict' | 'normal' | 'loose'
 };
 
 // ---------- Ajustes recomendados por tipo de token ----------

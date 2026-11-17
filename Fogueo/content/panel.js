@@ -5,6 +5,8 @@ import {
 } from '../lib/core.js';
 import { tr, setLang, getLang } from '../lib/i18n.js';
 import { Tour } from './tour.js';
+import { startScan, setScanOptions, cachedFacts } from './scan.js';
+import { readTokenData, mergeFacts, screenToken, screenRisks, checkName, checkValue, checkWhy, VERDICT } from '../lib/screen.js';
 import { UPD_KEY, updateView, updateCard, readUpdate, onUpdateAction } from '../lib/update.js';
 
 const ICON = {
@@ -173,6 +175,7 @@ class Panel {
     }
     this.build();
     this.applyPanelPrefs();
+    startScan({ badges: this.settings.screenBadges !== false, rigor: this.settings.screenRigor || 'normal' });
     this.host.hidden = !!this.st?.ui?.panel?.hidden;
 
     chrome.storage.onChanged.addListener((changes, area) => {
@@ -188,6 +191,7 @@ class Panel {
       if (this.settings.lang !== prevLang) { setLang(this.settings.lang); this.rebuild(); return; }
       const hidden = !!this.st?.ui?.panel?.hidden;
       if (hidden !== prevHidden) this.host.hidden = hidden;
+      setScanOptions({ badges: this.settings.screenBadges !== false, rigor: this.settings.screenRigor || 'normal' });
       this.renderAll();
     });
 
@@ -248,6 +252,7 @@ class Panel {
         <div data-ref="onboard"></div>
         <div data-ref="viewTrade">
           <div data-ref="tokenArea"></div>
+          <div data-ref="checkArea"></div>
           <div data-ref="recoArea"></div>
           <div data-ref="posArea"></div>
           <div data-ref="ordersArea"></div>
@@ -588,6 +593,7 @@ class Panel {
     this.quote = res.data.quote;
     if (res.data.solUsd) this.solUsd = res.data.solUsd;
     this.renderToken(true);
+    this.renderCheck();
     this.renderPosition();
     this.renderOrders();
     this.renderQuotes();
@@ -603,6 +609,7 @@ class Panel {
     this.renderHead();
     this.renderOnboard();
     this.renderToken();
+    this.renderCheck();
     this.renderReco();
     this.renderPosition();
     this.renderOrders();
@@ -822,6 +829,72 @@ class Panel {
     const h = Math.round(m / 60);
     if (h < 48) return tr('hace {n} h', { n: h });
     return tr('hace {n} d', { n: Math.round(h / 24) });
+  }
+
+  // ---------- chequeo de seguridad ----------
+
+  // Junta lo que Padre enseña en la página del token, lo visto antes en Trenches y nuestro precio.
+  screenFacts() {
+    const q = this.quote;
+    if (!q || this.status !== 'ready') return null;
+    const mint = q.chain === 'solana' ? q.address : null;
+    const now = Date.now();
+    if (!this.pageFacts || now - this.pageFacts.at > 4000 || this.pageFacts.key !== this.key) {
+      this.pageFacts = { at: now, key: this.key, f: location.href.includes(q.address) ? readTokenData(document) : {} };
+    }
+    const curve = q.stage === 'new';
+    return mergeFacts(
+      { curve, mcUsd: q.marketCapUsd, liqUsd: curve ? null : q.liquidityUsd },
+      this.pageFacts.f,
+      cachedFacts(mint),
+    );
+  }
+
+  screenSnapshot() {
+    const f = this.screenFacts();
+    if (!f) return null;
+    const res = screenToken(f, { rigor: this.settings.screenRigor });
+    const { at, ...facts } = f;
+    return { verdict: res.verdict, risks: screenRisks(res), facts };
+  }
+
+  renderCheck() {
+    const area = this.refs.checkArea;
+    if (!area) return;
+    const f = this.status === 'ready' ? this.screenFacts() : null;
+    if (!f) { if (area.innerHTML) area.innerHTML = ''; this.checkSig = ''; return; }
+    const res = screenToken(f, { rigor: this.settings.screenRigor });
+    const open = !!this.st?.ui?.checkOpen;
+    const sig = JSON.stringify([open, getLang(), res.checks.map((c) => [c.id, c.level, c.value, c.n, c.sold, c.curve])]);
+    if (sig === this.checkSig && area.firstElementChild) return;
+    this.checkSig = sig;
+    const V = VERDICT[res.verdict];
+    const known = res.checks.filter((c) => c.level !== 'na');
+    const missing = res.checks.filter((c) => c.level === 'na').map((c) => c.id);
+    const dots = known.map((c) => `<i class="lv-${c.level}" title="${esc(checkName(c.id))}"></i>`).join('');
+    const tally = [res.ok && tr('{n} bien', { n: res.ok }), res.warn && tr('{n} ojo', { n: res.warn }), res.bad && tr('{n} peligro', { n: res.bad })].filter(Boolean).join(' · ');
+    const lvTxt = { ok: tr('Bien'), warn: tr('Ojo'), bad: tr('Peligro'), na: tr('Sin dato') };
+    const rows = res.checks.map((c) => `
+      <div class="chk-row lv-${c.level}">
+        <dt><span class="chk-name"><i></i>${checkName(c.id)}</span><b class="num">${esc(checkValue(c))}</b><em>${lvTxt[c.level]}</em></dt>
+        <dd>${esc(checkWhy(c))}</dd>
+      </div>`).join('');
+    const settled = area.querySelector('.chk') ? ' settled' : '';
+    const needTrenches = missing.some((id) => id === 'snipers' || id === 'insiders');
+    area.innerHTML = `
+      <div class="chk is-${res.verdict}${open ? ' open' : ''}${settled}">
+        <button class="chk-head" data-act="checkToggle" aria-expanded="${open}" aria-controls="fx-chk-body">
+          <span class="chk-verdict"><span class="chk-shield" aria-hidden="true"></span>${tr(V.label)}</span>
+          <span class="chk-dots" aria-hidden="true">${dots}</span>
+          <span class="chk-tally">${tally || tr('sin datos aún')}</span>
+          <span class="reco-more">${open ? tr('Ocultar') : tr('Detalles')}${ICON.chevron}</span>
+        </button>
+        <div class="chk-body" id="fx-chk-body" ${open ? '' : 'hidden'}>
+          <dl class="chk-list">${rows}</dl>
+          ${needTrenches ? `<p class="chk-note">${tr('Snipers e insiders solo salen en las tarjetas de Trenches: abre Trenches un momento y los recuerdo para este token.')}</p>` : ''}
+          <p class="chk-note">${tr('Datos de Padre y de las fuentes de precio. Es una ayuda para filtrar, no una garantía: un token puede pasar el chequeo y aun así hundirse.')}</p>
+        </div>
+      </div>`;
   }
 
   renderReco() {
@@ -1344,6 +1417,12 @@ class Panel {
       b.setAttribute('aria-expanded', String(!ta.hidden));
       if (!ta.hidden) ta.focus();
     }
+    else if (act === 'checkToggle') {
+      const checkOpen = !this.st?.ui?.checkOpen;
+      this.st.ui = { ...(this.st.ui || {}), checkOpen };
+      send({ type: 'saveUi', ui: { checkOpen } });
+      this.renderCheck();
+    }
     else if (act === 'recoToggle') {
       const recoOpen = !this.st?.ui?.recoOpen;
       this.st.ui = { ...(this.st.ui || {}), recoOpen };
@@ -1414,7 +1493,7 @@ class Panel {
     if (!(solIn > 0)) { r.amount.focus(); return; }
     const tp = r.useTp.checked ? parseNum(r.tpPct.value) : 0;
     const sl = r.useSl.checked ? parseNum(r.slPct.value) : 0;
-    const base = { key: this.key, solIn: Math.round(solIn * 1e6) / 1e6, tpPct: tp > 0 ? tp : 0, slPct: sl > 0 ? Math.min(sl, 99) : 0, trailing: !!(sl > 0 && this.settings.useTrail), note: r.buyNote.value.trim(), url: location.href };
+    const base = { key: this.key, solIn: Math.round(solIn * 1e6) / 1e6, tpPct: tp > 0 ? tp : 0, slPct: sl > 0 ? Math.min(sl, 99) : 0, trailing: !!(sl > 0 && this.settings.useTrail), note: r.buyNote.value.trim(), url: location.href, screen: this.screenSnapshot() };
 
     if (this.orderType === 'limit') {
       const mc = parseMc(r.limitMc.value);

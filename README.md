@@ -11,6 +11,7 @@ Extensión para Chrome y Opera GX (Manifest V3). Español e inglés.
 - **Panel dentro de Padre** que detecta el token que estás viendo y te deja comprar y vender con SOL ficticio.
 - **Simulación realista**: comisión de Padre más la del pool (curva de pump.fun o PumpSwap/Raydium), priority fee (también si la orden falla), slippage calculado con la curva real de pump.fun o la liquidez del pool, retraso de ejecución y rechazo de precios congelados.
 - **Stop, Take y stop dinámico** que se ejecutan solos, aunque cierres la pestaña, y **órdenes límite** («compra si baja a…»).
+- **Chequeo de monedas**: lee lo que Padre ya enseña (top 10 holders, dev, snipers que siguen dentro, insiders, bundles, liquidez y autoridades del token) y lo marca en verde, ámbar o rojo con el porqué. Etiqueta cada tarjeta de Trenches con «Bien / Ojo / Evitar» y guarda el resultado al comprar para que la revisión avise si entraste en una moneda peligrosa. Umbrales en `lib/screen.js`, con rigor prudente, normal o arriesgado.
 - **Ajustes recomendados** según el tipo de token: nuevo par (en la curva de pump.fun) o graduado, explicando el porqué.
 - **Diario de trading**: notas de por qué entras y sales, «¿seguiste tu plan?» y etiquetas (FOMO, venganza, con prisa…).
 - **Estadísticas**: acierto, profit factor, plan vs. impulso, rachas, costes y un consejo automático.
@@ -20,7 +21,7 @@ Extensión para Chrome y Opera GX (Manifest V3). Español e inglés.
   - **Qué pasó después**: gráfica del precio desde 20 min antes de entrar hasta 60 min después de vender, con el máximo y el mínimo tras tu venta y cuánto SOL te dejaste (o te ahorraste).
   - **Errores del trade** detectados al momento con reglas claras: entrar persiguiendo la subida, sin stop, posición demasiado grande, vender pronto, stop demasiado ajustado, devolver la ganancia, comisiones, trade de venganza…
   - **Análisis con IA** (Google Gemini): nota de la ejecución, fallos, lo que hiciste bien y una lección para el próximo trade.
-- Precios de **DexScreener** y **Jupiter** (para tokens recién creados), con **GeckoTerminal** de respaldo si Jupiter empieza a pedir clave. No toca tu wallet ni tu cuenta de Padre.
+- Precios de **DexScreener** y **Jupiter** (para tokens recién creados), con **GeckoTerminal** de respaldo si Jupiter empieza a pedir clave. En Ajustes hay una guía de 4 pasos para conseguir la clave gratuita de Jupiter (developers.jup.ag/portal) y se comprueba al guardarla. No toca tu wallet ni tu cuenta de Padre.
 
 ## Instalar (sin empaquetar)
 
@@ -94,7 +95,7 @@ La extensión activa la licencia con la License API pública de Lemon Squeezy y 
 Fogueo/              La extensión
   manifest.json
   background.js      Service worker: cuenta, precios, simulación, TP/SL y órdenes
-  content/           Panel dentro de Padre (Shadow DOM) y recorrido guiado
+  content/           Panel dentro de Padre (Shadow DOM), recorrido guiado y etiquetas de Trenches (scan.js)
   popup/             Ventana del icono: cartera, historial, estadísticas y ajustes
   lib/               Lógica compartida (simulación, formato, Pro: review.js y pro.js) e idiomas
   _locales/          Nombre y descripción en español e inglés

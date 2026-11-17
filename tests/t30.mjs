@@ -33,6 +33,8 @@ async function launch(ext, { lang = 'es', jupDown = false, serverEnv = null, aiF
     const ps = [{ chainId: 'solana', dexId: 'pumpfun', pairAddress: 'POOLPUMP1', baseToken: { address: A, symbol: 'PEPE', name: 'Pepe' }, quoteToken: { symbol: 'SOL' }, priceUsd: String(st.price), liquidity: { usd: 30000 }, marketCap: st.price * 1e9, priceChange: {}, info: {} }];
     return r.fulfill({ json: u.includes('/search') ? { pairs: ps } : ps });
   });
+  // api.jup.ag (con clave): acepta solo la clave de prueba buena.
+  await ctx.route('https://api.jup.ag/**', (r) => r.fulfill(r.request().headers()['x-api-key'] === 'jup-test-key-123' ? { json: {} } : { status: 401, body: '' }));
   await ctx.route('https://lite-api.jup.ag/**', (r) => (st.jupDown ? r.fulfill({ status: 410, body: '' }) : r.fulfill({ json: r.request().url().includes('/price/v3') ? {} : [] })));
   await ctx.route('https://api.geckoterminal.com/**', (r) => {
     st.gtCalls++;
@@ -251,7 +253,9 @@ const EXT_AI = makeExt({ aiUrl: AI_URL });
   ok(notice.jupiterNeedsKey === true, 'Jupiter sin clave caído → aviso para pedir clave');
   await T.pop.locator('[data-tab="wallet"]').click(); await T.pop.waitForTimeout(400);
   ok(await T.pop.locator('.svc-note').count() === 1, 'La cartera enseña el aviso de Jupiter con botón para añadir clave');
-  await T.send({ type: 'saveKeys', jupiter: 'jup-test-key-123' });
+  const rej = await T.send({ type: 'saveKeys', jupiter: 'jup-WRONG-key-999' });
+  ok(rej.ok && rej.data.check === 'bad' && rej.data.jupiter === false, 'Una clave que Jupiter rechaza no se guarda');
+  await T.send({ type: 'saveKeys', jupiter: 'x-api-key: "jup-test-key-123" ' });
   await T.pop.waitForTimeout(500);
   ok(await T.pop.locator('.svc-note').count() === 0, 'Con clave de Jupiter, el aviso desaparece');
   ok(!T.errs.length, 'Sin errores de JavaScript en la ventana ' + T.errs.join(' | '));

@@ -6,6 +6,7 @@ import { tr, setLang, getLang, locale } from '../lib/i18n.js';
 import { vChips, vFlow, vLegend, vMeter } from '../lib/viz.js';
 import { UPD_KEY, updateView, updateCard, readUpdate, onUpdateAction, installedVersion, cmpVer, REPO } from '../lib/update.js';
 import { afterSection, proSettings, jupiterBanner } from './pro-ui.js';
+import { screenSettings } from './screen-ui.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -450,6 +451,8 @@ function renderSettings() {
       <div class="switch"><span>Aplicarlos automáticamente<small class="muted" style="display:block;font-size:11.5px">Al abrir cada token en Padre, según su tipo</small></span><button role="switch" aria-checked="${!!s.autoPreset}" data-act="autoPreset" aria-label="Aplicar ajustes recomendados automáticamente"></button></div>
     </div>
 
+    ${screenSettings(s)}
+
     <h2>Disciplina</h2>
     <div class="form">
       ${row('dailyLossLimit', 'Límite de pérdida diaria', 'Si hoy pierdes esto, el panel bloquea las compras hasta mañana. 0 = sin límite.', 'SOL', s.dailyLossLimit, 3)}
@@ -556,6 +559,14 @@ function setTab(name) {
   $('.views').scrollTop = 0;
 }
 
+// Intro en la casilla de una clave = pulsar su «Guardar»/«Activar».
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.isComposing) return;
+  const id = e.target?.id;
+  if (id === 'k-jupiter') { e.preventDefault(); $('[data-act="keySave"][data-k="jupiter"]')?.click(); }
+  else if (id === 'pro-key') { e.preventDefault(); $('[data-act="proOn"]')?.click(); }
+});
+
 document.addEventListener('click', async (e) => {
   const t = e.target;
   if (touring) return; // durante el recorrido solo responde la tarjeta
@@ -625,6 +636,21 @@ document.addEventListener('click', async (e) => {
     btn.setAttribute('aria-checked', String(on));
     await send({ type: 'saveSettings', settings: { poolFees: on } });
   }
+  if (act === 'screenBadges') {
+    const btn = t.closest('[data-act]');
+    const on = btn.getAttribute('aria-checked') !== 'true';
+    btn.setAttribute('aria-checked', String(on));
+    await send({ type: 'saveSettings', settings: { screenBadges: on } });
+  }
+  if (act === 'screenRigor') {
+    const v = t.closest('[data-act]').dataset.v;
+    st.settings = { ...st.settings, screenRigor: v };
+    await send({ type: 'saveSettings', settings: { screenRigor: v } });
+    const sc = $('.views'), y = sc?.scrollTop ?? 0;
+    renderSettings();
+    if (sc) sc.scrollTop = y;
+    $('[data-act="screenRigor"][aria-checked="true"]')?.focus({ preventScroll: true });
+  }
   if (act === 'autoPreset') {
     const btn = t.closest('[data-act]');
     const on = btn.getAttribute('aria-checked') !== 'true';
@@ -649,7 +675,7 @@ async function proAction(act, btn) {
   const redraw = () => { if (tab === 'settings') renderSettings(); };
   switch (act) {
     case 'goPro': goSettings('#proSec'); return true;
-    case 'goKeys': goSettings('#keys'); return true;
+    case 'goKeys': proUi.jupOpen = true; goSettings('#keys'); return true;
     case 'afterRetry': fetchAfter(id, true); return true;
     case 'aiRun': runAi(id); return true;
     case 'proOn': {
@@ -672,10 +698,20 @@ async function proAction(act, btn) {
     }
     case 'keySave': {
       const k = btn.dataset.k, inp = $(`#k-${k}`), val = (inp?.value || '').trim();
-      if (!val) { say(k, false, tr('Pega la clave primero.')); redraw(); return true; }
+      proUi.jupOpen = true;
+      if (!val) { say(k, false, tr('Primero pega la clave en la casilla (Ctrl+V).')); redraw(); $(`#k-${k}`)?.focus(); return true; }
+      if (val.length < 16) { say(k, false, tr('Parece incompleta: copia la clave entera desde Jupiter y vuelve a pegarla.')); redraw(); $(`#k-${k}`)?.focus(); return true; }
+      proUi.busy = k; proUi.msg = {}; redraw();
       const r = await send({ type: 'saveKeys', [k]: val });
-      if (r.ok) { keysSt = { ...keysSt, ...r.data }; say(k, true, tr('Clave guardada.')); } else say(k, false, r.error);
-      await loadPro(); redraw(); return true;
+      proUi.busy = null;
+      if (!r.ok) say(k, false, r.error);
+      else if (r.data.check === 'bad') say(k, false, tr('Jupiter no acepta esta clave. Revisa que la copiaste entera (sin espacios) o crea otra en el portal.'));
+      else if (r.data.check === 'unknown') say(k, true, tr('Clave guardada. Ahora no he podido comprobarla con Jupiter; lo haré en el próximo precio.'));
+      else say(k, true, tr('¡Listo! Jupiter acepta tu clave y ya la estoy usando.'));
+      if (r.ok) keysSt = { ...keysSt, ...r.data };
+      await loadPro(); redraw();
+      if (r.ok && r.data.check === 'bad') $(`#k-${k}`)?.focus();
+      return true;
     }
     case 'keyDel': {
       const k = btn.dataset.k;

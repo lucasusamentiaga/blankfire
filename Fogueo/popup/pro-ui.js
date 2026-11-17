@@ -12,6 +12,8 @@ const I = {
   lock: '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.6" stroke="currentColor" stroke-width="1.4"/><path d="M5.5 7V5.2a2.5 2.5 0 015 0V7" stroke="currentColor" stroke-width="1.4"/></svg>',
   check: '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 8.4l2.9 2.9 6.1-6.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   warn: '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2.2l6.2 11H1.8z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.6v3.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.6" r=".9" fill="currentColor"/></svg>',
+  ext: '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6.5 3.5H3.8a.8.8 0 00-.8.8v7.9c0 .44.36.8.8.8h7.9a.8.8 0 00.8-.8V9.5M9.5 2.8h3.7v3.7M13 3L7.6 8.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  copy: '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.2" y="5.2" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M10.8 5.2V3.8a1 1 0 00-1-1H3.8a1 1 0 00-1 1v6a1 1 0 001 1h1.4" stroke="currentColor" stroke-width="1.4"/></svg>',
   key: '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="5.5" cy="10.5" r="3" stroke="currentColor" stroke-width="1.4"/><path d="M7.7 8.3L13.5 2.5M11 5l1.7 1.7M12.6 3.4l1.3 1.3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
 };
 export const PRO_ICON = I;
@@ -21,6 +23,9 @@ function flagText(f) {
   const v = f.vars || {};
   switch (f.id) {
     case 'fomo': return [tr('Entraste persiguiendo la subida'), tr('Había subido {pct} en {win} antes de tu compra. Comprar tras un pico así suele pillar el techo.', { pct: sgn(v.pct), win: v.win === 60 ? tr('la hora') : tr('los 15 min') })];
+    case 'riskyEntry': return v.care
+      ? [tr('Entraste en una moneda dudosa'), tr('El chequeo marcaba «con cuidado» al comprar. Con dos señales flojas, entra con menos tamaño.')]
+      : [tr('Entraste en una moneda peligrosa'), tr('El chequeo marcaba «evitar» al comprar: {r}. Son las monedas donde más fácil es que te vendan encima.', { r: (v.risks || []).join(', ') || tr('varias señales en rojo') })];
     case 'noStop': return [tr('Sin stop al entrar'), tr('Abriste sin stop loss: si el token se desploma, nada te saca a tiempo.')];
     case 'oversized': return [tr('Posición demasiado grande'), tr('Metiste el {pct} de tu patrimonio en un solo trade. Con memecoins, entre el 2 y el 10 % es lo razonable.', { pct: fmtPct(v.pct, 0) })];
     case 'soldEarly': return [tr('Vendiste demasiado pronto'), tr('Después de tu venta subió hasta {pct} {when}: aguantando habrías sacado hasta {sol} SOL más.', { pct: sgn(v.pct), when: mins(v.min), sol: fmtSol(v.sol) })];
@@ -32,6 +37,7 @@ function flagText(f) {
     case 'heldLoser': return [tr('Aguantaste una pérdida enorme'), tr('Cerraste en {pnl} sin que saltara ningún stop. Corta antes: ninguna memecoin tiene que volver.', { pnl: sgn(v.pnl, 1) })];
     case 'goodExit': return [tr('Buena salida: después cayó {pct} y te ahorraste {sol} SOL', { pct: sgn(v.pct), sol: fmtSol(v.sol) })];
     case 'stopSaved': return [tr('El stop te protegió: a los 15 min estaba {pct} por debajo', { pct: sgn(v.pct) })];
+    case 'cleanEntry': return [tr('Elegiste una moneda que pasaba el chequeo')];
     case 'plan': return [tr('Seguiste tu plan')];
     case 'hadStop': return [tr('Entraste con stop')];
     default: return [f.id];
@@ -194,14 +200,62 @@ export function proSettings(pro, keys, notice, ui) {
       </label></div>`;
   }
   const msg = (k) => (ui.msg?.[k] ? `<p class="key-msg ${ui.msg[k].ok ? 'ok' : 'bad'}" role="status">${esc(ui.msg[k].text)}</p>` : '');
-  const jupWarn = notice?.jupiterNeedsKey && !keys.jupiter ? `<p class="warn">${I.warn}${tr('Jupiter ya pide clave para los tokens recién lanzados. Mientras, uso GeckoTerminal, que es algo más lento.')}</p>` : notice?.jupiterKeyBad ? `<p class="warn">${I.warn}${tr('Jupiter no acepta tu clave. Revísala en portal.jup.ag.')}</p>` : '';
   return `${card}${!keys.ai && keys.support ? supportCard(keys.support, 'settings') : ''}${msg('pro')}${legal}
-    <h3 id="keys">${tr('Jupiter (opcional)')}</h3>
-    <p class="hint">${tr('Solo hace falta si Jupiter deja de responder sin clave. Es gratis en <a href="https://portal.jup.ag" target="_blank" rel="noopener">portal.jup.ag</a>.')}</p>
-    ${jupWarn}
-    <span class="key-row"><span class="inp key">${I.key}<input id="k-jupiter" type="password" autocomplete="off" spellcheck="false" placeholder="${keys.jupiter ? esc(tr('Guardada · escribe para cambiarla')) : tr('Sin clave')}"></span><button class="btn plain" data-act="keySave" data-k="jupiter">${tr('Guardar')}</button></span>
-    ${keys.jupiter ? `<div class="btn-row"><button class="ghost" data-act="keyDel" data-k="jupiter">${tr('Borrar')}</button></div>` : ''}
-    ${msg('jupiter')}`;
+    ${jupiterGuide(keys, notice, ui, msg('jupiter'))}`;
+}
+
+// ---------- Clave de Jupiter: guía visual paso a paso ----------
+export const JUP_PORTAL = 'https://developers.jup.ag/portal';
+export function jupiterGuide(keys, notice, ui, msgHtml = '') {
+  const has = !!keys.jupiter;
+  const bad = has && notice?.jupiterKeyBad;
+  const checked = has && !bad && !!keys.checkedAt;
+  const needs = !has && notice?.jupiterNeedsKey;
+  const state = bad ? 'bad' : checked ? 'ok' : has ? 'saved' : needs ? 'need' : 'none';
+  const pill = {
+    ok: `<span class="jg-state ok">${I.check}${tr('Clave activa')}</span>`,
+    saved: `<span class="jg-state ok">${I.check}${tr('Clave guardada')}</span>`,
+    bad: `<span class="jg-state bad">${I.warn}${tr('Jupiter la rechaza')}</span>`,
+    need: `<span class="jg-state warn">${I.warn}${tr('Recomendada')}</span>`,
+    none: `<span class="jg-state">${tr('Opcional')}</span>`,
+  }[state];
+  const lead = {
+    ok: tr('Los precios de Jupiter te llegan con tu clave gratuita. No tienes que hacer nada más.'),
+    saved: tr('Clave guardada. Aún no he podido comprobarla con Jupiter; lo haré en cuanto pida el próximo precio.'),
+    bad: tr('Jupiter no acepta la clave guardada. Suele pasar si se copió a medias o se borró en el portal: crea otra y pégala abajo.'),
+    need: tr('Jupiter ya pide clave para los tokens recién lanzados. Mientras no la pongas uso GeckoTerminal, que es algo más lento. Conseguirla es gratis y tardas unos 2 minutos.'),
+    none: tr('Jupiter da los precios más rápidos de los tokens recién lanzados. Hoy funciona sin clave, pero con una gratuita va más holgado y no dependes de que la quiten.'),
+  }[state];
+  const busy = ui?.busy === 'jupiter';
+  const step = (n, title, body, mock, extra = '') => `
+      <li class="jg-step">
+        <span class="jg-n num" aria-hidden="true">${n}</span>
+        <div class="jg-c"><b>${title}</b><p>${body}</p>${mock}${extra}</div>
+      </li>`;
+  const input = `<span class="key-row jg-input"><span class="inp key">${I.key}<input id="k-jupiter" type="password" autocomplete="off" spellcheck="false" aria-label="${esc(tr('Clave de Jupiter'))}" placeholder="${has ? esc(tr('Guardada · pega otra para cambiarla')) : esc(tr('Pega aquí la clave (Ctrl+V)'))}"></span><button class="btn ${has ? 'plain' : 'brand'}" data-act="keySave" data-k="jupiter" ${busy ? 'disabled aria-busy="true"' : ''}>${busy ? tr('Comprobando…') : tr('Guardar')}</button></span>`;
+  const steps = `
+    <ol class="jg-steps">
+      ${step(1, tr('Abre el portal de Jupiter'), tr('Se abre en una pestaña nueva. Deja esta ventana como está: al volver seguirás aquí.'),
+        `<div class="jg-mock m-url" aria-hidden="true"><i></i><i></i><i></i><span>developers.jup.ag/portal</span></div>`,
+        `<a class="btn sm brand jg-open" href="${JUP_PORTAL}" target="_blank" rel="noopener">${tr('Abrir Jupiter')}${I.ext}</a>`)}
+      ${step(2, tr('Entra con tu email'), tr('Pulsa «Sign in», escribe tu correo y abre el enlace o el código que te llega. Es gratis y no pide tarjeta.'),
+        `<div class="jg-mock m-mail" aria-hidden="true"><span class="f">${tr('tu@email.com')}</span><span class="b">Continue</span></div>`)}
+      ${step(3, tr('Crea la clave y cópiala'), tr('En «API Keys» pulsa «Generate key» con el plan Free y dale a copiar. Hazlo en ese momento: luego Jupiter no vuelve a enseñarla entera.'),
+        `<div class="jg-mock m-key" aria-hidden="true"><span class="k">••••••••••••••••••••</span><span class="c">${I.copy}</span></div>`)}
+      ${step(4, tr('Pégala aquí y guarda'), tr('Haz clic en la casilla, pulsa Ctrl+V (Cmd+V en Mac) y «Guardar». Compruebo con Jupiter que funciona antes de usarla.'), '', input)}
+    </ol>`;
+  const open = state === 'need' || state === 'bad' || ui?.jupOpen;
+  return `
+    <section class="jg is-${state}" aria-labelledby="keys">
+      <div class="jg-h"><h3 id="keys">${tr('Clave de Jupiter')}</h3>${pill}</div>
+      <p class="hint">${lead}</p>
+      ${state === 'ok' || state === 'saved'
+        ? `<details class="jg-more" ${ui?.jupOpen ? 'open' : ''}><summary>${tr('Cambiar la clave o ver cómo se consigue')}</summary>${steps}</details>
+           ${msgHtml}
+           <div class="btn-row"><button class="ghost" data-act="keyDel" data-k="jupiter">${tr('Borrar clave')}</button></div>`
+        : `<details class="jg-more" ${open ? 'open' : ''}><summary>${tr('Conseguir la clave gratis · 4 pasos')}</summary>${steps}</details>
+           ${msgHtml}`}
+    </section>`;
 }
 
 export function jupiterBanner(notice, keys) {

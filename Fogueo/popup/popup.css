@@ -736,3 +736,97 @@ a.upd-link { font-weight: 600; }
 .sup a.btn svg { width: 13px; height: 13px; }
 .pro-form .sup { margin-top: 2px; }
 @media (prefers-reduced-motion: reduce) { .sup-bar i { animation: none; } }
+
+/* =========================================================
+   Clave de Jupiter: guía en 4 pasos
+   ========================================================= */
+.jg { display: grid; gap: 8px; margin-top: 6px; }
+.jg-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pro-form .jg-h h3 { margin: 0; }
+.jg-state { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; color: var(--fx-ink-3); background: var(--fx-raise); white-space: nowrap; }
+.jg-state svg { width: 12px; height: 12px; }
+.jg-state.ok { color: var(--fx-up); background: var(--fx-up-wash); }
+.jg-state.warn { color: var(--fx-brand-hi); background: var(--fx-brand-wash); }
+.jg-state.bad { color: oklch(0.78 0.15 24); background: var(--fx-down-wash); }
+.jg-more { border-radius: var(--fx-r); background: var(--fx-raise); }
+.jg-more > summary {
+  list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-height: 38px; padding: 0 12px; font-size: 12.5px; font-weight: 600; color: var(--fx-ink); border-radius: var(--fx-r);
+}
+.jg-more > summary::-webkit-details-marker { display: none; }
+.jg-more > summary::after { content: ""; width: 7px; height: 7px; border-right: 1.5px solid var(--fx-ink-3); border-bottom: 1.5px solid var(--fx-ink-3); transform: translateY(-2px) rotate(45deg); transition: transform var(--fx-mid) var(--fx-ease); flex: none; }
+.jg-more[open] > summary::after { transform: translateY(1px) rotate(-135deg); }
+.jg-more > summary:hover { background: var(--fx-raise-2); }
+.jg-more > summary:focus-visible { outline: 2px solid var(--fx-brand-ring); outline-offset: 1px; }
+.jg.is-need .jg-more > summary, .jg.is-bad .jg-more > summary { color: var(--fx-brand-hi); }
+
+.jg-steps { list-style: none; margin: 0; padding: 4px 12px 12px; display: grid; gap: 0; counter-reset: none; }
+.jg-step { display: grid; grid-template-columns: 24px 1fr; gap: 10px; position: relative; padding-bottom: 14px; }
+.jg-step:last-child { padding-bottom: 0; }
+/* Línea que une los números: el recorrido se lee de arriba abajo. */
+.jg-step:not(:last-child)::before { content: ""; position: absolute; left: 11.5px; top: 26px; bottom: 2px; width: 1px; background: var(--fx-line); }
+.jg-n { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12.5px; font-weight: 700; color: var(--fx-brand-ink); background: var(--fx-brand); }
+.jg-c { min-width: 0; display: grid; gap: 6px; padding-top: 2px; }
+.jg-c > b { font-size: 13px; line-height: 1.3; }
+.jg-c > p { margin: -2px 0 0; font-size: 12px; color: var(--fx-ink-2); line-height: 1.45; text-wrap: pretty; }
+.jg-open { justify-self: start; text-decoration: none; }
+.jg-open svg { width: 12px; height: 12px; }
+
+/* Miniaturas: muestran qué buscar en cada pantalla, sin imitar la web real. */
+.jg-mock { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px; border-radius: var(--fx-r-sm); background: var(--fx-bg); box-shadow: inset 0 0 0 1px var(--fx-line-soft); font-family: var(--fx-font-num); font-size: 11.5px; color: var(--fx-ink-2); overflow: hidden; }
+.m-url i { width: 7px; height: 7px; border-radius: 50%; background: var(--fx-raise-2); flex: none; }
+.m-url span { margin-left: 4px; flex: 1; min-width: 0; height: 20px; display: flex; align-items: center; padding: 0 8px; border-radius: 999px; background: var(--fx-raise); color: var(--fx-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.m-mail .f { flex: 1; min-width: 0; height: 20px; display: flex; align-items: center; padding: 0 8px; border-radius: 4px; background: var(--fx-raise); color: var(--fx-ink-3); }
+.m-mail .b, .m-key .c { height: 20px; display: inline-flex; align-items: center; padding: 0 9px; border-radius: 4px; background: var(--fx-brand); color: var(--fx-brand-ink); font-family: var(--fx-font); font-weight: 600; font-size: 11px; flex: none; }
+.m-key .k { flex: 1; min-width: 0; letter-spacing: 0.06em; color: var(--fx-ink); white-space: nowrap; overflow: hidden; }
+.m-key .c { padding: 0 6px; box-shadow: 0 0 0 3px var(--fx-brand-wash); animation: jg-pulse 2.4s var(--fx-ease) infinite; }
+.m-key .c svg { width: 13px; height: 13px; }
+@keyframes jg-pulse { 0%, 55%, 100% { box-shadow: 0 0 0 3px var(--fx-brand-wash); } 25% { box-shadow: 0 0 0 5px var(--fx-brand-ring); } }
+.jg-input .btn { flex: none; }
+.jg-input .btn[disabled] { opacity: 0.7; cursor: progress; }
+.jg-step:last-child .jg-n { background: var(--fx-up); color: var(--fx-up-ink); }
+.jg .key-msg { padding: 8px 10px; border-radius: var(--fx-r-sm); background: var(--fx-raise); }
+.jg .key-msg.ok { background: var(--fx-up-wash); }
+.jg .key-msg.bad { background: var(--fx-down-wash); color: oklch(0.82 0.13 24); }
+@media (prefers-reduced-motion: reduce) { .m-key .c { animation: none; } .jg-more > summary::after { transition: none; } }
+
+/* =========================================================
+   Chequeo de monedas (Ajustes)
+   ========================================================= */
+.scr { display: grid; gap: 10px; }
+.scr-legend { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.scr-legend li { display: grid; grid-template-columns: auto 1fr; column-gap: 6px; align-items: center; padding: 7px 8px; border-radius: var(--fx-r-sm); background: var(--fx-raise); }
+.scr-legend i { width: 7px; height: 7px; border-radius: 50%; }
+.scr-legend b { font-size: 12px; }
+.scr-legend span { grid-column: 1 / -1; font-size: 11px; color: var(--fx-ink-3); line-height: 1.3; margin-top: 2px; text-wrap: pretty; }
+.v-good i { background: var(--fx-up); } .v-good b { color: var(--fx-up); }
+.v-care i { background: var(--fx-brand); } .v-care b { color: var(--fx-brand-hi); }
+.v-avoid i { background: var(--fx-down); } .v-avoid b { color: oklch(0.78 0.15 24); }
+.scr-rigor { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.scr-lbl { font-size: 13px; }
+.seg3 { display: inline-flex; padding: 2px; border-radius: var(--fx-r-sm); background: var(--fx-raise); }
+.seg3 button { height: 28px; padding: 0 10px; border-radius: 5px; font-size: 12px; font-weight: 600; color: var(--fx-ink-3); transition: background var(--fx-fast) var(--fx-ease), color var(--fx-fast) var(--fx-ease); }
+.seg3 button:hover { color: var(--fx-ink); }
+.seg3 button[aria-checked="true"] { background: var(--fx-raise-2); color: var(--fx-ink); box-shadow: inset 0 0 0 1px var(--fx-line); }
+.seg3 button:focus-visible { outline: 2px solid var(--fx-brand-ring); outline-offset: 1px; }
+.scr-table thead th.ok, .scr-table td.ok { color: var(--fx-up); }
+.scr-table thead th.bad, .scr-table td.bad { color: oklch(0.78 0.15 24); }
+.scr-table thead th { font-size: 12px; }
+.scr-gloss { border-radius: var(--fx-r); background: var(--fx-raise); }
+.scr-gloss > summary { list-style: none; cursor: pointer; min-height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 12.5px; font-weight: 600; border-radius: var(--fx-r); }
+.scr-gloss > summary::-webkit-details-marker { display: none; }
+.scr-gloss > summary::after { content: ""; width: 7px; height: 7px; border-right: 1.5px solid var(--fx-ink-3); border-bottom: 1.5px solid var(--fx-ink-3); transform: translateY(-2px) rotate(45deg); }
+.scr-gloss[open] > summary::after { transform: translateY(1px) rotate(-135deg); }
+.scr-gloss > summary:hover { background: var(--fx-raise-2); }
+.scr-gloss dl { margin: 0; padding: 2px 12px 10px; display: grid; }
+.gl-row { padding: 7px 0; border-bottom: 1px solid var(--fx-line-soft); }
+.gl-row:last-child { border-bottom: 0; }
+.gl-row dt { font-size: 12.5px; font-weight: 600; }
+.gl-row dd { margin: 2px 0 0; font-size: 12px; color: var(--fx-ink-2); line-height: 1.45; text-wrap: pretty; }
+.scr-note { margin: 0; font-size: 11px; color: var(--fx-ink-3); text-wrap: pretty; }
+.jg-input .inp { background: var(--fx-bg); box-shadow: inset 0 0 0 1px var(--fx-line); }
+.jg-input .inp:focus-within { box-shadow: inset 0 0 0 1px var(--fx-brand-ring), 0 0 0 3px var(--fx-brand-wash); }
+.jg-input .btn { height: 34px; }
+.scr-legend li { align-content: start; }
+.jg-input .btn, .jg-open { font-family: var(--fx-font); font-weight: 600; font-size: 13px; letter-spacing: 0; }
+.jg-open { font-size: 12.5px; }
