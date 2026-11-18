@@ -51,7 +51,12 @@ const before = (await st()).account.balance;
 liq[A] = 3000;
 r = await send({ type: 'buy', key: kA, solIn: 5 });
 s = await st();
-ok(r.ok && !r.data.ok && Math.abs(before - s.account.balance - s.settings.priorityFee) < 1e-12, 'Orden con slippage excesivo: falla y cobra solo la priority fee');
+ok(r.ok && !r.data.ok && Math.abs(before - s.account.balance) < 1e-12 && r.data.chargedFee === 0, 'Orden con slippage excesivo y MEV protegido: falla sin cobrar nada');
+await send({ type: 'saveSettings', settings: { mevSecure: false } });
+const before2 = (await st()).account.balance;
+r = await send({ type: 'buy', key: kA, solIn: 5 }); s = await st();
+ok(r.ok && !r.data.ok && Math.abs(before2 - s.account.balance - s.settings.priorityFee) < 1e-12, 'Sin MEV protegido: falla y cobra solo la priority fee (el tip se revierte)');
+await send({ type: 'saveSettings', settings: { mevSecure: true } });
 liq[A] = 40000;
 
 // 4) curva de patrimonio con 2 posiciones abiertas: la otra no se valora a coste

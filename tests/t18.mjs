@@ -23,7 +23,7 @@ const send = (msg) => pg.evaluate((m) => new Promise((res) => chrome.runtime.sen
 const st = async () => (await send({ type: 'state' })).data;
 const key = 'solana:' + A;
 await send({ type: 'resolve', address: A });
-await send({ type: 'saveSettings', settings: { latencySlipPct: 0, priorityFee: 0, feePct: 0, poolFees: false } });   // sin costes: el % es solo precio
+await send({ type: 'saveSettings', settings: { latencySlipPct: 0, priorityFee: 0, tipSol: 0, feePct: 0, poolFees: false } });   // sin costes: el % es solo precio
 const tick = async () => { await new Promise((r) => setTimeout(r, 2700)); await send({ type: 'tick', key }); await new Promise((r) => setTimeout(r, 900)); };
 // stop dinámico 30 %
 await send({ type: 'buy', key, solIn: 1, slPct: 30, trailing: true });

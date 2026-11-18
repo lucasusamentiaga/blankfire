@@ -830,3 +830,11 @@ a.upd-link { font-weight: 600; }
 .scr-legend li { align-content: start; }
 .jg-input .btn, .jg-open { font-family: var(--fx-font); font-weight: 600; font-size: 13px; letter-spacing: 0; }
 .jg-open { font-size: 12.5px; }
+
+/* Optimizar Padre */
+.popt-box { display: grid; gap: 8px; padding: 12px; border-radius: var(--fx-r); background: var(--fx-brand-wash); }
+.popt-box p { margin: 0; display: grid; gap: 3px; font-size: 12px; color: var(--fx-ink-2); line-height: 1.45; text-wrap: pretty; }
+.popt-box p b { color: var(--fx-ink); font-size: 13px; }
+.popt-box .btn { justify-self: start; font-family: var(--fx-font); font-weight: 600; font-size: 13px; letter-spacing: 0; }
+.popt-box .popt-msg { font-size: 12px; color: var(--fx-brand-hi); }
+.popt-box .popt-msg:empty { display: none; }

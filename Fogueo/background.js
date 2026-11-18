@@ -2,7 +2,7 @@
 // precios (DexScreener + Jupiter para tokens recién creados) y vigilancia de Take Profit / Stop Loss.
 import {
   DEFAULT_SETTINGS, simulateBuy, simulateSell, positionPnl, uid, fmtSol, fmtPct, fmtCompact,
-  realizedSince, startOfDay, REVIEW_TAGS, LAUNCH_DEXES, stopLevelPct,
+  realizedSince, startOfDay, REVIEW_TAGS, LAUNCH_DEXES, stopLevelPct, txCost, failCost,
 } from './lib/core.js';
 import { tr, setLang } from './lib/i18n.js';
 import { RAW, cmpVer, installedVersion, readUpdate, patchUpdate } from './lib/update.js';
@@ -186,7 +186,7 @@ async function gtQuote(mint) {
   const info = launchInfo.get(mint);
   return {
     stage: onCurve ? 'new' : info?.launchpad ? 'graduated' : (/(pump|bonk)$/.test(mint) ? 'graduated' : null),
-    graduatedAt: info?.graduatedAt || null,
+    graduatedAt: typeof info?.graduatedAt === 'string' ? info.graduatedAt : null,
     pairCreatedAt: top?.attributes?.pool_created_at ? Date.parse(top.attributes.pool_created_at) : null,
     chain: 'solana', address: mint, pairAddress: onCurve ? null : (top?.attributes?.address || null),
     symbol: a.symbol, name: a.name, icon: a.image_url && a.image_url !== 'missing.png' ? a.image_url : (info?.icon || null),
@@ -200,7 +200,9 @@ async function gtQuote(mint) {
 }
 
 function jupToQuote(t) {
-  launchInfo.set(t.id, { launchpad: t.launchpad || null, graduatedAt: t.graduatedAt || null, liquidityUsd: Number(t.liquidity) || null, icon: t.icon || null });
+  // Jupiter no siempre trae graduatedAt; si hay graduatedPool, el token ya salió de la curva.
+  const gradAt = t.graduatedAt || (t.graduatedPool ? (Date.parse(t.createdAt) || 1) : null);
+  launchInfo.set(t.id, { launchpad: t.launchpad || null, graduatedAt: gradAt, liquidityUsd: Number(t.liquidity) || null, icon: t.icon || null });
   return {
     stage: t.graduatedPool ? 'graduated' : (t.launchpad ? 'new' : null),
     graduatedAt: t.graduatedAt || null,
@@ -253,7 +255,7 @@ function pairToQuote(pair) {
   const info = launchInfo.get(pair.baseToken?.address);
   return {
     stage: stageFromPair(pair),
-    graduatedAt: info?.graduatedAt || null,
+    graduatedAt: typeof info?.graduatedAt === 'string' ? info.graduatedAt : null,
     pairCreatedAt: pair.pairCreatedAt || null,
     chain: pair.chainId,
     address: pair.baseToken.address,
@@ -326,8 +328,11 @@ async function resolveAddress(address) {
     const chainId = asPair?.chainId || (data.pairs || []).find((p) => sameAddr(p.baseToken?.address, tokenAddr))?.chainId;
     // Una consulta a Jupiter para saber si salió de un launchpad y si ya se graduó.
     if (chainId === 'solana' && !launchInfo.has(tokenAddr)) {
-      try { await jupQuotes([tokenAddr]); } catch (e) { /* sin metadatos: deducimos por el DEX */ }
-      if (!launchInfo.has(tokenAddr)) launchInfo.set(tokenAddr, { launchpad: null, graduatedAt: null, liquidityUsd: null });
+      // Solo apuntamos «sin launchpad» si Jupiter respondió; si falló (límite, red), se vuelve a preguntar.
+      try {
+        await jupQuotes([tokenAddr]);
+        if (!launchInfo.has(tokenAddr)) launchInfo.set(tokenAddr, { launchpad: null, graduatedAt: null, liquidityUsd: null });
+      } catch (e) { /* sin metadatos: deducimos por el DEX */ }
     }
     // Un token graduado conserva su viejo par de la curva con un precio congelado: no lo usamos.
     const graduated = !!launchInfo.get(tokenAddr)?.graduatedAt;
@@ -402,7 +407,44 @@ async function refreshQuotes(keys, { force = false } = {}) {
   }
   // Lo que no se pudo refrescar se devuelve con su hora real (el panel avisa si está viejo).
   keys.forEach((k) => { if (!out[k] && quoteCache.get(k)) out[k] = quoteCache.get(k).quote; });
+  for (const k of Object.keys(out)) out[k] = withTax(out[k]);
   return out;
+}
+
+// ---------- Comisión real del token según Padre («Buy Tax») ----------
+// El panel la lee en la página del token y en las tarjetas de Trenches; la recordamos 6 h por token.
+const TAX_KEY = 'blankfirePadreTax';
+const TAX_TTL = 6 * 3600e3;
+let padreTax = null;   // key → { pct, at }
+async function taxMap() {
+  if (!padreTax) {
+    padreTax = new Map();
+    try { Object.entries((await chrome.storage.local.get(TAX_KEY))[TAX_KEY] || {}).forEach(([k, v]) => { if (Date.now() - (v?.at || 0) < TAX_TTL) padreTax.set(k, v); }); } catch { /* vacío */ }
+  }
+  return padreTax;
+}
+taxMap();
+function withTax(q) {
+  if (!q || !padreTax) return q;
+  const t = padreTax.get(`${q.chain}:${q.address}`);
+  if (!t || Date.now() - t.at > TAX_TTL) return q.padreTaxPct != null ? { ...q, padreTaxPct: null } : q;
+  return q.padreTaxPct === t.pct ? q : { ...q, padreTaxPct: t.pct };
+}
+let taxSaveTimer = null;
+async function setPadreTax(list) {
+  const m = await taxMap();
+  let changed = false;
+  for (const { key, pct } of list) {
+    const n = Number(pct);
+    if (!/^solana:[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(String(key)) || !Number.isFinite(n) || n < 0 || n > 30) continue;
+    const prev = m.get(key);
+    if (!prev || prev.pct !== n || Date.now() - prev.at > 600e3) { m.delete(key); m.set(key, { pct: Math.round(n * 1000) / 1000, at: Date.now() }); changed = true; }
+  }
+  while (m.size > 400) m.delete(m.keys().next().value);
+  if (changed && !taxSaveTimer) {
+    taxSaveTimer = setTimeout(() => { taxSaveTimer = null; chrome.storage.local.set({ [TAX_KEY]: Object.fromEntries(m) }).catch(() => {}); }, 5000);
+  }
+  return changed;
 }
 
 // ---------- Operaciones ----------
@@ -469,9 +511,10 @@ async function doBuy({ key, solIn, tpPct, slPct, trailing, note, url, screen, vi
     }
     if (!sim.ok) {
       // Igual que en real: la transacción falla pero la priority fee se paga.
-      st.account.balance -= st.settings.priorityFee;
-      st.account.fills.push({ id: uid(), t: Date.now(), key, symbol: quote.symbol, side: 'buy', failed: true, reason: sim.error, priorityFee: st.settings.priorityFee });
-      return { ok: false, error: sim.error, chargedFee: st.settings.priorityFee };
+      const lost = failCost(st.settings);
+      st.account.balance -= lost;
+      st.account.fills.push({ id: uid(), t: Date.now(), key, symbol: quote.symbol, side: 'buy', failed: true, reason: sim.error, priorityFee: lost });
+      return { ok: false, error: sim.error, chargedFee: lost };
     }
     st.account.balance -= sim.totalDebit;
     const now = Date.now();
@@ -526,14 +569,15 @@ async function doSell({ key, pct, note, reason = 'manual' }) {
   return mutate(async (st) => {
     const pos = st.account.positions[key];
     if (!pos || pos.qty <= 0) throw new Error(tr('No tienes posición en este token.'));
-    if (st.account.balance < st.settings.priorityFee) throw new Error(tr('No te queda SOL para pagar la priority fee de la venta ({fee} SOL).', { fee: fmtSol(st.settings.priorityFee) }));
+    if (st.account.balance < txCost(st.settings)) throw new Error(tr('No te queda SOL para pagar la prioridad y el tip de la venta ({fee} SOL).', { fee: fmtSol(txCost(st.settings)) }));
     const frac = Math.min(Math.max(pct, 0), 100) / 100;
     const qty = frac >= 0.9999 ? pos.qty : pos.qty * frac;
     const sim = simulateSell({ qty, quote, solUsd: sol, settings: st.settings });
     if (!sim.ok) {
-      st.account.balance -= st.settings.priorityFee;
-      st.account.fills.push({ id: uid(), t: Date.now(), key, symbol: pos.symbol, side: 'sell', failed: true, reason: sim.error, priorityFee: st.settings.priorityFee });
-      return { ok: false, error: sim.error, chargedFee: st.settings.priorityFee };
+      const lost = failCost(st.settings);
+      st.account.balance -= lost;
+      st.account.fills.push({ id: uid(), t: Date.now(), key, symbol: pos.symbol, side: 'sell', failed: true, reason: sim.error, priorityFee: lost });
+      return { ok: false, error: sim.error, chargedFee: lost };
     }
     const now = Date.now();
     const basis = pos.costSol * (qty / pos.qty);
@@ -596,6 +640,8 @@ async function doSellInitials({ key, note }) {
 // ---------- Take Profit / Stop Loss ----------
 
 let checking = false;
+const autoFails = new Map();   // key → { n, next } de ventas automáticas fallidas
+
 async function checkTriggers(onlyKeys) {
   if (checking) return;
   checking = true;
@@ -626,14 +672,21 @@ async function checkTriggers(onlyKeys) {
       if (pos.tp && movePct >= pos.tp.pct) reason = 'tp';
       else if (pos.sl && movePct <= stop) reason = pos.sl.trailing && stop > -pos.sl.pct + 1e-9 ? 'trail' : 'sl';
       if (!reason) continue;
+      // Si la venta automática falló (slippage), no reintentamos en cada vuelta: cada intento podría
+      // costar la priority fee y llenar de avisos. Esperamos un poco más cada vez (15 s, 30 s, 60 s…).
+      const fail = autoFails.get(k);
+      if (fail && Date.now() < fail.next) continue;
       try {
         const res = await doSell({ key: k, pct: 100, reason });
         const title = tr({ tp: 'Take profit en ${sym}', sl: 'Stop loss en ${sym}', trail: 'Trailing stop en ${sym}' }[reason], { sym: pos.symbol });
         if (res.ok) {
+          autoFails.delete(k);
           notify(title, tr('Vendido todo. Resultado: {a} SOL ({b}).', { a: fmtSol(res.round?.pnlSol, { sign: true }), b: fmtPct(res.round?.pnlPct, 1, { sign: true }) }));
           broadcast({ type: 'triggered', key: k, reason, round: res.round });
         } else {
-          notify(tr('No se pudo cerrar ${sym}', { sym: pos.symbol }), res.error);
+          const n = (fail?.n || 0) + 1;
+          autoFails.set(k, { n, next: Date.now() + Math.min(15000 * 2 ** (n - 1), 120000) });
+          if (n === 1) notify(tr('No se pudo cerrar ${sym}', { sym: pos.symbol }), tr('{e} Lo reintento solo; si quieres salir ya, sube el slippage de venta o vende una parte.', { e: res.error }));
         }
       } catch (e) { /* lo reintentamos en la siguiente vuelta */ }
     }
@@ -694,7 +747,25 @@ const handlers = {
 
   async resolve({ address }) {
     const [quote, sol] = await Promise.all([resolveAddress(address), solUsd()]);
-    return { quote, solUsd: sol };
+    await taxMap();
+    return { quote: withTax(quote), solUsd: sol };
+  },
+
+  // El botón «Optimizar Padre» del popup: pide al panel de la pestaña de Padre que abra la confirmación.
+  async padreOptimizeOpen() {
+    const tabs = await chrome.tabs.query({ url: 'https://trade.padre.gg/*' });
+    if (!tabs.length) return { opened: false };
+    const tab = tabs.find((t) => t.active) || tabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: 'padreOptimizeOpen' });
+      await chrome.tabs.update(tab.id, { active: true });
+      if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true });
+      return { opened: true };
+    } catch { return { opened: false, reload: true }; }
+  },
+
+  async padreTax({ items }) {
+    return { changed: await setPadreTax(Array.isArray(items) ? items.slice(0, 60) : []) };
   },
 
   async quotes({ keys, force }) {
@@ -718,7 +789,7 @@ const handlers = {
     const [quote] = Object.values(await refreshQuotes([key]));
     if (!(mc > 0) || !(solIn > 0)) throw new Error(tr('Indica el market cap y la cantidad.'));
     const res = await mutate((st) => {
-      if (solIn + st.settings.priorityFee > st.account.balance) throw new Error(tr('No tienes saldo para esa orden.'));
+      if (solIn + txCost(st.settings) > st.account.balance) throw new Error(tr('No tienes saldo para esa orden.'));
       if ((st.account.orders || []).length >= 20) throw new Error(tr('Máximo 20 órdenes pendientes.'));
       const order = {
         id: uid(), key, chain: key.split(':')[0], symbol: quote?.symbol || '?', icon: quote?.icon || null,
@@ -780,6 +851,9 @@ const handlers = {
       if ('feePct' in settings) clean.feePct = num(settings.feePct, 0, 10);
       if ('priorityFee' in settings) clean.priorityFee = num(settings.priorityFee, 0, 1);
       if ('maxSlippagePct' in settings) clean.maxSlippagePct = num(settings.maxSlippagePct, 0.1, 100);
+      if ('sellSlippagePct' in settings) clean.sellSlippagePct = num(settings.sellSlippagePct, 0.1, 100);
+      if ('tipSol' in settings) clean.tipSol = num(settings.tipSol, 0, 1);
+      if ('mevSecure' in settings) clean.mevSecure = !!settings.mevSecure;
       if ('latencySlipPct' in settings) clean.latencySlipPct = num(settings.latencySlipPct, 0, 10);
       if ('defaultTpPct' in settings) clean.defaultTpPct = num(settings.defaultTpPct, 1, 10000);
       if ('defaultSlPct' in settings) clean.defaultSlPct = num(settings.defaultSlPct, 1, 99);

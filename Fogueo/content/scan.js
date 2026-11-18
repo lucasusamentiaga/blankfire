@@ -10,6 +10,8 @@ const cache = new Map();          // mint → { ...facts, at }
 let dirty = false;
 let opts = { badges: true, rigor: 'normal' };
 const sigs = new WeakMap();       // fila → firma de lo último pintado
+const taxQueue = new Map();       // key → % de comisión del token según Padre, pendiente de enviar
+const taxSent = new Map();
 
 export function cachedFacts(mint) { return mint ? cache.get(mint) || null : null; }
 export function setScanOptions(o) {
@@ -77,6 +79,7 @@ function scan() {
     if (facts.top10 == null && facts.dev == null && facts.snipers == null) continue;
     const mcUsd = mcOf(card);
     if (mcUsd != null) facts.mcUsd = mcUsd;
+    if (mint && facts.taxPct != null) taxQueue.set(`solana:${mint}`, facts.taxPct);
     if (mint) {
       const prev = cache.get(mint);
       const next = { ...facts, at: Date.now() };
@@ -97,7 +100,16 @@ function scan() {
   while (cache.size > MAX) cache.delete(cache.keys().next().value);
 }
 
+function flushTax() {
+  const items = [];
+  for (const [key, pct] of taxQueue) if (taxSent.get(key) !== pct) { items.push({ key, pct }); taxSent.set(key, pct); }
+  taxQueue.clear();
+  if (!items.length) return;
+  try { chrome.runtime.sendMessage({ type: 'padreTax', items: items.slice(0, 60) })?.catch?.(() => {}); } catch { /* extensión recargada */ }
+}
+
 async function persist() {
+  flushTax();
   if (!dirty) return;
   dirty = false;
   try { await chrome.storage.local.set({ [STORE]: Object.fromEntries(cache) }); } catch { /* sin espacio o contexto cerrado */ }

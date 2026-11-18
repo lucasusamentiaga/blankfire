@@ -1274,3 +1274,44 @@ a.upd-link { font-weight: 600; }
 @media (prefers-reduced-motion: reduce) {
   .chk { animation: none; }
 }
+
+/* Aviso: el preset de Padre cobra distinto que la práctica */
+.psync {
+  display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 7px 8px 7px 10px;
+  border-radius: var(--fx-r-sm); background: var(--fx-brand-wash); font-size: 11.5px; color: var(--fx-ink-2); line-height: 1.35;
+}
+.psync b { color: var(--fx-ink); font-weight: 700; }
+.psync span { flex: 1; min-width: 0; text-wrap: pretty; }
+.psync-btn {
+  flex: none; height: 26px; padding: 0 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700;
+  color: var(--fx-brand-ink); background: var(--fx-brand); white-space: nowrap;
+}
+.psync-btn:hover { background: var(--fx-brand-hi); }
+.psync-btn:focus-visible { outline: 2px solid var(--fx-brand-ring); outline-offset: 2px; }
+.psync { flex-wrap: wrap; }
+.psync-acts { display: inline-flex; gap: 6px; flex: none; }
+.psync-btn.alt { background: transparent; color: var(--fx-brand-hi); box-shadow: inset 0 0 0 1px var(--fx-brand-ring); }
+.psync-btn.alt:hover { background: var(--fx-brand-wash); }
+
+/* Optimizar Padre */
+.popt-cta { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: var(--fx-r-sm); background: var(--fx-brand-wash); font-size: 11.5px; color: var(--fx-ink-2); line-height: 1.4; }
+.popt-cta span { flex: 1; min-width: 0; text-wrap: pretty; }
+.popt-cta .btn-brand { flex: none; }
+.popt p { margin: 0; font-size: 12px; color: var(--fx-ink-2); line-height: 1.45; text-wrap: pretty; }
+.popt p b { color: var(--fx-ink); }
+.popt-t { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.popt-t th, .popt-t td { padding: 5px 4px; text-align: left; border-bottom: 1px solid var(--fx-line-soft); }
+.popt-t thead th { font-weight: 600; color: var(--fx-ink-3); font-size: 11px; }
+.popt-t tbody th { font-weight: 600; color: var(--fx-ink); }
+.popt-t td { color: var(--fx-ink-2); white-space: nowrap; }
+.popt .popt-legend { font-size: 11px; color: var(--fx-ink-3); }
+.popt-list, .popt-changes { margin: 0; padding: 0 0 0 16px; display: grid; gap: 3px; font-size: 11.5px; color: var(--fx-ink-2); }
+.popt-changes { list-style: none; padding: 0; max-height: 180px; overflow: auto; }
+.popt-changes li { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--fx-line-soft); }
+.popt-changes b { color: var(--fx-ink); font-weight: 600; white-space: nowrap; }
+.popt .popt-why { padding: 7px 9px; border-radius: var(--fx-r-sm); background: var(--fx-raise-2); font-size: 11.5px; }
+.popt-run { display: flex; align-items: center; gap: 8px; }
+.popt-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--fx-line); border-top-color: var(--fx-brand); animation: popt-spin 0.8s linear infinite; flex: none; }
+@keyframes popt-spin { to { transform: rotate(360deg); } }
+.popt .popt-err { color: oklch(0.82 0.13 24); }
+@media (prefers-reduced-motion: reduce) { .popt-spin { animation-duration: 2.4s; } }

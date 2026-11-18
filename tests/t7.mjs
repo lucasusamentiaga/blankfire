@@ -38,7 +38,7 @@ await P.locator('[data-act="recoToggle"]').click(); await pg.waitForTimeout(300)
 await P.screenshot({path:`${OUT}/2-new-open.png`});
 await P.locator('[data-act="recoApply"]').click(); await pg.waitForTimeout(700);
 let s=(await st()).settings;
-ok(s.maxSlippagePct===20 && s.priorityFee===0.003 && s.defaultSlPct===30 && s.defaultTpPct===100 && s.useTrail, 'Aplicar → ajustes de nuevo par guardados');
+ok(s.maxSlippagePct===25 && s.sellSlippagePct===40 && s.priorityFee===0.001 && s.tipSol===0.001 && s.defaultSlPct===30 && s.defaultTpPct===100 && s.useTrail, 'Aplicar → ajustes de nuevo par guardados');
 ok(await P.locator('[data-ref="amount"]').inputValue()==='0,2', 'Tamaño 2 % de 10 SOL = 0,2: '+await P.locator('[data-ref="amount"]').inputValue());
 ok((await P.locator('.reco-apply').innerText()).includes('Aplicados'), 'Botón pasa a "Aplicados"');
 await P.screenshot({path:`${OUT}/3-new-applied.png`});
@@ -48,8 +48,8 @@ await pg.goto('https://trade.padre.gg/trade/solana/'+GRAD); await pg.waitForTime
 ok((await P.locator('.reco .stage').innerText()).includes('Graduado'), 'Detecta GRADUADO (Jupiter graduatedPool)');
 ok((await P.locator('.reco-when').innerText()).includes('graduado hace 3 h'), 'Cuándo se graduó: '+await P.locator('.reco-when').innerText());
 s=(await st()).settings;
-ok(s.maxSlippagePct===10 && s.defaultSlPct===20 && s.defaultTpPct===60, 'Auto-aplicado perfil graduado');
-ok(await P.locator('[data-ref="amount"]').inputValue()==='0,5', 'Tamaño 5 % = 0,5: '+await P.locator('[data-ref="amount"]').inputValue());
+ok(s.maxSlippagePct===12 && s.sellSlippagePct===25 && s.tipSol===0.001 && s.defaultSlPct===20 && s.defaultTpPct===60, 'Auto-aplicado perfil graduado');
+ok(await P.locator('[data-ref="amount"]').inputValue()==='0,4', 'Tamaño 4 % = 0,4: '+await P.locator('[data-ref="amount"]').inputValue());
 await P.screenshot({path:`${OUT}/4-grad-auto.png`});
 // token asentado: sin recomendación
 await pg.goto('https://trade.padre.gg/trade/solana/'+BIG); await pg.waitForTimeout(3000);
@@ -72,5 +72,5 @@ for (let i=0;i<2;i++){ await pg.keyboard.press('ArrowRight'); await pg.waitForTi
 await pg.waitForTimeout(500); await pg.screenshot({path:`${OUT}/6-tour-step.png`});
 const title = await P.locator('.tour-card h3').innerText(); ok(title==='Ajustes recomendados', 'Paso del recorrido: '+title);
 await pg.keyboard.press('Escape'); await pg.waitForTimeout(500);
-s=(await st()).settings; ok(s.maxSlippagePct===20, 'El recorrido no altera tus ajustes');
+s=(await st()).settings; ok(s.maxSlippagePct===25, 'El recorrido no altera tus ajustes');
 await ctx.close();

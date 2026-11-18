@@ -5,8 +5,11 @@ import { tr, locale } from './i18n.js';
 export const DEFAULT_SETTINGS = {
   startBalance: 10,      // SOL ficticios al crear la cuenta
   feePct: 1,             // comisión de Padre por operación (%)
-  priorityFee: 0.001,    // SOL por transacción (priority fee + red)
-  maxSlippagePct: 15,    // si el precio se mueve más que esto, la orden falla
+  priorityFee: 0.001,    // SOL por transacción: priority fee (los valores por defecto son los de Padre, preset P1)
+  tipSol: 0.01,          // SOL por transacción: propina a Jito (Padre la paga con el modo MEV «Secure»)
+  mevSecure: true,       // con MEV protegido una orden fallida no llega a la cadena y no cuesta nada
+  maxSlippagePct: 20,    // compra: si el precio se mueve más que esto, la orden falla
+  sellSlippagePct: 40,   // venta: Padre deja más margen para poder salir
   latencySlipPct: 0.3,   // deslizamiento extra por latencia (%)
   quickBuys: [0.1, 0.25, 0.5, 1],
   defaultTpPct: 100,
@@ -32,11 +35,11 @@ export const PRESETS = {
     name: 'Nuevo par',
     where: 'en la bonding curve de pump.fun',
     intro: 'Aún no tiene pool propio: cotiza en la curva de lanzamiento. Es la zona más rápida y peligrosa: la mayoría no llega a graduarse y muchas se van a cero en minutos.',
-    sizePct: 2, maxSlippagePct: 20, priorityFee: 0.003, slPct: 30, trailing: true, tpPct: 100,
+    sizePct: 2, maxSlippagePct: 25, sellSlippagePct: 40, priorityFee: 0.001, tipSol: 0.001, slPct: 30, trailing: true, tpPct: 100,
     why: {
       size: 'Con tantos tokens que mueren pronto, entrar pequeño te deja equivocarte muchas veces sin vaciar la cuenta.',
-      slippage: 'Hay poca liquidez y muchos bots: el precio salta entre que pulsas y se ejecuta. Con menos margen, muchas órdenes fallarían.',
-      priority: 'Hay carrera por entrar en el mismo bloque. Pagar algo más de prioridad evita que tu orden llegue tarde.',
+      slippage: 'Hay poca liquidez y muchos bots: el precio salta entre que pulsas y se ejecuta. Entre un 25 y un 40 % si quieres entrar en los primeros segundos; con menos, muchas órdenes fallarían.',
+      priority: 'Con 0,001 de prioridad y 0,001 de tip la orden entra rápido. El tip de 0,01 que trae Padre por defecto son 0,02 SOL por compra y venta: con 0,1 SOL de trade, un 20 % se va solo en eso.',
       stop: 'Las caídas son bruscas. El stop dinámico te saca si el impulso muere, pero te deja correr si sigue subiendo.',
       take: 'Doblar es un objetivo realista en la curva. Al llegar, recupera lo invertido y deja el resto corriendo gratis.',
     },
@@ -47,11 +50,11 @@ export const PRESETS = {
     name: 'Graduado',
     where: 'ya migrado a su propio pool',
     intro: 'Superó la curva y ya cotiza en un pool con más liquidez (PumpSwap, Raydium…). Menos riesgo de ir a cero que un par nuevo, pero las primeras horas tras graduarse siguen siendo muy volátiles.',
-    sizePct: 5, maxSlippagePct: 10, priorityFee: 0.001, slPct: 20, trailing: true, tpPct: 60,
+    sizePct: 4, maxSlippagePct: 12, sellSlippagePct: 25, priorityFee: 0.0005, tipSol: 0.001, slPct: 20, trailing: true, tpPct: 60,
     why: {
       size: 'Ya pasó el primer filtro y hay más liquidez: el riesgo de quedarte atrapado es menor, puedes usar algo más de tamaño.',
-      slippage: 'Con más liquidez tu orden mueve menos el precio. Un margen más ajustado evita ejecuciones malas.',
-      priority: 'Hay menos carrera por el bloque que en la curva: la prioridad estándar suele bastar.',
+      slippage: 'Con más liquidez tu orden mueve menos el precio. Entre un 10 y un 15 % basta y evita ejecuciones malas o que te hagan sándwich.',
+      priority: 'Hay menos carrera por el bloque que en la curva: con 0,0005 de prioridad y un tip pequeño basta.',
       stop: 'Tras graduarse es habitual una caída fuerte por ventas. Si pierde un 20 %, probablemente tu idea no se cumple.',
       take: 'Se mueve algo más lento que en la curva; un objetivo más corto se alcanza más a menudo.',
     },
@@ -59,7 +62,7 @@ export const PRESETS = {
   },
 };
 
-export const LAUNCH_DEXES = ['pumpfun', 'moonshot', 'launchlab', 'boop', 'bonk', 'letsbonk', 'believe'];
+export const LAUNCH_DEXES = ['pumpfun', 'moonshot', 'moonit', 'launchlab', 'boop', 'bonk', 'letsbonk', 'believe', 'meteoradbc', 'dbc', 'heaven'];
 
 export const REVIEW_TAGS = [
   { id: 'plan', label: 'Con plan' },
@@ -81,7 +84,7 @@ export function realizedSince(account, since) {
   let total = 0;
   for (const f of account.fills || []) {
     if (f.t < since) continue;
-    if (f.failed) total -= f.priorityFee || 0;
+    if (f.failed) total -= f.priorityFee || 0;   // coste de la orden fallida (0 con MEV protegido)
     else if (f.side === 'sell') total += f.pnlSol || 0;
   }
   return total;
@@ -111,10 +114,50 @@ export function reserveUsd(quote, solUsd) {
   return Math.max(mc * 0.08, MIN_RESERVE_USD);
 }
 
-// Comisión del sitio donde cotiza el token, aparte de la de Padre (aprox., 2025-2026):
-// curva de pump.fun ≈ 0,95 % protocolo + 0,30 % creador; pools AMM (PumpSwap, Raydium, Orca…) ≈ 0,25-0,30 %.
-export function poolFeePct(quote) {
-  return quote?.stage === 'new' ? 1.25 : 0.3;
+// Coste fijo de cada transacción: priority fee + tip de Jito.
+export function txCost(settings) {
+  const s = { ...DEFAULT_SETTINGS, ...settings };
+  return (Number(s.priorityFee) || 0) + (Number(s.tipSol) || 0);
+}
+// Una orden que falla por slippage: con MEV protegido (bundle de Jito) no llega a la cadena y no se cobra;
+// por RPC normal la transacción entra fallida y se paga la priority fee (el tip se revierte con ella).
+export function failCost(settings) {
+  const s = { ...DEFAULT_SETTINGS, ...settings };
+  return s.mevSecure ? 0 : Number(s.priorityFee) || 0;
+}
+
+// Comisión del sitio donde cotiza el token, aparte del 1 % de Padre (comprobado en noviembre de 2026).
+// 1) Si Padre ya nos dijo la tasa de ese token («Buy Tax»), es la buena: incluye cosas raras como pares
+//    contra acciones tokenizadas o pools con comisión propia.
+// 2) Si no, la estimamos:
+//    · curva de pump.fun: 1,25 % (0,95 protocolo + 0,30 creador)
+//    · curva de LaunchLab / bonk.fun y otros launchpads: ~1 %
+//    · pool canónico de PumpSwap (token de pump.fun graduado): de 1,25 % a 0,30 % según el market cap en SOL
+//    · Raydium AMM/CPMM: 0,25 % · resto de pools: ~0,30 %
+// Tramos de PumpSwap: [market cap en SOL desde el que aplica, comisión total %]
+export const PUMPSWAP_TIERS = [
+  [0, 1.25], [420, 1.2], [1470, 1.15], [2460, 1.1], [3440, 1.05], [4420, 1], [9820, 0.95], [14740, 0.9],
+  [19650, 0.85], [24560, 0.8], [29470, 0.75], [34380, 0.7], [39300, 0.65], [44210, 0.6], [49120, 0.55],
+  [54030, 0.525], [58940, 0.5], [63850, 0.475], [68750, 0.45], [73660, 0.425], [78570, 0.4], [83480, 0.375],
+  [88390, 0.35], [93300, 0.325], [98240, 0.3],
+];
+export function pumpswapFeePct(mcSol) {
+  let fee = PUMPSWAP_TIERS[0][1];
+  for (const [from, pct] of PUMPSWAP_TIERS) if (mcSol >= from) fee = pct;
+  return fee;
+}
+export function poolFeePct(quote, solUsd) {
+  const tax = Number(quote?.padreTaxPct);
+  if (quote?.padreTaxPct != null && Number.isFinite(tax) && tax >= 0 && tax <= 30) return tax;
+  const addr = String(quote?.address || '');
+  const dex = String(quote?.dex || '').toLowerCase();
+  if (quote?.stage === 'new') return dex === 'pumpfun' || dex === 'pump.fun' || /pump$/.test(addr) ? 1.25 : 1;
+  if (dex === 'pumpswap' && /pump$/.test(addr)) {
+    const mc = Number(quote?.marketCapUsd), sol = Number(solUsd);
+    return mc > 0 && sol > 0 ? pumpswapFeePct(mc / sol) : 1.25;
+  }
+  if (dex === 'raydium') return 0.25;
+  return 0.3;
 }
 
 export function simulateBuy({ solIn, quote, solUsd, settings }) {
@@ -122,7 +165,7 @@ export function simulateBuy({ solIn, quote, solUsd, settings }) {
   const p = Number(quote?.priceUsd);
   if (!(solIn > 0)) return { ok: false, error: tr('Indica cuánto SOL quieres usar.') };
   if (!(p > 0) || !(solUsd > 0)) return { ok: false, error: tr('Sin precio en este momento.') };
-  const poolPct = s.poolFees === false ? 0 : poolFeePct(quote);
+  const poolPct = s.poolFees === false ? 0 : poolFeePct(quote, solUsd);
   const fee = solIn * ((s.feePct + poolPct) / 100);
   const netSol = solIn - fee;
   const usd = netSol * solUsd;
@@ -131,13 +174,14 @@ export function simulateBuy({ solIn, quote, solUsd, settings }) {
   const fillPrice = p * (1 + usd / R) * (1 + s.latencySlipPct / 100);
   const slipPct = (fillPrice / p - 1) * 100;
   const qty = usd / fillPrice;
-  const totalDebit = solIn + s.priorityFee;
+  const net = txCost(s);
+  const totalDebit = solIn + net;
   return {
     ok: slipPct <= s.maxSlippagePct,
     error: slipPct > s.maxSlippagePct
       ? tr('El precio se movería un {slip} y tu máximo es {max}. En real, la orden fallaría.', { slip: fmtPct(slipPct, 1), max: fmtPct(s.maxSlippagePct, 0) })
       : null,
-    side: 'buy', solIn, fee, padreFee: solIn * (s.feePct / 100), poolFee: solIn * (poolPct / 100), poolPct, priorityFee: s.priorityFee, totalDebit,
+    side: 'buy', solIn, fee, padreFee: solIn * (s.feePct / 100), poolFee: solIn * (poolPct / 100), poolPct, priorityFee: net, prio: Number(s.priorityFee) || 0, tip: Number(s.tipSol) || 0, totalDebit,
     qty, fillPrice, midPrice: p, slipPct, impactPct, usd,
   };
 }
@@ -152,15 +196,17 @@ export function simulateSell({ qty, quote, solUsd, settings }) {
   const fillPrice = p * (R / (R + V)) * (1 - s.latencySlipPct / 100);
   const slipPct = (1 - fillPrice / p) * 100;
   const grossSol = (qty * fillPrice) / solUsd;
-  const poolPct = s.poolFees === false ? 0 : poolFeePct(quote);
+  const poolPct = s.poolFees === false ? 0 : poolFeePct(quote, solUsd);
   const fee = grossSol * ((s.feePct + poolPct) / 100);
-  const netSol = grossSol - fee - s.priorityFee;
+  const net = txCost(s);
+  const netSol = grossSol - fee - net;
+  const maxSlip = Number(s.sellSlippagePct) || s.maxSlippagePct;
   return {
-    ok: slipPct <= s.maxSlippagePct,
-    error: slipPct > s.maxSlippagePct
-      ? tr('Vender esto movería el precio un {slip} (máximo {max}). Prueba a vender menos de golpe.', { slip: fmtPct(slipPct, 1), max: fmtPct(s.maxSlippagePct, 0) })
+    ok: slipPct <= maxSlip,
+    error: slipPct > maxSlip
+      ? tr('Vender esto movería el precio un {slip} (máximo {max}). Prueba a vender menos de golpe.', { slip: fmtPct(slipPct, 1), max: fmtPct(maxSlip, 0) })
       : null,
-    side: 'sell', qty, grossSol, fee, padreFee: grossSol * (s.feePct / 100), poolFee: grossSol * (poolPct / 100), poolPct, priorityFee: s.priorityFee, netSol,
+    side: 'sell', qty, grossSol, fee, padreFee: grossSol * (s.feePct / 100), poolFee: grossSol * (poolPct / 100), poolPct, priorityFee: net, prio: Number(s.priorityFee) || 0, tip: Number(s.tipSol) || 0, netSol, maxSlip,
     fillPrice, midPrice: p, slipPct, impactPct: (V / R) * 100,
   };
 }
@@ -333,7 +379,7 @@ export function fmtDuration(ms) {
   if (s < 60) return `${s} s`;
   const m = Math.round(s / 60);
   if (m < 60) return `${m} min`;
-  const h = m / 60;
+  const h = s / 3600;
   if (h < 48) return `${nf(0, 1).format(h)} h`;
   return `${nf(0, 1).format(h / 24)} d`;
 }

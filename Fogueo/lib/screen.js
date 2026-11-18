@@ -74,6 +74,7 @@ export function readAuditRow(row) {
     else if (/insider/i.test(label)) f.insiders = parsePct(text);
     else if (/dev/i.test(label)) { const d = parseDev(text) || { pct: parsePct(text), sold: false }; f.dev = d.pct; f.devSold = d.sold; }
     else if (/bundl/i.test(label)) f.bundles = parsePct(text);
+    else if (!label && /tax/i.test(el.outerHTML.slice(0, 600)) && /^\d+(?:\.\d+)?%$/.test(text)) f.taxPct = parsePct(text);
     else if (!label && isPill(el)) {
       const d = parseDev(text);
       if (d && f.dev == null) { f.dev = d.pct; f.devSold = d.sold; }
@@ -105,6 +106,9 @@ export function readTokenData(doc) {
     else if (hit[1] === 'snipers') { const s = parseSnipers(v); f.snipers = s ? s.pct : parsePct(v); if (s) f.snipersN = s.n; }
     else f[hit[1]] = v === '-' ? null : parsePct(v);
   }
+  // Comisión real del token («Buy Tax» de Padre: curva, pool, conversión del par…).
+  const tax = doc.querySelector?.('[aria-label="Buy Tax"]');
+  if (tax) { const v = parsePct(tax.textContent); if (v != null) f.taxPct = v; }
   // Liquidez y MC de la cabecera de Padre («Liquidity / $73.0K»).
   for (const n of leaves) {
     const t = n.textContent.trim();
@@ -249,3 +253,41 @@ export function screenLimits(rigor = 'normal') {
   };
 }
 export { p as fmtScreenPct };
+
+// Preset de ejecución activo en Padre (barra de compra: «P1 0.001 0.01 20% On»)
+// y su versión completa con compra y venta (fila oculta «P1 Buy 0.001 0.01 20% On Sell 0.001 0.01 40% On»).
+export function readPadrePreset(doc) {
+  if (!doc?.querySelectorAll) return null;
+  const leaves = (el) => [...el.querySelectorAll('*')].filter((n) => n.childElementCount === 0).map((n) => n.textContent.trim()).filter(Boolean);
+  const num = (t) => (/^\d+(?:\.\d+)?$/.test(t) ? Number(t) : null);
+  const parseRun = (arr) => {
+    const [prio, tip, slip, mev] = arr;
+    const o = { prio: num(prio), tip: num(tip), slip: parsePct(slip), mev: /^on$/i.test(mev || '') ? true : /^off$/i.test(mev || '') ? false : null };
+    return o.prio != null && o.tip != null && o.slip != null ? o : null;
+  };
+  const tags = [...doc.querySelectorAll('body *')].filter((n) => n.childElementCount === 0 && /^P[1-3]$/.test(n.textContent.trim()));
+  let active = null;
+  for (const t of tags) {
+    const r = t.getBoundingClientRect?.();
+    if (!r || !r.width) continue;
+    let box = t.parentElement;
+    for (let i = 0; i < 3 && box; i++, box = box.parentElement) {
+      const l = leaves(box);
+      if (l[0] === t.textContent.trim() && l.length >= 5 && l.length <= 7) { const run = parseRun(l.slice(1, 5)); if (run) { active = { id: l[0], buy: run }; break; } }
+    }
+    if (active) break;
+  }
+  if (!active) return null;
+  // Venta del mismo preset (fila de ajustes, aunque esté oculta).
+  for (const t of tags) {
+    if (t.textContent.trim() !== active.id) continue;
+    let box = t.parentElement;
+    for (let i = 0; i < 3 && box; i++, box = box.parentElement) {
+      const l = leaves(box);
+      const si = l.indexOf('Sell');
+      if (l[0] === active.id && l.includes('Buy') && si > 0) { const run = parseRun(l.slice(si + 1, si + 5)); if (run) active.sell = run; break; }
+    }
+    if (active.sell) break;
+  }
+  return active;
+}

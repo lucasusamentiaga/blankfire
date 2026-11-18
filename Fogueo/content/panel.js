@@ -2,11 +2,13 @@
 import {
   DEFAULT_SETTINGS, REVIEW_TAGS, PRESETS, simulateBuy, simulateSell, positionPnl, realizedSince, startOfDay,
   fmtPrice, fmtCompact, fmtSol, fmtPct, fmtNum, fmtUsd, tone, rangeModel, hueFor, poolFeePct, stopLevelPct,
+  txCost,
 } from '../lib/core.js';
 import { tr, setLang, getLang } from '../lib/i18n.js';
 import { Tour } from './tour.js';
 import { startScan, setScanOptions, cachedFacts } from './scan.js';
-import { readTokenData, mergeFacts, screenToken, screenRisks, checkName, checkValue, checkWhy, VERDICT } from '../lib/screen.js';
+import { PADRE_PLAN, applyPadrePlan, restorePadreBackup, getPadreBackup } from './padre-setup.js';
+import { readTokenData, readPadrePreset, mergeFacts, screenToken, screenRisks, checkName, checkValue, checkWhy, VERDICT } from '../lib/screen.js';
 import { UPD_KEY, updateView, updateCard, readUpdate, onUpdateAction } from '../lib/update.js';
 
 const ICON = {
@@ -198,6 +200,7 @@ class Panel {
     chrome.runtime.onMessage.addListener((msg) => {
       if (msg?.type === 'toggle' && !this.tour) this.toggleHidden();
       if (msg?.type === 'startTour') this.startTour();
+      if (msg?.type === 'padreOptimizeOpen') { if (this.host.hidden) this.toggleHidden(); this.openPadreOpt(); }
       if (msg?.type === 'triggered') {
         const r = msg.round;
         const label = tr({ tp: 'Take profit ejecutado', sl: 'Stop loss ejecutado', trail: 'Trailing stop ejecutado' }[msg.reason] || 'Posición cerrada');
@@ -257,6 +260,7 @@ class Panel {
           <div data-ref="posArea"></div>
           <div data-ref="ordersArea"></div>
           <div data-ref="reviewArea"></div>
+          <div data-ref="padreArea"></div>
           <div data-ref="tradeArea">
             <div class="seg" role="tablist" data-side="buy">
               <span class="seg-thumb"></span>
@@ -297,6 +301,7 @@ class Panel {
               <button class="note-toggle" data-act="note" data-for="buyNote" aria-expanded="false">${ICON.pen}<span>${tr('Apuntar por qué entro')}</span></button>
               <textarea class="note" data-ref="buyNote" hidden placeholder="${tr('Ej.: rompe resistencia en 40K de MC con volumen, dev no ha vendido…')}"></textarea>
               <div class="quote" data-ref="buyQuote" aria-live="polite"></div>
+              <div data-ref="padreSync"></div>
               <button class="go buy" data-act="buy"><span class="label" data-ref="buyLabel">${tr('Comprar')}</span><span class="spin"><i></i></span></button>
             </div>
             <div class="form" data-ref="sellForm" hidden>
@@ -792,6 +797,7 @@ class Panel {
       ? parseNum(r.amount.value) === P.sizePct
       : Math.abs(parseNum(r.amount.value) - this.presetSol(P)) < 0.0051;
     return amountOk && s.maxSlippagePct === P.maxSlippagePct && s.priorityFee === P.priorityFee
+      && Number(s.sellSlippagePct) === P.sellSlippagePct && Number(s.tipSol) === P.tipSol
       && r.useSl.checked && parseNum(r.slPct.value) === P.slPct && !!s.useTrail === P.trailing
       && r.useTp.checked && parseNum(r.tpPct.value) === P.tpPct;
   }
@@ -799,7 +805,7 @@ class Panel {
   applyPreset(P, auto) {
     const r = this.refs;
     const settings = {
-      maxSlippagePct: P.maxSlippagePct, priorityFee: P.priorityFee,
+      maxSlippagePct: P.maxSlippagePct, sellSlippagePct: P.sellSlippagePct, priorityFee: P.priorityFee, tipSol: P.tipSol,
       useSl: true, defaultSlPct: P.slPct, useTrail: P.trailing, useTp: true, defaultTpPct: P.tpPct,
     };
     this.st.settings = { ...this.st.settings, ...settings };
@@ -816,7 +822,7 @@ class Panel {
         { k: P.trailing ? tr('Stop din.') : 'Stop', v: `−${P.slPct} %`, t: 'down' },
         { k: 'Take', v: `+${P.tpPct} %`, t: 'up' },
         { k: 'Slip.', v: `${P.maxSlippagePct} %` },
-        { k: tr('Prio.'), v: fmtSol(P.priorityFee) },
+        { k: tr('Prio. + tip'), v: fmtSol(P.priorityFee + P.tipSol) },
       ],
     });
   }
@@ -841,6 +847,15 @@ class Panel {
     const now = Date.now();
     if (!this.pageFacts || now - this.pageFacts.at > 4000 || this.pageFacts.key !== this.key) {
       this.pageFacts = { at: now, key: this.key, f: location.href.includes(q.address) ? readTokenData(document) : {} };
+      this.padrePreset = readPadrePreset(document);
+      // La comisión real del token según Padre: el motor la usa para simular compras y ventas.
+      const tax = this.pageFacts.f.taxPct;
+      if (tax != null && this.sentTax?.key !== this.key || (tax != null && this.sentTax?.pct !== tax)) {
+        this.sentTax = { key: this.key, pct: tax };
+        send({ type: 'padreTax', items: [{ key: this.key, pct: tax }] });
+        if (this.quote && this.quote.padreTaxPct !== tax) { this.quote = { ...this.quote, padreTaxPct: tax }; this.renderQuotes(); }
+      }
+      this.renderPadreSync();
     }
     const curve = q.stage === 'new';
     return mergeFacts(
@@ -848,6 +863,107 @@ class Panel {
       this.pageFacts.f,
       cachedFacts(mint),
     );
+  }
+
+  // ---------- Optimizar los ajustes de Padre (cuenta real) ----------
+  async openPadreOpt() {
+    this.popt = { stage: 'confirm', backup: await getPadreBackup() };
+    this.renderPadreOpt();
+    this.refs.padreArea?.scrollIntoView?.({ block: 'nearest' });
+    this.refs.padreArea?.querySelector('[data-act="padreApply"]')?.focus();
+  }
+
+  renderPadreOpt() {
+    const area = this.refs.padreArea;
+    if (!area) return;
+    const o = this.popt;
+    if (!o) { area.innerHTML = ''; return; }
+    const sx = (v) => fmtSol(v);
+    const rows = PADRE_PLAN.presets.map((p) => `<tr><th>${tr(p.name)}</th><td class="num">${sx(p.buy.prio)} · ${sx(p.buy.tip)} · ${p.buy.slip} %</td><td class="num">${sx(p.sell.prio)} · ${sx(p.sell.tip)} · ${p.sell.slip} %</td></tr>`).join('');
+    let body = '';
+    if (o.stage === 'confirm') {
+      body = `
+        <p>${tr('Voy a cambiar los ajustes de <b>tu cuenta de Padre</b>, que se usan en tus trades reales. Guardo una copia de los actuales para poder deshacerlo.')}</p>
+        <table class="popt-t"><thead><tr><td></td><th>${tr('Compra')}</th><th>${tr('Venta')}</th></tr></thead><tbody>${rows}</tbody></table>
+        <p class="popt-legend">${tr('Prioridad · tip (SOL) · slippage. MEV «Secure» en todos.')}</p>
+        <ul class="popt-list">
+          <li>${tr('Trenches enseña top 10, dev, snipers, insiders, bundles y tax: lo que usa el chequeo de monedas.')}</li>
+          <li>${tr('Pausa corta tras comprar o vender para no repetir la orden con un doble clic.')}</li>
+        </ul>
+        <p class="popt-why">${tr('El tip de 0,01 SOL que trae Padre por defecto cuesta 0,02 SOL por trade: con 0,1 SOL de compra son un 20 % antes de empezar. Con 0,001 la orden entra igual de rápido casi siempre.')}</p>
+        <div class="review-a">
+          ${o.backup ? `<button class="link-btn" data-act="padreUndo">${tr('Deshacer lo anterior')}</button>` : ''}
+          <button class="link-btn" data-act="padreCancel">${tr('Cancelar')}</button>
+          <button class="btn-brand" data-act="padreApply">${tr('Aplicar en Padre')}</button>
+        </div>`;
+    } else if (o.stage === 'run') {
+      body = `<p class="popt-run" aria-live="polite"><span class="popt-spin" aria-hidden="true"></span>${esc(o.step || tr('Abriendo los ajustes de Padre…'))}</p>
+        <p class="popt-legend">${tr('No toques Padre mientras tanto: tardo unos segundos.')}</p>`;
+    } else if (o.stage === 'done') {
+      const ch = o.changes || [];
+      body = `
+        <p>${ch.length ? tr('Listo: he cambiado {n} ajustes en Padre.', { n: ch.length }) : tr('Tu Padre ya tenía estos ajustes. No he cambiado nada.')}</p>
+        ${ch.length ? `<ul class="popt-changes">${ch.slice(0, 40).map((c) => `<li><span>${esc(c.what)}</span><b class="num">${esc(String(c.from ?? '—'))} → ${esc(String(c.to))}</b></li>`).join('')}</ul>` : ''}
+        <p class="popt-legend">${o.undone ? tr('Has vuelto a tus ajustes anteriores.') : tr('Usa P1 en los nuevos pares y P2 en los graduados. La práctica ya cobra lo mismo.')}</p>
+        <div class="review-a">
+          ${ch.length && !o.undone ? `<button class="link-btn" data-act="padreUndo">${tr('Deshacer')}</button>` : ''}
+          <button class="btn-brand" data-act="padreCancel">${tr('Cerrar')}</button>
+        </div>`;
+    } else if (o.stage === 'error') {
+      body = `<p class="popt-err">${esc(o.error)}</p>
+        <div class="review-a"><button class="link-btn" data-act="padreCancel">${tr('Cerrar')}</button><button class="btn-brand" data-act="padreApply">${tr('Reintentar')}</button></div>`;
+    }
+    area.innerHTML = `<section class="review popt" aria-labelledby="fx-popt-h"><div class="review-h"><b id="fx-popt-h">${tr('Optimizar Padre')}</b><span>${tr('P1 nuevos · P2 graduados · P3 urgente')}</span></div>${body}</section>`;
+  }
+
+  async runPadreOpt(undo = false) {
+    if (this.popt?.stage === 'run') return;
+    this.popt = { stage: 'run', step: '' };
+    this.renderPadreOpt();
+    const onStep = (t) => { if (this.popt?.stage === 'run') { this.popt.step = t; this.renderPadreOpt(); } };
+    try {
+      const res = undo ? await restorePadreBackup({ onStep }) : await applyPadrePlan(PADRE_PLAN, { onStep });
+      if (!undo) {
+        // La práctica cobra lo mismo que el P1 recién puesto (en cada token el ajuste automático elige P1 o P2).
+        const P = PADRE_PLAN.presets[0];
+        const settings = { priorityFee: P.buy.prio, tipSol: P.buy.tip, maxSlippagePct: P.buy.slip, sellSlippagePct: P.sell.slip, mevSecure: PADRE_PLAN.mev };
+        this.st.settings = { ...this.st.settings, ...settings };
+        send({ type: 'saveSettings', settings });
+      }
+      this.popt = { stage: 'done', changes: res.changes, undone: undo };
+      this.padreSyncSig = null; this.pageFacts = null;
+    } catch (e) {
+      this.popt = { stage: 'error', error: e?.message || String(e) };
+    }
+    this.renderPadreOpt();
+  }
+
+  // Si la extensión simula con otra prioridad, tip o slippage que el preset que usas en Padre, lo decimos.
+  renderPadreSync() {
+    const el = this.refs?.padreSync;
+    if (!el) return;
+    const P = this.padrePreset, s = this.settings;
+    const same = (a, b) => Math.abs((Number(a) || 0) - (Number(b) || 0)) < 1e-9;
+    const eqRun = (a, b) => a && b && same(a.prio, b.prio) && same(a.tip, b.tip) && same(a.slip, b.slip);
+    // ¿El preset activo de Padre es uno de los optimizados? Entonces solo importa que sea el adecuado al token.
+    const planned = P && PADRE_PLAN.presets.find((x) => eqRun(P.buy, x.buy) && (!P.sell || eqRun(P.sell, x.sell)));
+    const want = PADRE_PLAN.presets.find((x) => x.stage && x.stage === this.quote?.stage);
+    let html = '';
+    if (planned && want && `P${want.n}` !== P.id && planned.stage) {
+      html = `<div class="psync"><span>${tr(want.stage === 'graduated'
+        ? 'Este token ya está <b>graduado</b>: en Padre cambia a <b>P{n}</b> (menos slippage y prioridad que en la curva).'
+        : 'Este token sigue en su <b>curva</b>: en Padre cambia a <b>P{n}</b> (más margen de slippage para entrar).', { n: want.n })}</span></div>`;
+    } else if (!planned) {
+      const differs = P && (!same(P.buy.prio, s.priorityFee) || !same(P.buy.tip, s.tipSol) || !same(P.buy.slip, s.maxSlippagePct)
+        || (P.sell && !same(P.sell.slip, s.sellSlippagePct)) || (P.buy.mev != null && P.buy.mev !== !!s.mevSecure));
+      if (differs) html = `<div class="psync">
+        <span>${tr('En Padre usas <b>{id}</b>: prio {p} · tip {t} · slip. {sl} %{sell}', { id: esc(P.id), p: fmtSol(P.buy.prio), t: fmtSol(P.buy.tip), sl: fmtNum(P.buy.slip, 1), sell: P.sell ? tr(' (venta {v} %)', { v: fmtNum(P.sell.slip, 1) }) : '' })}</span>
+        <span class="psync-acts"><button class="psync-btn" data-act="padreSync">${tr('Usar en la práctica')}</button><button class="psync-btn alt" data-act="padreOpt">${tr('Optimizar Padre')}</button></span>
+      </div>`;
+    }
+    if (html === this.padreSyncSig) return;
+    this.padreSyncSig = html;
+    el.innerHTML = html;
   }
 
   screenSnapshot() {
@@ -925,13 +1041,14 @@ class Panel {
             ${row(tr('Tamaño'), `${fmtNum(P.sizePct, 0)} % · ${fmtSol(sol, { digits: 2 })} SOL`, tr(P.why.size))}
             ${row('Stop', `−${P.slPct} %${P.trailing ? tr(' dinámico') : ''}`, tr(P.why.stop))}
             ${row('Take', `+${P.tpPct} %`, tr(P.why.take))}
-            ${row(tr('Slippage máx.'), `${P.maxSlippagePct} %`, tr(P.why.slippage))}
-            ${row(tr('Prioridad'), `${fmtSol(P.priorityFee)} SOL`, tr(P.why.priority))}
+            ${row(tr('Slippage máx.'), tr('{b} % compra · {s} % venta', { b: P.maxSlippagePct, s: P.sellSlippagePct }), tr(P.why.slippage))}
+            ${row(tr('Prioridad + tip'), `${fmtSol(P.priorityFee)} + ${fmtSol(P.tipSol)} SOL`, tr(P.why.priority))}
           </dl>
           <p class="reco-tip">${tr(P.tip)}</p>
           <div class="reco-foot">
             <button class="trail auto" data-act="recoAuto" role="switch" aria-checked="${!!this.settings.autoPreset}"><span class="sw"></span><span>${tr('<b>Aplicar siempre</b> al abrir cada token')}</span></button>
           </div>
+          <div class="popt-cta"><span>${tr('¿Lo quieres igual en tu Padre de verdad? Un clic pone P1 para nuevos pares, P2 para graduados y P3 para salir rápido.')}</span><button class="btn-brand" data-act="padreOpt">${tr('Optimizar Padre')}</button></div>
           <p class="reco-note">${tr('Son puntos de partida para practicar, no reglas fijas: ajústalos a tu estilo y mira en Estadísticas cuáles te funcionan.')}</p>
         </div>
       </div>`;
@@ -1195,7 +1312,7 @@ class Panel {
     if (this.settings.sizeMode === 'pct') {
       // El % es del saldo, pero dejando sitio para la priority fee (si no, el 100 % nunca se podría comprar).
       const bal = this.st?.account.balance ?? 0;
-      return Math.max(0, Math.min(bal * Math.min(v, 100) / 100, bal - (Number(this.settings.priorityFee) || 0)));
+      return Math.max(0, Math.min(bal * Math.min(v, 100) / 100, bal - txCost(this.settings)));
     }
     return v;
   }
@@ -1267,14 +1384,18 @@ class Panel {
       if (!isLimit && sim.qty) parts.push(`<span>${tr('Recibes ≈ <b>{qty}</b> {sym}', { qty: fmtCompact(sim.qty), sym })}</span>`);
       if (!isLimit && isFinite(sim.slipPct)) parts.push(`<span class="${sim.slipPct > s.maxSlippagePct ? 'bad' : sim.slipPct > 5 ? 'warn' : ''}">Slippage <b>${fmtPct(sim.slipPct, sim.slipPct < 1 ? 2 : 1)}</b></span>`);
       parts.push(`<span>${tr('Costes')} <b>${fmtSol(costs)}</b></span>`);
+      // Prioridad + tip se pagan dos veces (comprar y vender) y no dependen del tamaño: en trades pequeños pesan mucho.
+      const fixedPct = (2 * txCost(s) / solIn) * 100;
+      if (!isLimit && fixedPct >= 5) parts.push(`<span class="${fixedPct >= 15 ? 'bad' : 'warn'}" title="${tr('Prioridad y tip de la compra y de la venta: {sol} SOL', { sol: fmtSol(2 * txCost(s)) })}">${tr('Prioridad y tip: <b>{p}</b> de la compra, ida y vuelta', { p: fmtPct(fixedPct, 0) })}</span>`);
       if (sim.totalDebit > bal) parts.push(`<span class="bad">${tr('Saldo insuficiente')}</span>`);
       r.buyQuote.innerHTML = parts.join('');
       r.buyLabel.innerHTML = isLimit
         ? `${tr('Colocar orden')} · ${fmtNum(solIn, 4)} SOL <span class="tag">${tr('práctica')}</span>`
         : `${tr('Comprar')} ${fmtNum(solIn, 4)} SOL <span class="tag">${tr('práctica')}</span>`;
     } else {
-      const pool = s.poolFees === false || !this.quote ? 0 : poolFeePct(this.quote);
-      r.buyQuote.innerHTML = `<span title="${tr('Padre {a} + pool {b}', { a: fmtPct(s.feePct, 2), b: fmtPct(pool, 2) })}">${tr('Disponible <b>{bal}</b> SOL · comisiones {fee} + {prio} de prioridad', { bal: fmtSol(bal), fee: fmtPct(s.feePct + pool, 2), prio: fmtSol(s.priorityFee) })}</span>`;
+      const pool = s.poolFees === false || !this.quote ? 0 : poolFeePct(this.quote, this.solUsd);
+      const src = this.quote?.padreTaxPct != null ? tr('según Padre') : tr('estimada');
+      r.buyQuote.innerHTML = `<span title="${tr('Padre {a} + pool {b} ({src}) · prioridad {p} + tip {t} SOL por transacción', { a: fmtPct(s.feePct, 2), b: fmtPct(pool, 2), src, p: fmtSol(Number(s.priorityFee) || 0), t: fmtSol(Number(s.tipSol) || 0) })}">${tr('Disponible <b>{bal}</b> SOL · comisiones {fee} + {prio} SOL por orden', { bal: fmtSol(bal), fee: fmtPct(s.feePct + pool, 2), prio: fmtSol(txCost(s)) })}</span>`;
       r.buyLabel.innerHTML = `${isLimit ? tr('Colocar orden') : tr('Comprar')} <span class="tag">${tr('práctica')}</span>`;
     }
     if (daily?.locked) {
@@ -1284,7 +1405,7 @@ class Panel {
     if (stale) {
       r.buyQuote.innerHTML = `<span class="bad">${tr('Precio congelado: no se puede operar hasta que vuelva a actualizarse.')}</span>`;
     }
-    const cantAfford = solIn > 0 && solIn + s.priorityFee > bal + 1e-12;
+    const cantAfford = solIn > 0 && solIn + txCost(s) > bal + 1e-12;
     const badLimit = isLimit && !(limitMc > 0 && limitMc < (this.quote.marketCapUsd || Infinity));
     btn.disabled = !(solIn > 0) || cantAfford || this.busy || !!daily?.locked || (badLimit) || (stale && !isLimit);
     btn.classList.toggle('limit', isLimit);
@@ -1299,7 +1420,7 @@ class Panel {
       r.sellQuote.innerHTML = [
         `<span>${tr('Recibes ≈ <b>{sol}</b> SOL', { sol: fmtSol(sim.netSol) })}</span>`,
         `<span>${tr('Resultado')} <b class="${tone(pnl)}">${fmtSol(pnl, { sign: true })}</b></span>`,
-        `<span class="${sim.slipPct > s.maxSlippagePct ? 'bad' : sim.slipPct > 5 ? 'warn' : ''}">Slippage <b>${fmtPct(sim.slipPct, sim.slipPct < 1 ? 2 : 1)}</b></span>`,
+        `<span class="${sim.slipPct > sim.maxSlip ? 'bad' : sim.slipPct > 5 ? 'warn' : ''}">Slippage <b>${fmtPct(sim.slipPct, sim.slipPct < 1 ? 2 : 1)}</b></span>`,
       ].join('');
       r.sellLabel.innerHTML = `${tr('Vender')} ${this.sellPct === 100 ? tr('todo') : this.sellPct + '%'} <span class="tag">${tr('práctica')}</span>`;
       r.sellForm.querySelector('.go').disabled = this.busy || stale;
@@ -1416,6 +1537,22 @@ class Panel {
       ta.hidden = !ta.hidden;
       b.setAttribute('aria-expanded', String(!ta.hidden));
       if (!ta.hidden) ta.focus();
+    }
+    else if (act === 'padreOpt') this.openPadreOpt();
+    else if (act === 'padreApply') this.runPadreOpt(false);
+    else if (act === 'padreUndo') this.runPadreOpt(true);
+    else if (act === 'padreCancel') { this.popt = null; this.renderPadreOpt(); }
+    else if (act === 'padreSync') {
+      const P = this.padrePreset;
+      if (!P) return;
+      const settings = { priorityFee: P.buy.prio, tipSol: P.buy.tip, maxSlippagePct: P.buy.slip };
+      if (P.sell) settings.sellSlippagePct = P.sell.slip;
+      if (P.buy.mev != null) settings.mevSecure = P.buy.mev;
+      this.st.settings = { ...this.st.settings, ...settings };
+      send({ type: 'saveSettings', settings });
+      this.padreSyncSig = null;
+      this.renderPadreSync(); this.renderTrade();
+      this.toast('ok', tr('Ahora la práctica cobra lo mismo que tu preset {id} de Padre.', { id: P.id }));
     }
     else if (act === 'checkToggle') {
       const checkOpen = !this.st?.ui?.checkOpen;
@@ -1590,7 +1727,10 @@ class Panel {
     const rich = { title: tr(which === 'buy' ? 'No se pudo comprar' : 'No se pudo vender') };
     if (chargedFee > 0) {
       rich.stats = [{ k: tr('Prioridad cobrada'), v: `−${fmtSol(chargedFee)} SOL`, t: 'down' }];
-      rich.note = tr('Como en real: la transacción falla, pero la prioridad se paga.');
+      rich.note = tr('Como en real: sin MEV protegido la transacción falla en la cadena y la prioridad se paga.');
+    } else if (chargedFee === 0) {
+      rich.stats = [{ k: tr('Coste'), v: '0 SOL', t: 'up' }];
+      rich.note = tr('Con MEV protegido una orden que falla no llega a la cadena: no pagas nada.');
     }
     return this.toast('err', msg, rich);
   }

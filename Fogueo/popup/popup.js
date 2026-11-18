@@ -234,7 +234,7 @@ function renderWallet() {
   const fills = [...st.account.fills].reverse().slice(0, 10);
   if (fills.length) {
     html += '<h2>Actividad reciente</h2><div class="act">' + fills.map((f) => {
-      if (f.failed) return `<div><span class="t">${tTime(f.t)}</span><span class="fail">${tr(f.side === 'buy' ? 'Compra fallida' : 'Venta fallida')} · $${esc(f.symbol)}</span><span class="num muted">−${fmtSol(f.priorityFee)}</span></div>`;
+      if (f.failed) return `<div><span class="t">${tTime(f.t)}</span><span class="fail">${tr(f.side === 'buy' ? 'Compra fallida' : 'Venta fallida')} · $${esc(f.symbol)}</span><span class="num muted">${f.priorityFee > 0 ? '−' + fmtSol(f.priorityFee) : tr('sin coste')}</span></div>`;
       const what = f.side === 'buy' ? `<span class="up">Compra</span>${f.via === 'limit' ? ' <span class="badge ini">Límite</span>' : ''}` : `<span class="down">Venta</span> ${reasonBadge(f.reason)}`;
       return `<div><span class="t">${tTime(f.t)}</span><span>${what} $${esc(f.symbol)} <span class="muted">${tr('a {mc}', { mc: fmtCompact(f.mc, '$') })}</span></span><span class="num">${f.side === 'buy' ? '−' : '+'}${fmtSol(f.sol)}</span></div>`;
     }).join('') + '</div>';
@@ -424,10 +424,13 @@ function renderSettings() {
 
     <h2>Simulación</h2>
     <div class="form">
-      ${row('feePct', 'Comisión de Padre', 'Por cada compra y venta. Padre cobra ~1%.', '%', s.feePct, 2)}
-      <div class="switch"><span>Sumar la comisión del pool<small class="muted" style="display:block;font-size:11.5px">Aparte de Padre: ~1,25 % en la curva de pump.fun y ~0,3 % en pools como PumpSwap o Raydium</small></span><button role="switch" aria-checked="${s.poolFees !== false}" data-act="poolFees" aria-label="Sumar la comisión del pool"></button></div>
-      ${row('priorityFee', 'Priority fee', 'Lo que pagas a la red por transacción, también si falla.', 'SOL', s.priorityFee, 4)}
-      ${row('maxSlippagePct', 'Slippage máximo', 'Si el precio se movería más, la orden falla.', '%', s.maxSlippagePct, 1)}
+      ${row('feePct', 'Comisión de Padre', 'Por cada compra y venta. Padre cobra un 1 % (y te devuelve un 10-35 % como cashback).', '%', s.feePct, 2)}
+      <div class="switch"><span>Sumar la comisión del pool<small class="muted" style="display:block;font-size:11.5px">La que Padre enseña como «Tax» en cada token. Si no la veo, la estimo: 1,25 % en la curva de pump.fun, de 1,25 % a 0,3 % en PumpSwap según el market cap, 0,25 % en Raydium</small></span><button role="switch" aria-checked="${s.poolFees !== false}" data-act="poolFees" aria-label="Sumar la comisión del pool"></button></div>
+      ${row('priorityFee', 'Priority fee', 'Por cada compra y venta. Padre trae 0,001 en P1.', 'SOL', s.priorityFee, 4)}
+      ${row('tipSol', 'Tip (Jito)', 'Propina por transacción con MEV protegido. Padre trae 0,01 en P1: con trades pequeños es lo que más pesa.', 'SOL', s.tipSol ?? 0.01, 4)}
+      <div class="switch"><span>MEV protegido («Secure» en Padre)<small class="muted" style="display:block;font-size:11.5px">Evita sándwiches. Si una orden falla no llega a la cadena y no pagas nada; sin él, una orden fallida paga la priority fee</small></span><button role="switch" aria-checked="${s.mevSecure !== false}" data-act="mevSecure" aria-label="MEV protegido"></button></div>
+      ${row('maxSlippagePct', 'Slippage de compra', 'Si el precio se movería más, la orden falla. Padre trae 20 %.', '%', s.maxSlippagePct, 1)}
+      ${row('sellSlippagePct', 'Slippage de venta', 'Más margen para poder salir cuando todos venden. Padre trae 40 %.', '%', s.sellSlippagePct ?? 40, 1)}
       ${row('latencySlipPct', 'Retraso de ejecución', 'Empeora un poco el precio, como la latencia real.', '%', s.latencySlipPct, 2)}
       <div class="f-row" style="grid-template-columns:1fr"><label>Compra rápida en SOL<small>Teclas 1–4 en el panel.</small></label></div>
       <div class="quicks">${s.quickBuys.concat([null, null, null, null]).slice(0, 4).map((q, i) => `<span class="inp"><input data-quick="${i}" inputmode="decimal" value="${q != null ? fmtNum(q, 3) : ''}" aria-label="${tr('Compra rápida {n}', { n: i + 1 })}"></span>`).join('')}</div>
@@ -437,17 +440,24 @@ function renderSettings() {
 
     <h2>Ajustes recomendados</h2>
     <div class="presets">
-      <p class="hint">El panel detecta si el token es un <b>nuevo par</b> (todavía en la bonding curve de pump.fun) o está <b>graduado</b> (ya en su propio pool) y te propone estos ajustes, con el porqué de cada uno.</p>
+      <p class="hint">El panel detecta si el token es un <b>nuevo par</b> (todavía en su bonding curve) o está <b>graduado</b> (ya en su propio pool) y te propone estos ajustes, con el porqué de cada uno.</p>
       <table class="ptable">
         <thead><tr><td></td><th class="p-new">${PRESETS.new.name}</th><th class="p-grad">${PRESETS.graduated.name}</th></tr></thead>
         <tbody>
           <tr><th>Tamaño</th><td>${PRESETS.new.sizePct} ${tr('% saldo')}</td><td>${PRESETS.graduated.sizePct} ${tr('% saldo')}</td></tr>
           <tr><th>Stop</th><td>−${PRESETS.new.slPct} %${PRESETS.new.trailing ? ' ' + tr('din.') : ''}</td><td>−${PRESETS.graduated.slPct} %${PRESETS.graduated.trailing ? ' ' + tr('din.') : ''}</td></tr>
           <tr><th>Take</th><td>+${PRESETS.new.tpPct} %</td><td>+${PRESETS.graduated.tpPct} %</td></tr>
-          <tr><th>Slippage máx.</th><td>${PRESETS.new.maxSlippagePct} %</td><td>${PRESETS.graduated.maxSlippagePct} %</td></tr>
+          <tr><th>Slippage compra</th><td>${PRESETS.new.maxSlippagePct} %</td><td>${PRESETS.graduated.maxSlippagePct} %</td></tr>
+          <tr><th>Slippage venta</th><td>${PRESETS.new.sellSlippagePct} %</td><td>${PRESETS.graduated.sellSlippagePct} %</td></tr>
           <tr><th>Prioridad</th><td>${fmtSol(PRESETS.new.priorityFee)} SOL</td><td>${fmtSol(PRESETS.graduated.priorityFee)} SOL</td></tr>
+          <tr><th>Tip</th><td>${fmtSol(PRESETS.new.tipSol)} SOL</td><td>${fmtSol(PRESETS.graduated.tipSol)} SOL</td></tr>
         </tbody>
       </table>
+      <div class="popt-box">
+        <p><b>Optimizar Padre con un clic</b><span>Pone estos mismos valores en tu cuenta de Padre: P1 para nuevos pares, P2 para graduados y P3 para salir rápido, con MEV protegido, y deja visibles en Trenches los datos del chequeo. Te pido confirmación en Padre y puedes deshacerlo.</span></p>
+        <button class="btn brand" data-act="padreOptimize">Optimizar Padre</button>
+        <p class="popt-msg" data-ref="poptMsg" role="status"></p>
+      </div>
       <div class="switch"><span>Aplicarlos automáticamente<small class="muted" style="display:block;font-size:11.5px">Al abrir cada token en Padre, según su tipo</small></span><button role="switch" aria-checked="${!!s.autoPreset}" data-act="autoPreset" aria-label="Aplicar ajustes recomendados automáticamente"></button></div>
     </div>
 
@@ -630,6 +640,18 @@ document.addEventListener('click', async (e) => {
     await send({ type: 'savePanel', panel: { hidden: !show } });
   }
   if (act === 'save') saveSettings();
+  if (act === 'padreOptimize') {
+    const r = await send({ type: 'padreOptimizeOpen' });
+    const m = $('[data-ref="poptMsg"]');
+    if (r.ok && r.data.opened) { if (m) m.textContent = tr('Abierto en tu pestaña de Padre: confirma allí.'); setTimeout(() => window.close(), 900); }
+    else if (m) m.textContent = r.ok && r.data.reload ? tr('Recarga la pestaña de Padre (F5) y vuelve a pulsar.') : tr('Abre trade.padre.gg en una pestaña y vuelve a pulsar.');
+  }
+  if (act === 'mevSecure') {
+    const btn = t.closest('[data-act]');
+    const on = btn.getAttribute('aria-checked') !== 'true';
+    btn.setAttribute('aria-checked', String(on));
+    await send({ type: 'saveSettings', settings: { mevSecure: on } });
+  }
   if (act === 'poolFees') {
     const btn = t.closest('[data-act]');
     const on = btn.getAttribute('aria-checked') !== 'true';

@@ -3,6 +3,23 @@
     "ai": false
   },
   "releases": {
+    "1.15.0": {
+      "date": "2026-11-18",
+      "es": [
+        "Botón «Optimizar Padre»: pone P1 (nuevos pares), P2 (graduados) y P3 (salida urgente) en tu cuenta de Padre, con copia para deshacer",
+        "Comisiones reales: usa la «Tax» que enseña Padre en cada token y, si no, los tramos de PumpSwap según el market cap",
+        "Prioridad y tip de Jito por separado, slippage de venta propio y MEV protegido como en Padre",
+        "Las ventas automáticas que fallan ya no reintentan cada segundo ni cobran de más",
+        "Avisa si la prioridad y el tip se comen gran parte de una compra pequeña"
+      ],
+      "en": [
+        "“Optimize Padre” button: sets P1 (new pairs), P2 (graduated) and P3 (urgent exit) in your Padre account, with a backup to undo",
+        "Real fees: uses the “Tax” Padre shows for each token and, if missing, PumpSwap's market-cap tiers",
+        "Separate priority fee and Jito tip, its own sell slippage and MEV protection just like Padre",
+        "Failed automatic sells no longer retry every second or overcharge",
+        "Warns when priority and tip eat a big part of a small buy"
+      ]
+    },
     "1.14.0": {
       "date": "2026-11-17",
       "es": [

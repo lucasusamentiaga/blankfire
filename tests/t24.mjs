@@ -66,7 +66,7 @@ async function run(lang) {
   await P.locator('[data-act="side"][data-side="buy"]').click();
   await P.locator('[data-act="quick"]').nth(1).click(); await P.locator('[data-act="buy"]').click(); await pg.waitForTimeout(500);
   const t3 = await R(() => { const t = document.querySelector('#fogueo-root').shadowRoot.querySelector('.toast'); const kids = [...t.querySelector('.t-main').children].map((c) => c.tagName + '.' + c.className); return { cls: t.className, kids, stat: t.querySelector('.t-stat')?.className, txt: t.innerText }; });
-  ok(/err/.test(t3.cls) && t3.kids.join(',') === 'STRONG.,P.,DIV.t-stats,P.t-note' && /down/.test(t3.stat), tag + 'Aviso de error: título, motivo, ficha de prioridad cobrada y nota (' + t3.kids.join(',') + ')');
+  ok(/err/.test(t3.cls) && t3.kids.join(',') === 'STRONG.,P.,DIV.t-stats,P.t-note' && /up/.test(t3.stat), tag + 'Aviso de error con MEV protegido: título, motivo, coste 0 y nota (' + t3.kids.join(',') + ')');
   if (lang === 'en') ok(!SPANISH.test(t3.txt), tag + 'Aviso de error sin restos en español: ' + t3.txt.split('\n')[0]);
   await P.locator('[data-act="closeToast"]').click();
   // recorrido completo

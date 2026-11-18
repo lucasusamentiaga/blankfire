@@ -15,7 +15,7 @@ for (let i = 0; i < 20000; i++) {
   const solUsd = rnd(20, 500);
   const priceUsd = lrnd(1e-10, 50);
   const quote = { stage, priceUsd, liquidityUsd: Math.random() < 0.2 ? 0 : lrnd(100, 5e7), marketCapUsd: lrnd(1e3, 1e10) };
-  const settings = { ...DEFAULT_SETTINGS, feePct: rnd(0, 5), priorityFee: rnd(0, 0.01), maxSlippagePct: 100, latencySlipPct: rnd(0, 2), poolFees: Math.random() < 0.8 };
+  const settings = { ...DEFAULT_SETTINGS, feePct: rnd(0, 5), priorityFee: rnd(0, 0.01), tipSol: rnd(0, 0.02), sellSlippagePct: 100, maxSlippagePct: 100, latencySlipPct: rnd(0, 2), poolFees: Math.random() < 0.8 };
   const solIn = lrnd(0.001, 500);
   const b = simulateBuy({ solIn, quote, solUsd, settings });
   const pool = settings.poolFees ? poolFeePct(quote) : 0;
@@ -25,7 +25,7 @@ for (let i = 0; i < 20000; i++) {
   ok(b.fillPrice >= priceUsd * (1 - 1e-12), 'comprar nunca más barato que el precio medio');
   ok(close(b.fee, solIn * (settings.feePct + pool) / 100), 'comisión de compra = (Padre + pool) × importe');
   ok(close(b.padreFee + b.poolFee, b.fee), 'comisión = Padre + pool');
-  ok(close(b.totalDebit, solIn + settings.priorityFee), 'cargo = importe + prioridad');
+  ok(close(b.totalDebit, solIn + settings.priorityFee + settings.tipSol), 'cargo = importe + prioridad + tip');
   ok(close(b.qty * b.fillPrice, (solIn - b.fee) * solUsd, 1e-9), 'tokens × precio = dólares netos');
   ok(b.slipPct >= settings.latencySlipPct - 1e-9, 'slippage ≥ latencia');
   // Venta inmediata de todo: siempre se pierde (comisiones + impacto ida y vuelta)
@@ -33,7 +33,7 @@ for (let i = 0; i < 20000; i++) {
   ok(s.netSol < solIn + 1e-12, `ida y vuelta sin pérdida: entra ${solIn} sale ${s.netSol}`);
   ok(s.fillPrice <= priceUsd * (1 + 1e-12), 'vender nunca más caro que el precio medio');
   ok(close(s.fee, s.grossSol * (settings.feePct + pool) / 100), 'comisión de venta');
-  ok(close(s.netSol, s.grossSol - s.fee - settings.priorityFee), 'neto venta = bruto − comisión − prioridad');
+  ok(close(s.netSol, s.grossSol - s.fee - settings.priorityFee - settings.tipSol), 'neto venta = bruto − comisión − prioridad − tip');
   // Fórmula cerrada del producto constante
   const usd = (solIn - b.fee) * solUsd;
   ok(close(b.fillPrice, priceUsd * (1 + usd / R) * (1 + settings.latencySlipPct / 100)), 'precio medio de compra AMM');

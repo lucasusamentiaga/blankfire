@@ -1,6 +1,6 @@
 // Blankfire — recorrido guiado por el panel.
 import { tr } from '../lib/i18n.js';
-import { simulateBuy, simulateSell, poolFeePct, fmtSol, fmtPct, fmtNum, tone } from '../lib/core.js';
+import { simulateBuy, simulateSell, poolFeePct, txCost, fmtSol, fmtPct, fmtNum, tone } from '../lib/core.js';
 import { vChips, vFlow, vKeys, vRange, vLegend, vMeter, vStack } from '../lib/viz.js';
 // Ilumina cada parte real del panel y la enseña funcionando con datos de ejemplo.
 // Tu cuenta no se toca: al terminar se restaura todo tal cual estaba.
@@ -238,18 +238,18 @@ function gMark(t, mult) {
 const GUIDED_STEPS = [
   {
     ch: 5, guided: true, target: '[data-ref="buyForm"]', title: 'Primero, la compra',
-    viz: (p) => vChips([{ k: 'Padre', v: fmtPct(p.st.settings.feePct, 2) }, { k: tr('Pool'), v: fmtPct(p.st.settings.poolFees === false ? 0 : poolFeePct(gQuote(p)), 2) }, { k: tr('Prioridad'), v: `${sx(p.st.settings.priorityFee)} SOL` }, { k: tr('Compras'), v: `${fmtSol(G_SOL)} SOL`, t: 'amber' }]),
+    viz: (p) => vChips([{ k: 'Padre', v: fmtPct(p.st.settings.feePct, 2) }, { k: tr('Pool'), v: fmtPct(p.st.settings.poolFees === false ? 0 : poolFeePct(gQuote(p)), 2) }, { k: tr('Prio. + tip'), v: `${sx(txCost(p.st.settings))} SOL` }, { k: tr('Compras'), v: `${fmtSol(G_SOL)} SOL`, t: 'amber' }]),
     setup: (p, t) => { t.trade = null; gReset(t); p.quote = gQuote(p); p.refs.amount.value = fmtNum(0.5, 3); p.refs.useSl.checked = true; p.refs.useTp.checked = true; },
-    body: (p) => tr('Vamos a hacer un trade completo con el token de ejemplo y <b>tus comisiones reales</b>: {fee} de Padre y {pool} de la curva de pump.fun en cada compra y venta, más {prio} SOL de priority fee por transacción. Empezamos comprando {sol} SOL.', { fee: fmtPct(p.st.settings.feePct, 2), pool: fmtPct(p.st.settings.poolFees === false ? 0 : poolFeePct(gQuote(p)), 2), prio: sx(p.st.settings.priorityFee), sol: fmtSol(G_SOL) }),
+    body: (p) => tr('Vamos a hacer un trade completo con el token de ejemplo y <b>tus comisiones reales</b>: {fee} de Padre y {pool} de la curva de pump.fun en cada compra y venta, más {prio} SOL de prioridad y tip por transacción. Empezamos comprando {sol} SOL.', { fee: fmtPct(p.st.settings.feePct, 2), pool: fmtPct(p.st.settings.poolFees === false ? 0 : poolFeePct(gQuote(p)), 2), prio: sx(txCost(p.st.settings)), sol: fmtSol(G_SOL) }),
     try: { text: 'Pruébalo: pulsa «Comprar 0,5 SOL». Es de práctica: tu saldo no cambia.', acts: ['buy'], done: 'Comprado. Mira lo que te ha costado entrar.' },
   },
   {
     ch: 5, guided: true, target: '.pos', title: 'Lo que te ha costado entrar',
-    viz: (p, t) => { gEnsureBuy(t); const b = t.trade.buy; return vStack([{ v: b.solIn - b.fee, label: sx(b.solIn - b.fee), sub: tr('al token'), t: 'up' }, { v: b.fee, label: sx(b.fee), sub: tr('comisiones'), t: 'amber' }, { v: b.priorityFee, label: sx(b.priorityFee), sub: tr('prioridad'), t: 'down' }]); },
+    viz: (p, t) => { gEnsureBuy(t); const b = t.trade.buy; return vStack([{ v: b.solIn - b.fee, label: sx(b.solIn - b.fee), sub: tr('al token'), t: 'up' }, { v: b.fee, label: sx(b.fee), sub: tr('comisiones'), t: 'amber' }, { v: b.priorityFee, label: sx(b.priorityFee), sub: tr('prioridad y tip'), t: 'down' }]); },
     setup: (p, t) => { gEnsureBuy(t); gReset(t); gApplyBought(t); p.quote = gQuote(p); },
     body: (p, t) => {
       const b = t.trade.buy, m = gMark(t, 1);
-      return tr('Has pagado <b>{total} SOL</b>: {net} van al token, {fee} de comisiones (Padre y pool) y {prio} de priority fee. Además, el slippage te dio un precio un {slip} peor. Por eso empiezas en <b class="{tone}">{pct}</b> sin que el precio se haya movido: tiene que subir eso solo para quedarte igual.', {
+      return tr('Has pagado <b>{total} SOL</b>: {net} van al token, {fee} de comisiones (Padre y pool) y {prio} de prioridad y tip. Además, el slippage te dio un precio un {slip} peor. Por eso empiezas en <b class="{tone}">{pct}</b> sin que el precio se haya movido: tiene que subir eso solo para quedarte igual.', {
         total: sx(b.totalDebit), net: sx(b.solIn - b.fee), fee: sx(b.fee), prio: sx(b.priorityFee), slip: fmtPct(b.slipPct, 2), pct: fmtPct(m.pct, 1, { sign: true }), tone: tone(m.pnl),
       });
     },
@@ -266,7 +266,7 @@ const GUIDED_STEPS = [
   {
     ch: 5, guided: true, target: '[data-ref="sellForm"]', title: 'Ahora, la venta',
     setup: (p, t) => { gEnsureBuy(t); t.trade.sell = null; gReset(t); gApplyBought(t); p.quote = gQuote(p, G_UP); p.side = 'sell'; p.sellPct = 100; },
-    body: (p) => tr('Toca vender. Padre y el pool vuelven a cobrar su {fee} sobre lo que recibes y pagas otra priority fee de {prio} SOL. El 100 % ya está elegido.', { fee: fmtPct(p.st.settings.feePct + (p.st.settings.poolFees === false ? 0 : poolFeePct(gQuote(p))), 2), prio: sx(p.st.settings.priorityFee) }),
+    body: (p) => tr('Toca vender. Padre y el pool vuelven a cobrar su {fee} sobre lo que recibes y pagas otra vez {prio} SOL de prioridad y tip. El 100 % ya está elegido.', { fee: fmtPct(p.st.settings.feePct + (p.st.settings.poolFees === false ? 0 : poolFeePct(gQuote(p))), 2), prio: sx(txCost(p.st.settings)) }),
     try: { text: 'Pruébalo: pulsa «Vender 100 %».', acts: ['sell'], done: 'Vendido. Vamos a ver las cuentas.' },
   },
   {
@@ -283,8 +283,8 @@ const GUIDED_STEPS = [
       const dPnl = down.netSol - b.totalDebit, dPct = (dPnl / b.totalDebit) * 100;
       const row = (label, val, sub, cls = '') => `<div class="rc-row ${cls}"><span>${label}${sub ? `<small>${sub}</small>` : ''}</span><b class="num">${val}</b></div>`;
       return `<div class="tour-receipt">
-        ${row(tr('Pagaste al comprar'), `−${sx(b.totalDebit)}`, tr('{sol} al token + {fee} comisiones + {prio} prioridad', { sol: sx(b.solIn - b.fee), fee: sx(b.fee), prio: sx(b.priorityFee) }))}
-        ${row(tr('Recibiste al vender'), `+${sx(sl.netSol)}`, tr('{gross} − {fee} comisiones − {prio} prioridad', { gross: sx(sl.grossSol), fee: sx(sl.fee), prio: sx(sl.priorityFee) }))}
+        ${row(tr('Pagaste al comprar'), `−${sx(b.totalDebit)}`, tr('{sol} al token + {fee} comisiones + {prio} prioridad y tip', { sol: sx(b.solIn - b.fee), fee: sx(b.fee), prio: sx(b.priorityFee) }))}
+        ${row(tr('Recibiste al vender'), `+${sx(sl.netSol)}`, tr('{gross} − {fee} comisiones − {prio} prioridad y tip', { gross: sx(sl.grossSol), fee: sx(sl.fee), prio: sx(sl.priorityFee) }))}
         ${row(tr('Comisiones y prioridad'), `−${sx(fees)}`, tr('más slippage: {a} al entrar, {b} al salir', { a: fmtPct(b.slipPct, 2), b: fmtPct(sl.slipPct, 2) }), 'muted')}
         ${row(tr('Resultado'), `<span class="${tone(pnl)}">${sxs(pnl)} SOL · ${fmtPct(pct, 1, { sign: true })}</span>`, '', 'total')}
       </div>

@@ -24,7 +24,7 @@ for (let i = 0; i < 5000; i++) {
   const p = lrnd(1e-10, 5e4), liq = lrnd(800, 5e7), solUsd = rnd(60, 400), solIn = lrnd(0.001, 50);
   const stage = Math.random() < 0.5 ? 'new' : null;
   const q = { priceUsd: p, liquidityUsd: liq, marketCapUsd: p * 1e9, stage };
-  const S = { ...C.DEFAULT_SETTINGS, feePct: rnd(0, 3), latencySlipPct: rnd(0, 2), priorityFee: rnd(0, 0.01), maxSlippagePct: 100 };
+  const S = { ...C.DEFAULT_SETTINGS, tipSol: 0, sellSlippagePct: 100, feePct: rnd(0, 3), latencySlipPct: rnd(0, 2), priorityFee: rnd(0, 0.01), maxSlippagePct: 100 };
   const R = C.reserveUsd(q, solUsd), poolPct = C.poolFeePct(q);
   const b = C.simulateBuy({ solIn, quote: q, solUsd, settings: S });
   worstBuy = Math.max(worstBuy, rel(b.qty, ammBuy({ solIn, p, R, solUsd, feePct: S.feePct, poolPct, latPct: S.latencySlipPct })));
@@ -45,7 +45,7 @@ for (let i = 0; i < 2000; i++) {
   const pSol = vS / vT, p = pSol * solUsd, mc = p * 1e9;
   const solIn = lrnd(0.01, 10);
   const q = { priceUsd: p, marketCapUsd: mc, liquidityUsd: null, stage: 'new' };
-  const S = { ...C.DEFAULT_SETTINGS, latencySlipPct: 0, maxSlippagePct: 100, poolFees: true };
+  const S = { ...C.DEFAULT_SETTINGS, tipSol: 0, sellSlippagePct: 100, latencySlipPct: 0, maxSlippagePct: 100, poolFees: true };
   const b = C.simulateBuy({ solIn, quote: q, solUsd, settings: S });
   const dx = solIn * (1 - (S.feePct + 1.25) / 100);
   const exact = vT - K / (vS + dx);
@@ -56,7 +56,7 @@ ok(worstCurve < 0.003, `Curva de pump.fun: tokens recibidos = fórmula exacta de
 // ---------- 3. Ida y vuelta al mismo precio: se pierde exactamente lo esperado ----------
 {
   const q = { priceUsd: 0.0001, liquidityUsd: 1e12, marketCapUsd: 1e5, stage: null };   // liquidez infinita: sin impacto
-  const S = { ...C.DEFAULT_SETTINGS, latencySlipPct: 0, priorityFee: 0.001, feePct: 1 };
+  const S = { ...C.DEFAULT_SETTINGS, tipSol: 0, sellSlippagePct: 100, latencySlipPct: 0, priorityFee: 0.001, feePct: 1 };
   const b = C.simulateBuy({ solIn: 1, quote: q, solUsd: 150, settings: S });
   const s = C.simulateSell({ qty: b.qty, quote: q, solUsd: 150, settings: S });
   const f = 1 - (1 + 0.3) / 100;
@@ -67,7 +67,7 @@ ok(worstCurve < 0.003, `Curva de pump.fun: tokens recibidos = fórmula exacta de
 // ---------- 4. El slippage que se enseña es el empeoramiento real del precio ----------
 {
   const q = { priceUsd: 0.00002, liquidityUsd: 20000, marketCapUsd: 20000, stage: null };
-  const S = { ...C.DEFAULT_SETTINGS, latencySlipPct: 0 };
+  const S = { ...C.DEFAULT_SETTINGS, tipSol: 0, sellSlippagePct: 100, latencySlipPct: 0 };
   const b = C.simulateBuy({ solIn: 2, quote: q, solUsd: 150, settings: S });
   const avg = b.usd / b.qty;
   ok(Math.abs((avg / q.priceUsd - 1) * 100 - b.slipPct) < 1e-9, `Slippage mostrado (${b.slipPct.toFixed(3)} %) = precio medio pagado vs precio actual`);
