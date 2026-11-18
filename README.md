@@ -2,7 +2,7 @@
 
 **Paper trading de memecoins dentro de [Padre](https://trade.padre.gg) (Terminal).** Practica tus trades con SOL ficticio, con los mismos precios, comisiones y slippage que en real, antes de arriesgar tu dinero.
 
-Extensión para Chrome y Opera GX (Manifest V3). Español e inglés.
+Extensión para Opera GX y Chrome (Manifest V3). Español e inglés.
 
 ![Blankfire: el panel dentro de Padre y la ventana del icono](docs/captura.png)
 
@@ -25,10 +25,12 @@ Extensión para Chrome y Opera GX (Manifest V3). Español e inglés.
   - **Análisis con IA** (Google Gemini): nota de la ejecución, fallos, lo que hiciste bien y una lección para el próximo trade.
 - Precios de **DexScreener** y **Jupiter** (para tokens recién creados), con **GeckoTerminal** de respaldo si Jupiter empieza a pedir clave. En Ajustes hay una guía de 4 pasos para conseguir la clave gratuita de Jupiter (developers.jup.ag/portal) y se comprueba al guardarla. No toca tu wallet ni tu cuenta de Padre.
 
+- **Conectar Phantom a Padre**: en Ajustes hay una guía de 6 pasos para instalar Phantom en Opera GX (o Chrome), crear la wallet, entrar en trade.padre.gg y depositar SOL, con avisos de seguridad. Blankfire nunca necesita tu wallet.
+
 ## Instalar (sin empaquetar)
 
 1. Descarga o clona este repositorio.
-2. Abre `chrome://extensions` (en Opera GX, `opera://extensions`).
+2. En Opera GX escribe `opera://extensions` en la barra de direcciones (en Chrome, `chrome://extensions`).
 3. Activa el **Modo de desarrollador**.
 4. Pulsa **Cargar descomprimida** y elige la carpeta `Fogueo`.
 5. Abre un token en [trade.padre.gg](https://trade.padre.gg): el panel aparece solo. <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> lo muestra u oculta.

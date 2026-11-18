@@ -7,6 +7,7 @@ import { vChips, vFlow, vLegend, vMeter } from '../lib/viz.js';
 import { UPD_KEY, updateView, updateCard, readUpdate, onUpdateAction, installedVersion, cmpVer, REPO } from '../lib/update.js';
 import { afterSection, proSettings, jupiterBanner } from './pro-ui.js';
 import { screenSettings } from './screen-ui.js';
+import { phantomGuide } from './wallet-ui.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -413,6 +414,10 @@ function renderStats() {
   translateDom(v);
 }
 
+document.addEventListener('toggle', (e) => {
+  if (e.target?.dataset?.ref === 'phantomGuide') proUi.walletOpen = e.target.open;
+}, true);
+
 function renderSettings() {
   const v = $('[data-view="settings"]');
   const s = { ...DEFAULT_SETTINGS, ...st.settings };
@@ -473,9 +478,12 @@ function renderSettings() {
     <div class="form">
       <div class="switch"><span>Recorrido de esta ventana<small class="muted" style="display:block;font-size:11.5px">Cartera, historial, estadísticas y ajustes</small></span><button class="ghost" data-act="tour">Empezar</button></div>
       <div class="switch"><span>Recorrido del panel en Padre<small class="muted" style="display:block;font-size:11.5px">Con Padre abierto en la pestaña actual</small></span><button class="ghost" data-act="panelTour">Empezar</button></div>
+      <div class="switch"><span>Conectar Phantom a Padre<small class="muted" style="display:block;font-size:11.5px">Guía paso a paso para operar de verdad</small></span><button class="ghost" data-act="goWallet">Ver guía</button></div>
       <div class="switch"><span>Ver otra vez la guía de inicio<small class="muted" style="display:block;font-size:11.5px">Aparece arriba del panel en Padre</small></span><button class="ghost" data-act="guide">Mostrar</button></div>
       <div class="btn-row"><button class="btn brand" data-act="save">Guardar ajustes</button><span class="status" id="saveStatus" role="status"></span></div>
     </div>
+
+    ${phantomGuide(proUi)}
 
     <h2>Empezar de cero</h2>
     <div class="danger">
@@ -698,6 +706,7 @@ async function proAction(act, btn) {
   switch (act) {
     case 'goPro': goSettings('#proSec'); return true;
     case 'goKeys': proUi.jupOpen = true; goSettings('#keys'); return true;
+    case 'goWallet': proUi.walletOpen = true; if (tab === 'settings') renderSettings(); goSettings('#walletSec'); return true;
     case 'afterRetry': fetchAfter(id, true); return true;
     case 'aiRun': runAi(id); return true;
     case 'proOn': {
@@ -1047,7 +1056,8 @@ function tourPlace() {
     Object.assign(spot.style, { width: `${r.width + pad * 2}px`, height: `${h}px`, transform: `translate(${r.left - pad}px, ${r.top - pad}px)` });
     const ch = card.offsetHeight;
     const below = r.top - pad + h + 12;
-    const y = below + ch <= H - 8 ? below : Math.max(8, r.top - pad - ch - 12);
+    let y = below + ch <= H - 8 ? below : Math.max(8, r.top - pad - ch - 12);
+    y = Math.max(8, Math.min(y, H - ch - 8));   // nunca fuera de la ventana, aunque tape un poco el foco
     card.style.transform = `translate(12px, ${y}px)`;
     card.dataset.side = y > r.top ? 'below' : 'above';
     card.style.setProperty('--ax', `${Math.min(Math.max(24, r.left + r.width / 2 - 12), W - 48)}px`);

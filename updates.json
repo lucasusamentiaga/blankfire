@@ -3,6 +3,19 @@
     "ai": false
   },
   "releases": {
+    "1.16.0": {
+      "date": "2026-11-18",
+      "es": [
+        "Guía paso a paso para conectar Phantom a Padre en Opera GX (o Chrome), con avisos para proteger tu frase de recuperación",
+        "El panel nunca se sale por abajo en pantallas bajas: se adapta a la altura disponible",
+        "Las tarjetas del recorrido guiado siempre caben en la ventana"
+      ],
+      "en": [
+        "Step-by-step guide to connect Phantom to Padre on Opera GX (or Chrome), with tips to protect your recovery phrase",
+        "The panel never spills off the bottom on short screens: it fits the available height",
+        "Guided-tour cards always fit inside the window"
+      ]
+    },
     "1.15.0": {
       "date": "2026-11-18",
       "es": [

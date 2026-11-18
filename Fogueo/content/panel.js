@@ -423,12 +423,15 @@ class Panel {
   }
 
   moveTo(x, y) {
+    // La altura del cuerpo depende de dónde está el panel: así nunca se sale por abajo.
+    this.el.style.setProperty('--fx-y', `${Math.max(8, Math.round(y))}px`);
     const rect = this.el.getBoundingClientRect();
     const w = rect.width || 330;
     const h = rect.height || 60;
     const nx = Math.min(Math.max(8, x), window.innerWidth - w - 8);
     const ny = Math.min(Math.max(8, y), Math.max(8, window.innerHeight - h - 8));
     this.pos = { x: nx, y: ny };
+    this.el.style.setProperty('--fx-y', `${Math.round(ny)}px`);
     this.host.style.transform = `translate(${nx}px, ${ny}px)`;
   }
 

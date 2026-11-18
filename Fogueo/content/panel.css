@@ -654,7 +654,7 @@ button.pos-pnl:hover small { text-decoration: underline; text-underline-offset: 
    Recorrido guiado
    ========================================================= */
 /* El cuerpo del panel hace scroll si no cabe en pantalla */
-.body-inner { max-height: calc(100vh - 64px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--fx-line) transparent; }
+.body-inner { max-height: max(220px, calc(100vh - var(--fx-y, 20px) - 56px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--fx-line) transparent; }
 .fx.is-collapsed .body-inner { overflow: hidden; }
 
 
