@@ -47,7 +47,7 @@ function mcOf(card) {
 function badge(res) {
   const host = document.createElement('span');
   host.setAttribute('data-fx-chk', '');
-  host.style.cssText = 'display:inline-flex;flex:none;align-self:center;margin-left:4px;';
+  host.style.cssText = 'display:inline-flex;flex:none;align-self:center;margin-right:6px;';
   const root = host.attachShadow({ mode: 'open' });
   const tone = { good: '#5ddf8c', care: '#f2c14e', avoid: '#f47b6b', unknown: '#9a9ba0' }[res.verdict];
   const label = tr(VERDICT[res.verdict].short);
@@ -94,7 +94,8 @@ function scan() {
     const sig = `${res.verdict}|${screenRisks(res).join()}|${res.warn}`;
     if (existing && sigs.get(row) === sig) continue;
     existing?.remove();
-    row.appendChild(badge(res));
+    // Al principio de la fila: al final la tapa el botón de compra rápida de Padre en tarjetas estrechas.
+    row.prepend(badge(res));
     sigs.set(row, sig);
   }
   while (cache.size > MAX) cache.delete(cache.keys().next().value);

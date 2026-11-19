@@ -3,6 +3,11 @@
     "ai": false
   },
   "releases": {
+    "1.16.1": {
+      "date": "2026-11-19",
+      "es": ["Las etiquetas Bien / Ojo / Evitar de Trenches ya no quedan tapadas por el botón de compra rápida de Padre"],
+      "en": ["Trenches Good / Care / Avoid labels are no longer hidden behind Padre's quick-buy button"]
+    },
     "1.16.0": {
       "date": "2026-11-18",
       "es": [

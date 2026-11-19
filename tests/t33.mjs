@@ -77,8 +77,8 @@ ok(tags.length === 3, 'una etiqueta por tarjeta de Trenches');
 ok(tags[0]?.t.endsWith(L.avoid) && /66/.test(tags[0].title) && /21/.test(tags[0].title) && /34/.test(tags[0].title), 'la moneda con top 10 66 %, dev 21 % y bundle 34 % sale «evitar» con los motivos');
 ok(tags[1]?.t.endsWith(L.good), 'la moneda sana (dev vendió, top 10 18 %) sale «bien»');
 ok(tags[2]?.t.endsWith(L.care), 'la moneda con dos señales flojas sale «ojo»');
-const tax = await pg.evaluate(() => [...document.querySelectorAll('[aria-label="Audit"]')].map((r) => r.lastElementChild.hasAttribute('data-fx-chk')));
-ok(tax.every(Boolean), 'la etiqueta va al final de la fila, sin tocar las pastillas de Padre');
+const tax = await pg.evaluate(() => [...document.querySelectorAll('[aria-label="Audit"]')].map((r) => r.firstElementChild.hasAttribute('data-fx-chk')));
+ok(tax.every(Boolean), 'la etiqueta va al principio de la fila (no la tapa la compra rápida de Padre) y no rompe la lectura de las pastillas');
 await pg.screenshot({ path: TDIR + `t33-trenches-${lang}.png`, clip: { x: 0, y: 0, width: 600, height: 330 } });
 await pg.waitForTimeout(10500);   // se guarda en disco cada 10 s
 const saved = await host.evaluate(() => chrome.storage.local.get('blankfireScreen').then((x) => x.blankfireScreen || {}));
