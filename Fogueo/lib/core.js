@@ -25,6 +25,7 @@ export const DEFAULT_SETTINGS = {
   poolFees: true,         // sumar la comisión del pool (curva de pump.fun, PumpSwap…) a la de Padre
   screenBadges: true,     // marcar en Trenches las monedas que pasan el chequeo
   screenRigor: 'normal',  // 'strict' | 'normal' | 'loose'
+  strictShield: true,     // pedir confirmación antes de comprar una moneda con señales de rug
 };
 
 // ---------- Ajustes recomendados por tipo de token ----------

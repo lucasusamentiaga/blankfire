@@ -47,7 +47,10 @@ ok((await txt('.stage')).includes('Nuevo par'), 'CHUD (dirección sin sufijo pum
 await go('GNE7e774tkGyxMMzP36ofhNuRrUZ15H4e1LE1xekpump');
 await P.locator('[data-act="quick"]').nth(3).click(); await pg.waitForTimeout(300);
 console.log('  cotización 1 SOL →', await txt('[data-ref="buyQuote"]'));
-await P.locator('[data-act="buy"]').click(); await pg.waitForTimeout(1200);
+await P.locator('[data-act="buy"]').click(); await pg.waitForTimeout(600);
+// Si el escudo anti-rug la ve en rojo, el modo estricto pide confirmar: aquí confirmamos.
+if (await P.locator('[data-act="guardGo"]').count()) { console.log('  escudo anti-rug: pide confirmar'); await P.locator('[data-act="guardGo"]').click(); }
+await pg.waitForTimeout(1200);
 const st=(await sw.evaluate(()=>chrome.storage.local.get('fogueo'))).fogueo;
 const f=st.account.fills.at(-1);
 ok(f && f.side==='buy' && f.slipPct<1.5, `Compra real simulada: slippage ${f?.slipPct?.toFixed(2)} %, MC ${Math.round(f?.mc)}`);

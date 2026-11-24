@@ -1315,3 +1315,20 @@ a.upd-link { font-weight: 600; }
 @keyframes popt-spin { to { transform: rotate(360deg); } }
 .popt .popt-err { color: oklch(0.82 0.13 24); }
 @media (prefers-reduced-motion: reduce) { .popt-spin { animation-duration: 2.4s; } }
+
+/* Escudo anti-rug: nota 0-100 y aviso del modo estricto. */
+.chk-score { flex: none; display: inline-flex; align-items: baseline; gap: 1px; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; color: var(--fx-ink-3); background: oklch(1 0 0 / 0.05); }
+.chk-score b { font-size: 12px; font-weight: 700; color: var(--fx-ink); }
+.chk-score.sc-ok b { color: var(--fx-up); }
+.chk-score.sc-warn b { color: var(--fx-brand-hi); }
+.chk-score.sc-bad b { color: oklch(0.78 0.15 24); }
+.chk-row dt b { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.guard { margin: 2px 0 8px; padding: 10px 11px; border-radius: 10px; background: var(--fx-down-wash); border: 1px solid oklch(0.71 0.18 24 / 0.4); display: grid; gap: 6px; font-size: 12px; line-height: 1.4; color: var(--fx-ink-2); animation: guard-in 220ms cubic-bezier(0.22, 1, 0.36, 1); }
+.guard b { color: oklch(0.82 0.13 24); font-size: 12.5px; }
+.guard p { margin: 0; text-wrap: pretty; }
+.guard-q { color: var(--fx-ink); }
+.guard-a { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 2px; }
+.guard-go { height: 28px; padding: 0 12px; border-radius: 8px; font-weight: 600; font-size: 12px; color: oklch(0.82 0.13 24); background: oklch(0.71 0.18 24 / 0.16); border: 1px solid oklch(0.71 0.18 24 / 0.45); }
+.guard-go:hover { background: oklch(0.71 0.18 24 / 0.26); }
+@keyframes guard-in { from { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .guard { animation: none; } }

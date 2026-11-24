@@ -17,12 +17,14 @@ export function screenSettings(s) {
     <h2 id="screenSec">${tr('Chequeo de monedas')}</h2>
     <div class="scr">
       <p class="hint">${tr('Antes de comprar, el panel revisa lo que Padre ya enseña de cada moneda (top 10, dev, snipers, insiders, bundles y liquidez) y te dice si pinta bien, si hay que ir con cuidado o si es mejor evitarla.')}</p>
+      <p class="hint">${tr('El <b>escudo anti-rug</b> añade más: busca copias de monedas anteriores, mira si el gráfico tiene el dibujo de un rug, cuenta las monedas que ha creado el dev y lo que tienen las wallets recién creadas. Con todo te da una nota de 0 a 100.')}</p>
       <ul class="scr-legend" aria-label="${tr('Qué significa cada marca')}">
         <li class="v-good"><i></i><b>${tr('Bien')}</b><span>${tr('ninguna señal en rojo')}</span></li>
         <li class="v-care"><i></i><b>${tr('Ojo')}</b><span>${tr('dos o más señales flojas')}</span></li>
         <li class="v-avoid"><i></i><b>${tr('Evitar')}</b><span>${tr('al menos una en rojo')}</span></li>
       </ul>
       <div class="switch"><span>${tr('Marcar las monedas en Trenches')}<small class="muted" style="display:block;font-size:11.5px">${tr('Una etiqueta junto a cada tarjeta; pasa el ratón para ver por qué')}</small></span><button role="switch" aria-checked="${s.screenBadges !== false}" data-act="screenBadges" aria-label="${tr('Marcar las monedas en Trenches')}"></button></div>
+      <div class="switch"><span>${tr('Modo estricto')}<small class="muted" style="display:block;font-size:11.5px">${tr('Antes de comprar una moneda con señales de rug, te avisa y te pide confirmar')}</small></span><button role="switch" aria-checked="${s.strictShield !== false}" data-act="strictShield" aria-label="${tr('Modo estricto')}"></button></div>
       <div class="scr-rigor">
         <span class="scr-lbl" id="rigorLbl">${tr('Rigor')}</span>
         <div class="seg3" role="radiogroup" aria-labelledby="rigorLbl">
@@ -40,6 +42,8 @@ export function screenSettings(s) {
           ${row(tr('Bundles · MC $15-60K'), p(L.bundlesMid.ok), `+${p(L.bundlesMid.warn)}`)}
           ${row(tr('Bundles · MC > $60K'), p(L.bundlesBig.ok), `+${p(L.bundlesBig.warn)}`)}
           ${row(tr('Liquidez / MC'), `${tr('desde')} ${p(L.liq.ok)}`, `${tr('bajo')} ${p(L.liq.warn)}`)}
+          ${row(tr('Wallets nuevas'), p(L.fresh.ok), `+${p(L.fresh.warn)}`)}
+          ${row(tr('Monedas del dev'), String(Math.round(L.devTokens.ok)), `${Math.round(L.devTokens.warn) + 1}+`)}
         </tbody>
       </table>
       <details class="scr-gloss">
@@ -52,6 +56,10 @@ export function screenSettings(s) {
           ${why('bundles', { generic: true })}
           ${why('liq', { okR: L.liq.ok, warnR: L.liq.warn })}
           ${why('auth')}
+          ${why('fresh', { lim: L.fresh })}
+          ${why('devTokens', { lim: L.devTokens })}
+          <div class="gl-row"><dt>${checkName('copies')}</dt><dd>${tr('Busca en Solana otras monedas con el mismo nombre o ticker. Si antes hubo una igual que fue viral, la nueva casi nunca repite y muchas son rugs.')}</dd></div>
+          <div class="gl-row"><dt>${checkName('chart')}</dt><dd>${tr('Mira las velas de la última hora: caídas de más del 50 % en un minuto, subidas de ×4 que se desploman justo después o un volumen idéntico vela tras vela (bots).')}</dd></div>
         </dl>
       </details>
       <p class="scr-note">${tr('Son reglas para practicar a filtrar, no una garantía. Cuando la IA esté activa, también las usará para revisar tus entradas.')}</p>

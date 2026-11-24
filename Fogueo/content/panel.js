@@ -8,7 +8,8 @@ import { tr, setLang, getLang } from '../lib/i18n.js';
 import { Tour } from './tour.js';
 import { startScan, setScanOptions, cachedFacts } from './scan.js';
 import { PADRE_PLAN, applyPadrePlan, restorePadreBackup, getPadreBackup } from './padre-setup.js';
-import { readTokenData, readPadrePreset, mergeFacts, screenToken, screenRisks, checkName, checkValue, checkWhy, VERDICT } from '../lib/screen.js';
+import { readTokenData, readPadrePreset, mergeFacts, screenToken, screenRisks, checkName, checkValue, checkWhy, checkShort, VERDICT } from '../lib/screen.js';
+import { scoreBand } from '../lib/shield.js';
 import { UPD_KEY, updateView, updateCard, readUpdate, onUpdateAction } from '../lib/update.js';
 
 const ICON = {
@@ -302,6 +303,7 @@ class Panel {
               <textarea class="note" data-ref="buyNote" hidden placeholder="${tr('Ej.: rompe resistencia en 40K de MC con volumen, dev no ha vendido…')}"></textarea>
               <div class="quote" data-ref="buyQuote" aria-live="polite"></div>
               <div data-ref="padreSync"></div>
+              <div data-ref="guardArea" aria-live="polite"></div>
               <button class="go buy" data-act="buy"><span class="label" data-ref="buyLabel">${tr('Comprar')}</span><span class="spin"><i></i></span></button>
             </div>
             <div class="form" data-ref="sellForm" hidden>
@@ -568,6 +570,7 @@ class Panel {
     this.quote = res.data.quote;
     this.solUsd = res.data.solUsd;
     this.key = `${this.quote.chain}:${this.quote.address}`;
+    if (this.refs?.guardArea) this.refs.guardArea.innerHTML = '';
     this.status = 'ready';
     this.renderAll();
     // Ajustes recomendados automáticos al abrir un token nuevo.
@@ -861,11 +864,28 @@ class Panel {
       this.renderPadreSync();
     }
     const curve = q.stage === 'new';
+    if (mint) this.requestShield(q);
+    const sh = this.shield?.key === this.key ? this.shield.data : null;
     return mergeFacts(
       { curve, mcUsd: q.marketCapUsd, liqUsd: curve ? null : q.liquidityUsd },
       this.pageFacts.f,
       cachedFacts(mint),
+      { copies: sh?.copies || null, chart: sh?.chart || null },
     );
+  }
+
+  // Escudo anti-rug: copias del nombre y gráfico de la última hora (lo calcula el fondo, con caché).
+  requestShield(q) {
+    const now = Date.now();
+    if (this.shieldReq && this.shieldReq.key === this.key && now - this.shieldReq.at < 60_000) return;
+    this.shieldReq = { key: this.key, at: now };
+    const key = this.key;
+    send({ type: 'shield', mint: q.address, name: q.name, symbol: q.symbol, createdAt: q.pairCreatedAt, mcUsd: q.marketCapUsd }).then((res) => {
+      if (!res?.ok || !res.data || key !== this.key) return;
+      this.shield = { key, data: res.data };
+      this.checkSig = '';
+      this.renderCheck();
+    });
   }
 
   // ---------- Optimizar los ajustes de Padre (cuenta real) ----------
@@ -984,7 +1004,7 @@ class Panel {
     if (!f) { if (area.innerHTML) area.innerHTML = ''; this.checkSig = ''; return; }
     const res = screenToken(f, { rigor: this.settings.screenRigor });
     const open = !!this.st?.ui?.checkOpen;
-    const sig = JSON.stringify([open, getLang(), res.checks.map((c) => [c.id, c.level, c.value, c.n, c.sold, c.curve])]);
+    const sig = JSON.stringify([open, getLang(), res.score, res.checks.map((c) => [c.id, c.level, c.value, c.n, c.sold, c.curve, c.copy?.kind, c.chart?.signals?.length])]);
     if (sig === this.checkSig && area.firstElementChild) return;
     this.checkSig = sig;
     const V = VERDICT[res.verdict];
@@ -1004,6 +1024,7 @@ class Panel {
       <div class="chk is-${res.verdict}${open ? ' open' : ''}${settled}">
         <button class="chk-head" data-act="checkToggle" aria-expanded="${open}" aria-controls="fx-chk-body">
           <span class="chk-verdict"><span class="chk-shield" aria-hidden="true"></span>${tr(V.label)}</span>
+          ${res.score != null ? `<span class="chk-score sc-${scoreBand(res.score)}" title="${esc(tr('Nota del escudo anti-rug (0-100)'))}"><b class="num">${res.score}</b>/100</span>` : ''}
           <span class="chk-dots" aria-hidden="true">${dots}</span>
           <span class="chk-tally">${tally || tr('sin datos aún')}</span>
           <span class="reco-more">${open ? tr('Ocultar') : tr('Detalles')}${ICON.chevron}</span>
@@ -1578,6 +1599,8 @@ class Panel {
       if (autoPreset) this.toast('info', tr('A partir de ahora, al abrir un token se aplicarán sus ajustes recomendados (nuevo par o graduado).'));
     }
     else if (act === 'buy') this.buy();
+    else if (act === 'guardGo') { this.guardOk = this.key; this.refs.guardArea.innerHTML = ''; this.buy(); }
+    else if (act === 'guardCancel') { this.refs.guardArea.innerHTML = ''; this.toast('info', tr('Bien visto: descartar una moneda dudosa también es un buen trade.')); }
     else if (act === 'sell') this.sell();
     else if (act === 'initials') this.sellInitials();
     else if (act === 'editTarget') this.startEditTarget(b.dataset.kind);
@@ -1633,6 +1656,7 @@ class Panel {
     if (!(solIn > 0)) { r.amount.focus(); return; }
     const tp = r.useTp.checked ? parseNum(r.tpPct.value) : 0;
     const sl = r.useSl.checked ? parseNum(r.slPct.value) : 0;
+    if (this.strictGuard(solIn)) return;
     const base = { key: this.key, solIn: Math.round(solIn * 1e6) / 1e6, tpPct: tp > 0 ? tp : 0, slPct: sl > 0 ? Math.min(sl, 99) : 0, trailing: !!(sl > 0 && this.settings.useTrail), note: r.buyNote.value.trim(), url: location.href, screen: this.screenSnapshot() };
 
     if (this.orderType === 'limit') {
@@ -1668,6 +1692,27 @@ class Panel {
       ],
     });
     this.renderQuotes();
+  }
+
+  // Modo estricto: antes de gastar saldo de práctica en una moneda con señales de rug, se avisa y se pide confirmar.
+  strictGuard(solIn) {
+    const area = this.refs.guardArea;
+    if (this.settings.strictShield === false || this.guardOk === this.key) { if (area) area.innerHTML = ''; return false; }
+    const f = this.screenFacts();
+    if (!f) return false;
+    const res = screenToken(f, { rigor: this.settings.screenRigor });
+    if (res.verdict !== 'avoid' && !(res.score != null && res.score < 50)) return false;
+    const why = res.checks.filter((c) => c.level === 'bad').map((c) => checkShort(c) || checkName(c.id)).filter(Boolean).slice(0, 4);
+    if (area) {
+      area.innerHTML = `<div class="guard" role="alertdialog" aria-labelledby="fx-guard-h">
+        <b id="fx-guard-h">${tr('Esta moneda tiene señales de rug')}</b>
+        <p>${tr('Motivos: {why}.', { why: esc(why.join(' · ') || tr('nota baja del escudo')) })}${res.score != null ? ' ' + tr('Nota {s}/100.', { s: res.score }) : ''}</p>
+        <p class="guard-q">${tr('¿Seguro que quieres gastar {sol} SOL de práctica aquí? Con dinero real, esta es la moneda que te vacía la wallet.', { sol: fmtSol(solIn) })}</p>
+        <div class="guard-a"><button class="link-btn" data-act="guardCancel">${tr('No, la descarto')}</button><button class="guard-go" data-act="guardGo">${tr('Comprar igualmente')}</button></div>
+      </div>`;
+      area.querySelector('[data-act="guardCancel"]')?.focus();
+    }
+    return true;
   }
 
   // Chispa al ejecutar una orden: onda en el botón y la llama de la marca se aviva.

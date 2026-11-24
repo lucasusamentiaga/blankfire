@@ -5,6 +5,7 @@ import {
   realizedSince, startOfDay, REVIEW_TAGS, LAUNCH_DEXES, stopLevelPct, txCost, failCost,
 } from './lib/core.js';
 import { tr, setLang } from './lib/i18n.js';
+import { analyzeCopies, analyzeChart } from './lib/shield.js';
 import { RAW, cmpVer, installedVersion, readUpdate, patchUpdate } from './lib/update.js';
 import { PRO_KEY, LS_API, REVALIDATE_MS, isPro, proSelling, licenseMatches, PRO_CONFIG, maskKey, SUPPORT } from './lib/pro.js';
 import { buildSeries, tradeFacts, tradeFlags, tradeContext, candleWindow } from './lib/review.js';
@@ -742,8 +743,40 @@ async function updateBadge() {
 
 // ---------- Mensajes ----------
 
+
+// ---------- Escudo anti-rug: copias del nombre y dibujo del gráfico ----------
+const shieldCache = new Map();   // mint → { at, data }
+const SHIELD_TTL = 90_000;
+async function shieldFor({ mint, name, symbol, createdAt, mcUsd }) {
+  const hit = shieldCache.get(mint);
+  if (hit && Date.now() - hit.at < SHIELD_TTL) return hit.data;
+  const self = { address: mint, name, symbol, createdAt, mcUsd };
+  const copiesP = (async () => {
+    const qs = [...new Set([symbol, name].filter((x) => x && String(x).length >= 2).map((x) => String(x).slice(0, 40)))];
+    const lists = await Promise.all(qs.map((q) => getJson(`${DS}/latest/dex/search?q=${encodeURIComponent(q)}`).then((j) => j.pairs || []).catch(() => [])));
+    return analyzeCopies(self, lists.flat());
+  })();
+  const chartP = (async () => {
+    const pools = await fetch(`${GT}/networks/solana/tokens/${mint}/pools?page=1`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(7000) }).then((r) => (r.ok ? r.json() : null));
+    const pool = pools?.data?.[0]?.attributes?.address;
+    if (!pool) return null;
+    const o = await fetch(`${GT}/networks/solana/pools/${pool}/ohlcv/minute?aggregate=1&limit=90&currency=usd`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(7000) }).then((r) => (r.ok ? r.json() : null));
+    return analyzeChart(o?.data?.attributes?.ohlcv_list || []);
+  })();
+  const [copies, chart] = await Promise.all([copiesP.catch(() => null), chartP.catch(() => null)]);
+  const data = { copies, chart, at: Date.now() };
+  shieldCache.set(mint, { at: Date.now(), data });
+  if (shieldCache.size > 200) shieldCache.delete(shieldCache.keys().next().value);
+  return data;
+}
+
 const handlers = {
   async state() { return load(); },
+
+  async shield({ mint, name, symbol, createdAt, mcUsd }) {
+    if (!mint || typeof mint !== 'string' || mint.length > 64) return null;
+    return shieldFor({ mint, name: String(name || '').slice(0, 60), symbol: String(symbol || '').slice(0, 20), createdAt: Number(createdAt) || null, mcUsd: Number(mcUsd) || 0 });
+  },
 
   async resolve({ address }) {
     const [quote, sol] = await Promise.all([resolveAddress(address), solUsd()]);
@@ -863,6 +896,7 @@ const handlers = {
       if ('autoPreset' in settings) clean.autoPreset = !!settings.autoPreset;
       if ('poolFees' in settings) clean.poolFees = !!settings.poolFees;
       if ('screenBadges' in settings) clean.screenBadges = !!settings.screenBadges;
+      if ('strictShield' in settings) clean.strictShield = !!settings.strictShield;
       if ('screenRigor' in settings) clean.screenRigor = ['strict', 'normal', 'loose'].includes(settings.screenRigor) ? settings.screenRigor : 'normal';
       if ('dailyLossLimit' in settings) clean.dailyLossLimit = num(settings.dailyLossLimit, 0, 1e6);
       if ('sizeMode' in settings) clean.sizeMode = settings.sizeMode === 'pct' ? 'pct' : 'sol';

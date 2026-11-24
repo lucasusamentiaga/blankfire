@@ -666,6 +666,13 @@ document.addEventListener('click', async (e) => {
     btn.setAttribute('aria-checked', String(on));
     await send({ type: 'saveSettings', settings: { poolFees: on } });
   }
+  if (act === 'strictShield') {
+    const btn = t.closest('[data-act]');
+    const on = btn.getAttribute('aria-checked') !== 'true';
+    btn.setAttribute('aria-checked', String(on));
+    st.settings = { ...st.settings, strictShield: on };
+    await send({ type: 'saveSettings', settings: { strictShield: on } });
+  }
   if (act === 'screenBadges') {
     const btn = t.closest('[data-act]');
     const on = btn.getAttribute('aria-checked') !== 'true';

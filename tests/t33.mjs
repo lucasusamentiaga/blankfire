@@ -111,7 +111,12 @@ const buy = await send({ type: 'buy', key: 'solana:' + BAD, solIn: 0.1, screen: 
 ok(buy.ok, 'compra sin instantánea (orden antigua) sigue funcionando');
 await send({ type: 'sell', key: 'solana:' + BAD, pct: 100 });
 await tp.evaluate(() => { const r = document.querySelector('#fogueo-root').shadowRoot; r.querySelector('[data-ref="amount"]').value = '0.1'; r.querySelector('[data-ref="amount"]').dispatchEvent(new Event('input')); });
-await tp.evaluate(() => document.querySelector('#fogueo-root').shadowRoot.querySelector('.go')?.click()); await tp.waitForTimeout(1500);
+await tp.evaluate(() => document.querySelector('#fogueo-root').shadowRoot.querySelector('.go')?.click()); await tp.waitForTimeout(800);
+// Modo estricto: antes de comprar una moneda en rojo, aviso con los motivos y nada comprado todavía.
+const guard = await tp.evaluate(() => { const r = document.querySelector('#fogueo-root').shadowRoot; const g = r.querySelector('.guard'); return g ? g.innerText : ''; });
+const before = (await send({ type: 'state' })).data.account.positions['solana:' + BAD];
+ok(/rug|signals/i.test(guard) && /top 10/i.test(guard) && !before, 'modo estricto: avisa con los motivos antes de comprar una moneda en rojo y no compra');
+await tp.evaluate(() => document.querySelector('#fogueo-root').shadowRoot.querySelector('[data-act="guardGo"]')?.click()); await tp.waitForTimeout(1500);
 let s = (await send({ type: 'state' })).data;
 const pos = s.account.positions['solana:' + BAD];
 ok(pos?.screen?.verdict === 'avoid' && pos.screen.risks.length >= 3 && pos.screen.facts.snipersN === 14, 'al comprar desde el panel se guarda el chequeo en la posición');

@@ -3,6 +3,23 @@
     "ai": false
   },
   "releases": {
+    "1.17.0": {
+      "date": "2026-11-24",
+      "es": [
+        "Escudo anti-rug: nota de 0 a 100 en el chequeo de cada moneda",
+        "Detecta copias: avisa si antes hubo una moneda igual que fue viral o si hay un enjambre de copias hoy (y no marca a la que va ganando)",
+        "Lee el gráfico de la última hora: velas de rug, pump & dump, caída desde el máximo y volumen de bots",
+        "Nuevos datos: wallets recién creadas (multicuentas), monedas que ha creado el dev y holders para su market cap",
+        "Modo estricto: antes de comprar una moneda en rojo te enseña los motivos y te pide confirmar"
+      ],
+      "en": [
+        "Anti-rug shield: a 0-100 score on every coin's check",
+        "Copy detection: warns if an identical coin went viral before or there's a swarm of copies today (and doesn't flag the one that's winning)",
+        "Reads the last hour's chart: rug candles, pump & dump, drop from the top and bot volume",
+        "New data: brand-new wallets (multi-accounts), coins the dev has launched and holders for its market cap",
+        "Strict mode: before buying a red coin it shows you the reasons and asks you to confirm"
+      ]
+    },
     "1.16.1": {
       "date": "2026-11-19",
       "es": ["Las etiquetas Bien / Ojo / Evitar de Trenches ya no quedan tapadas por el botón de compra rápida de Padre"],

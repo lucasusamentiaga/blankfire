@@ -2,6 +2,7 @@
 // Criterios: top 10, dev, snipers, insiders, bundles, liquidez y autoridades del token.
 // Los umbrales son orientativos: sirven para practicar a filtrar, no garantizan nada.
 import { tr, getLang } from './i18n.js';
+import { shieldScore, parseCount } from './shield.js';
 
 // ---------- Umbrales ----------
 // Cada criterio: hasta `ok` → bien; hasta `warn` → ojo; por encima → peligro.
@@ -11,6 +12,8 @@ const BASE = {
   dev: { ok: 5, warn: 15 },
   snipers: { ok: 5, warn: 15 },
   insiders: { ok: 10, warn: 20 },
+  fresh: { ok: 15, warn: 35 },
+  devTokens: { ok: 4, warn: 19 },
 };
 // El bundle se tolera más cuanto más pequeño es el token: a 5-10K de MC un 20-30 % es normal,
 // pero si la moneda crece y el bundle sigue ahí, cada vez es más peligroso.
@@ -87,7 +90,7 @@ export function readAuditRow(row) {
 // Bloque «Token Data & Security» de la página de un token: cada valor va justo encima de su etiqueta.
 const DATA_LABELS = [
   [/^top 10/i, 'top10'], [/^dev hold/i, 'dev'], [/^bundl/i, 'bundles'], [/^snipers?/i, 'snipers'],
-  [/^insiders?/i, 'insiders'], [/^mint auth/i, 'mintAuth'], [/^freeze auth/i, 'freezeAuth'],
+  [/^insiders?/i, 'insiders'], [/^mint auth/i, 'mintAuth'], [/^freeze auth/i, 'freezeAuth'], [/^fresh hold/i, 'fresh'],
 ];
 export function readTokenData(doc) {
   const f = {};
@@ -105,6 +108,14 @@ export function readTokenData(doc) {
     if (hit[1] === 'mintAuth' || hit[1] === 'freezeAuth') { if (/^(yes|no)$/i.test(v)) f[hit[1]] = /^yes$/i.test(v); }
     else if (hit[1] === 'snipers') { const s = parseSnipers(v); f.snipers = s ? s.pct : parsePct(v); if (s) f.snipersN = s.n; }
     else f[hit[1]] = v === '-' ? null : parsePct(v);
+  }
+  // Pestañas «Dev Tokens (8970)» y «Holders (3.81K)»: monedas creadas por el mismo dev y holders totales.
+  for (const n of leaves) {
+    const t = n.textContent.trim();
+    const key = /^dev tokens$/i.test(t) ? 'devTokens' : /^holders$/i.test(t) ? 'holders' : null;
+    if (!key || f[key] !== undefined) continue;
+    const rest = (n.parentElement?.textContent || '').replace(t, '');
+    if (/\(\s*[\d.,]+\s*[KkMm]?\s*\)/.test(rest)) f[key] = parseCount(rest);
   }
   // Comisión real del token («Buy Tax» de Padre: curva, pool, conversión del par…).
   const tax = doc.querySelector?.('[aria-label="Buy Tax"]');
@@ -169,6 +180,22 @@ export function screenToken(facts = {}, { rigor = 'normal' } = {}) {
       add('liq', liq, level, { ratio, mc, okR, warnR });
     }
   }
+  // Wallets recién creadas con mucho del suministro: la huella típica de multicuentas (lo que enseña un bubble map).
+  if (num(f.fresh) != null) { const lim = scale(BASE.fresh, rigor); add('fresh', num(f.fresh), grade(num(f.fresh), lim), { lim }); }
+  // Dev en serie: crea decenas de monedas y abandona todas.
+  if (num(f.devTokens) != null) { const lim = scale(BASE.devTokens, rigor); add('devTokens', num(f.devTokens), grade(num(f.devTokens), lim), { lim }); }
+  // Pocos holders para tanto market cap = precio inflado entre pocas manos.
+  {
+    const h = num(f.holders), mc = num(f.mcUsd);
+    if (h != null && mc >= 50000) {
+      const perK = h / (mc / 1000);
+      const fct = FACTOR[rigor] || 1;
+      add('holders', h, perK < 0.2 / fct ? 'bad' : perK < 0.5 / fct ? 'warn' : 'ok', { perK, mc });
+    }
+  }
+  // Señales del escudo calculadas fuera (copias y gráfico).
+  if (f.copies) add('copies', null, f.copies.level, { copy: f.copies });
+  if (f.chart) add('chart', null, f.chart.level, { chart: f.chart });
   if (f.mintAuth != null || f.freezeAuth != null) {
     const bad = f.mintAuth === true || f.freezeAuth === true;
     add('auth', null, bad ? 'bad' : 'ok', { mint: f.mintAuth ?? null, freeze: f.freezeAuth ?? null });
@@ -179,7 +206,8 @@ export function screenToken(facts = {}, { rigor = 'normal' } = {}) {
   // Top 10 al 0 % no existe en una moneda real: Padre aún no tiene los datos (tokens de segundos).
   const early = num(f.top10) === 0;
   const verdict = bad > 0 ? 'avoid' : known < 3 || early ? 'unknown' : warn >= 2 ? 'care' : 'good';
-  return { checks, ok, warn, bad, known, verdict };
+  const score = early ? null : shieldScore(checks);
+  return { checks, ok, warn, bad, known, verdict, score };
 }
 
 // Resumen corto de lo peligroso, para el aviso de la revisión: «dev 25 %, bundle 34 %».
@@ -199,11 +227,11 @@ export const VERDICT = {
 };
 
 export function checkName(id) {
-  return tr({ top10: 'Top 10 holders', dev: 'Dev', snipers: 'Snipers dentro', insiders: 'Insiders', bundles: 'Bundles', liq: 'Liquidez', auth: 'Autoridades' }[id] || id);
+  return tr({ top10: 'Top 10 holders', dev: 'Dev', snipers: 'Snipers dentro', insiders: 'Insiders', bundles: 'Bundles', liq: 'Liquidez', auth: 'Autoridades', fresh: 'Wallets nuevas', devTokens: 'Monedas del dev', holders: 'Holders', copies: 'Copias', chart: 'Gráfico' }[id] || id);
 }
 
 export function checkShort(c) {
-  if (c.value == null && c.id !== 'auth' && !c.curve) return '';
+  if (c.value == null && c.id !== 'auth' && c.id !== 'copies' && c.id !== 'chart' && !c.curve) return '';
   switch (c.id) {
     case 'top10': return tr('top 10 {v}', { v: p(c.value) });
     case 'dev': return c.sold ? tr('dev vendió') : tr('dev {v}', { v: p(c.value) });
@@ -213,6 +241,11 @@ export function checkShort(c) {
       return tr('bundle {v}', { v: p(c.value) });
     case 'liq': return c.curve ? tr('en curva') : tr('liquidez {v} del MC', { v: p(c.ratio) });
     case 'auth': return c.mint ? tr('puede crear más tokens') : c.freeze ? tr('puede congelar wallets') : tr('autoridades revocadas');
+    case 'fresh': return tr('wallets nuevas {v}', { v: p(c.value) });
+    case 'devTokens': return tr('el dev creó {n} monedas', { n: c.value });
+    case 'holders': return tr('solo {n} holders', { n: c.value });
+    case 'copies': return c.copy?.kind === 'famous' ? tr('copia de ${s}', { s: c.copy.top?.symbol || '?' }) : c.copy?.kind === 'swarm' ? tr('{n} copias hoy', { n: c.copy.today }) : c.copy?.kind === 'twin' ? tr('nombre copiado') : '';
+    case 'chart': { const s0 = (c.chart?.signals || []).find((x) => x.level === c.level) || {}; return s0.id === 'rugCandle' ? tr('vela de {v}', { v: p(s0.pct) }) : s0.id === 'pumpDump' ? tr('pump & dump') : s0.id === 'dumped' ? tr('{v} desde el máximo', { v: p(s0.pct) }) : s0.id === 'botVolume' ? tr('volumen de bots') : ''; }
     default: return '';
   }
 }
@@ -220,6 +253,13 @@ export function checkShort(c) {
 export function checkValue(c) {
   if (c.id === 'auth') return c.mint || c.freeze ? tr('Activas') : tr('Revocadas');
   if (c.id === 'liq') return c.curve ? tr('Curva') : c.value == null ? '—' : money(c.value);
+  if (c.id === 'devTokens' || c.id === 'holders') return c.value == null ? '—' : new Intl.NumberFormat(getLang() === 'en' ? 'en-US' : 'es-ES').format(c.value);
+  if (c.id === 'copies') { const k = c.copy?.kind; return k === 'famous' ? tr('Copia') : k === 'swarm' ? tr('{n} hoy', { n: c.copy.today }) : k === 'twin' ? tr('Repetida') : k === 'leader' ? tr('La mejor') : c.copy?.total ? tr('{n} parecidas', { n: c.copy.total }) : tr('Única'); }
+  if (c.id === 'chart') {
+    const s0 = (c.chart?.signals || []).find((x) => x.level === c.level);
+    if (!s0) return tr('Normal');
+    return s0.id === 'rugCandle' ? tr('Vela {v}', { v: p(s0.pct) }) : s0.id === 'pumpDump' ? tr('Pump & dump') : s0.id === 'botVolume' ? tr('Bots') : p(s0.pct);
+  }
   if (c.value == null) return '—';
   if (c.id === 'dev' && c.sold) return tr('Vendió');
   if (c.id === 'snipers' && c.n != null) return `${c.n} · ${p(c.value)}`;
@@ -239,6 +279,27 @@ export function checkWhy(c) {
       ? tr('Aún está en la curva de pump.fun: el precio lo marca la curva y siempre se puede vender contra ella.')
       : tr('El dinero real del pool para comprarte lo que vendes. Lo sano es al menos un {ok} del market cap; con menos del {warn}, o menos de $3K, vender mueve mucho el precio o es imposible.', { ok: p(c.okR ?? 10), warn: p(c.warnR ?? 4) });
     case 'auth': return tr('Si el creador conserva la autoridad de «mint» puede fabricar tokens nuevos, y con la de «freeze» puede congelar tu wallet para que no vendas.');
+    case 'fresh': return tr('Lo que tienen wallets recién creadas, la huella típica de una sola persona con muchas cuentas (lo que verías en el bubble map). Por encima del {warn} es peligroso; lo sano es menos del {ok}.', { ok: p(L.ok ?? 15), warn: p(L.warn ?? 35) });
+    case 'devTokens': return tr('Monedas que ha creado esta misma wallet. Un dev que lanza decenas suele abandonarlas todas en minutos: con {warn} o más, mejor no confiar.', { warn: (L.warn ?? 19) + 1 });
+    case 'holders': return tr('Gente distinta que tiene la moneda. Con muy pocos holders para este market cap ({k} por cada $1K), el precio está en pocas manos y puede estar inflado.', { k: (Math.round((c.perK || 0) * 100) / 100).toString().replace('.', getLang() === 'en' ? '.' : ',') });
+    case 'copies': {
+      const k = c.copy?.kind, t = c.copy?.top;
+      if (k === 'famous') return tr('Ya existió una moneda con este nombre que llegó a {mc} ({s}). Las copias de una que fue viral casi nunca repiten y muchas son rugs: el creador aprovecha el nombre conocido.', { mc: money(t?.fdv || 0), s: '$' + (t?.symbol || '?') });
+      if (k === 'swarm') return tr('Hoy han salido {n} monedas con el mismo nombre o ticker. Cuando hay un enjambre de copias, casi todas mueren en minutos.', { n: c.copy.today });
+      if (k === 'twin') return tr('Antes salió otra exactamente igual y le fue mejor. Esta es una copia: mala señal.');
+      if (k === 'leader') return tr('Hay otras con el mismo nombre, pero esta es la que más ha subido: no parece una copia barata.');
+      return c.copy?.total ? tr('Hay monedas con nombre parecido, pero ninguna fue viral antes.') : tr('No hay otra moneda con este nombre en Solana: es original.');
+    }
+    case 'chart': {
+      const out = [];
+      for (const s0 of c.chart?.signals || []) {
+        if (s0.id === 'dumped') out.push(tr('Ya ha caído un {v} desde su máximo: llegas tarde o ya la vaciaron.', { v: p(Math.abs(s0.pct)) }));
+        if (s0.id === 'rugCandle') out.push(tr('Hubo una vela de un minuto de {v}: alguien retiró la liquidez o vendió todo de golpe.', { v: p(s0.pct) }));
+        if (s0.id === 'pumpDump') out.push(tr('Subió ×{m} en pocos minutos y se desplomó justo después: el dibujo típico de un pump & dump.', { m: Math.round(s0.mult) }));
+        if (s0.id === 'botVolume') out.push(tr('El volumen es casi idéntico vela tras vela: suelen ser bots inflando la actividad.'));
+      }
+      return out.join(' ') || tr('El gráfico de la última hora no tiene los dibujos típicos de un rug.');
+    }
     default: return '';
   }
 }
@@ -250,6 +311,7 @@ export function screenLimits(rigor = 'normal') {
     top10: scale(BASE.top10, rigor), dev: scale(BASE.dev, rigor), snipers: scale(BASE.snipers, rigor), insiders: scale(BASE.insiders, rigor),
     bundlesSmall: scale(bundleLimits(5000), rigor), bundlesMid: scale(bundleLimits(30000), rigor), bundlesBig: scale(bundleLimits(100000), rigor),
     liq: { ok: Math.round((LIQ.okRatio / f) * 10) / 10, warn: Math.round((LIQ.warnRatio / f) * 10) / 10 },
+    fresh: scale(BASE.fresh, rigor), devTokens: scale(BASE.devTokens, rigor),
   };
 }
 export { p as fmtScreenPct };
