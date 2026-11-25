@@ -3,6 +3,25 @@
     "ai": false
   },
   "releases": {
+    "1.21.0": {
+      "date": "2026-11-25",
+      "es": [
+        "Dinero real automático: el bot opera con SOL de verdad desde una wallet propia que crea Blankfire (tu Phantom no se toca; le mandas tú poca SOL)",
+        "La clave de esa wallet se guarda cifrada (AES-256 y 600.000 rondas de PBKDF2 con tu contraseña) y, abierta, solo vive en memoria hasta que cierras Opera",
+        "Retiradas solo a la dirección de tu Phantom que fijas al crearla; copia de seguridad que se enseña una vez",
+        "Límites que el bot no puede saltarse: máximo por compra, compras al día, abiertas a la vez y pérdida máxima diaria (se apaga solo), y botón de pánico que vende todo",
+        "Los stops con dinero real reintentan hasta 3 veces subiendo el slippage para salir sí o sí",
+        "Seguridad: las órdenes de wallet, bot y claves solo se aceptan desde las ventanas de Blankfire, y las páginas de la extensión tienen política de seguridad estricta"
+      ],
+      "en": [
+        "Automatic real money: the bot trades with real SOL from its own wallet created by Blankfire (your Phantom isn't touched; you send it a little SOL)",
+        "That wallet's key is stored encrypted (AES-256 and 600,000 PBKDF2 rounds with your password) and, when unlocked, only lives in memory until you close Opera",
+        "Withdrawals only to the Phantom address you set when creating it; a backup shown once",
+        "Limits the bot can't override: max per buy, buys per day, open at once and max daily loss (turns itself off), plus a panic button that sells everything",
+        "Real-money stops retry up to 3 times with rising slippage so they get out no matter what",
+        "Security: wallet, bot and key commands are only accepted from Blankfire's own windows, and extension pages have a strict security policy"
+      ]
+    },
     "1.20.0": {
       "date": "2026-11-25",
       "es": [

@@ -9,6 +9,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const send = (msg) => new Promise((res) => chrome.runtime.sendMessage(msg, (r) => res(r || { ok: false, error: chrome.runtime.lastError?.message })));
 
 let store = null, filter = 'all', open = new Set(), busy = false, userSettings = DEFAULT_SETTINGS;
+let real = null, realBackup = null, realBusy = false;
 
 const AGENTS = {
   smarts: { name: 'Dinero inteligente', what: 'Lee quién compra, cuánto y con qué prisa' },
@@ -215,6 +216,87 @@ function copilotBlock() {
   </section>`;
 }
 
+// ---------- Modo automático con dinero real ----------
+const shortA = (a) => (a ? `${a.slice(0, 4)}…${a.slice(-4)}` : '');
+function realBlock() {
+  if (!real) return '';
+  const g = real.gate;
+  const head = `<header class="sec-h"><h3>${tr('Dinero real automático')}</h3><span class="status st-${real.config.mode === 'auto' && real.unlocked ? 'run' : real.has && !real.unlocked ? 'pause' : 'idle'}"><i></i>${tr(!g.ok ? 'Bloqueado' : !real.has ? 'Sin wallet' : !real.unlocked ? 'Cerrada' : real.config.mode === 'auto' ? 'Operando' : 'Apagado')}</span></header>`;
+  const intro = `<p class="hint">${tr('El bot copia sus decisiones con SOL de verdad desde una wallet propia que crea Blankfire. Tu Phantom no se toca: le mandas tú poca SOL y puedes retirarla cuando quieras, solo a tu Phantom.')}</p>`;
+  if (!g.ok) return `<section class="side-s realb">${head}${intro}<p class="muted sm2">${tr('Se desbloquea igual que el copiloto: {n} operaciones simuladas y resultado positivo ({t} de {n}).', { n: COPILOT_UNLOCK.trades, t: g.trades })}</p></section>`;
+  if (realBackup) {
+    return `<section class="side-s realb">${head}
+      <div class="backup" role="alert">
+        <p><b>${tr('Guarda esta clave privada ahora. Solo la verás esta vez.')}</b></p>
+        <p class="muted sm2">${tr('Con ella puedes recuperar la wallet del bot en Phantom si borras la extensión. Quien la tenga, tiene el dinero: no la mandes a nadie, no le hagas captura y no la pegues en ninguna web.')}</p>
+        <code class="secret" data-ref="secret">${esc(realBackup.backup)}</code>
+        <button class="btn small" data-act="copySecret">${tr('Copiar')}</button>
+        <p class="sm2">${tr('Dirección de la wallet del bot (aquí le mandas SOL desde Phantom):')}</p>
+        <code class="addr">${esc(realBackup.address)}</code>
+        <label class="chk"><input type="checkbox" data-ref="savedOk"> ${tr('La he guardado en un sitio seguro')}</label>
+        <button class="btn small primary" data-act="backupDone">${tr('Hecho')}</button>
+      </div></section>`;
+  }
+  if (!real.has) {
+    return `<section class="side-s realb">${head}${intro}
+      <form class="cop" data-form="realCreate" autocomplete="off">
+        <label class="fld"><span class="fl">${tr('Contraseña de la wallet del bot')}</span><span class="fi"><input type="password" name="pw" autocomplete="new-password"></span><small>${tr('Mínimo 10 caracteres, con letras y números o símbolos. Si la olvidas, solo podrás recuperar el dinero con la copia de seguridad.')}</small></label>
+        <label class="fld"><span class="fl">${tr('Repítela')}</span><span class="fi"><input type="password" name="pw2" autocomplete="new-password"></span></label>
+        <label class="fld"><span class="fl">${tr('Tu dirección de Phantom (para retirar)')}</span><span class="fi"><input name="to" spellcheck="false" autocomplete="off"></span><small>${tr('Solo se podrá retirar a esta dirección. No se puede cambiar después.')}</small></label>
+        <label class="chk"><input type="checkbox" name="risk"> ${tr('Entiendo que el bot puede perder lo que le meta')}</label>
+        <button class="btn small primary" type="submit" ${realBusy ? 'disabled' : ''}>${tr(realBusy ? 'Creando…' : 'Crear wallet del bot')}</button>
+      </form></section>`;
+  }
+  if (!real.unlocked) {
+    return `<section class="side-s realb">${head}
+      <p class="sm2">${tr('Wallet del bot')}: <code class="addr">${esc(shortA(real.address))}</code></p>
+      <p class="hint">${tr('Está cerrada (se cierra sola al cerrar Opera). Mientras esté cerrada, el bot no compra ni vende con dinero real.')}</p>
+      <form class="cop" data-form="realUnlock"><label class="fld"><span class="fl">${tr('Contraseña')}</span><span class="fi"><input type="password" name="pw" autocomplete="current-password"></span></label>
+      <button class="btn small primary" type="submit" ${realBusy ? 'disabled' : ''}>${tr(realBusy ? 'Abriendo…' : 'Abrir')}</button></form>
+      ${Object.keys(real.positions).length ? `<p class="warnp">${tr('Tiene {n} posiciones abiertas con dinero real sin vigilar. Ábrela para que el bot pueda venderlas.', { n: Object.keys(real.positions).length })}</p>` : ''}
+    </section>`;
+  }
+  const c = real.config, pos = Object.values(real.positions);
+  const kindTxt = { buy: 'Compra', sell: 'Venta', skip: 'Salta', error: 'Error', halt: 'Freno', info: 'Aviso', withdraw: 'Retirada' };
+  const sayL = (l) => (l.t ? (l.v ? tr(l.t, Object.fromEntries(Object.entries(l.v).map(([k, v]) => [k, esc(tr(String(v)))]))) : esc(tr(l.t))) : '');
+  return `<section class="side-s realb on">${head}
+    <div class="rbal"><div><span>${tr('Saldo')}</span><b class="num">${real.balance == null ? '—' : `${fmtSol(real.balance)} SOL`}</b></div>
+      <div><span>${tr('Wallet del bot')}</span><button class="link mono" data-act="copyAddr">${esc(shortA(real.address))}</button></div></div>
+    ${real.balErr ? `<p class="warnp">${esc(real.balErr)}</p>` : real.balance === 0 ? `<p class="hint">${tr('Mándale SOL desde Phantom a la dirección de la wallet del bot (pulsa para copiarla). Empieza con poco.')}</p>` : ''}
+    <label class="chk big"><input type="checkbox" data-act="realMode" ${c.mode === 'auto' ? 'checked' : ''}> ${tr('Que el bot opere él solo con dinero real')}</label>
+    <form class="cop" data-form="realCfg">
+      <div class="row2">
+        ${field('maxSol', 'Máximo por compra', c.maxSol, { min: 0.01, max: 2, step: 0.01, unit: 'SOL' })}
+        ${field('maxPerDay', 'Compras al día', c.maxPerDay, { min: 1, max: 30, unit: '' })}
+      </div>
+      <div class="row2">
+        ${field('maxDailyLossSol', 'Pérdida máxima al día', c.maxDailyLossSol, { min: 0.01, max: 10, step: 0.01, unit: 'SOL' })}
+        ${field('maxOpen', 'Abiertas a la vez', c.maxOpen, { min: 1, max: 5, unit: '' })}
+      </div>
+      <p class="muted sm2">${tr('Si en un día pierde la cantidad máxima, el modo real se apaga solo. El stop de cada operación es el del bot (−6 % a −8 %), pero con dinero real se suma la comisión y el slippage.')}</p>
+      <button class="btn small" type="submit">${tr('Guardar límites')}</button>
+    </form>
+    <button class="btn danger" data-act="realPanic">${tr('Pánico: apagar y vender todo')}</button>
+    ${pos.length ? `<p class="sub-h">${tr('Abiertas con dinero real')}</p><ul class="sigs">${pos.map((p) => `<li><span class="kind k-buy">${tr('Compra')}</span><a class="sym" href="https://trade.padre.gg/trade/solana/${esc(p.addr)}" target="_blank" rel="noopener">${esc(p.symbol)}</a><span class="num">${fmtSol(p.lamportsIn / 1e9)} SOL</span><span class="muted">${time(p.at)}</span></li>`).join('')}</ul>` : ''}
+    ${real.log.length ? `<p class="sub-h">${tr('Registro con dinero real')}</p><ul class="rlog">${real.log.slice().reverse().slice(0, 12).map((l) => `<li class="rl-${l.kind}"><span class="t num">${time(l.at)}</span><span class="kind">${tr(kindTxt[l.kind] || 'Aviso')}</span><span>${l.symbol ? `<b>${esc(l.symbol)}</b> ` : ''}${l.kind === 'sell' ? `<b class="num ${tone(l.pnl)}">${fmtSol(l.pnl, { sign: true })} SOL</b>` : l.kind === 'buy' || l.kind === 'withdraw' ? `${fmtSol(l.sol)} SOL` : ''} ${sayL(l)}${l.sig ? ` <a class="link" href="https://solscan.io/tx/${esc(l.sig)}" target="_blank" rel="noopener">${tr('ver')}</a>` : ''}</span></li>`).join('')}</ul>` : ''}
+    <details class="rmore"><summary>${tr('Retirar, cerrar y copia de seguridad')}</summary>
+      <form class="cop" data-form="realWithdraw">
+        <p class="sm2">${tr('Se retira siempre a tu Phantom')}: <code class="addr">${esc(shortA(real.withdrawTo))}</code></p>
+        <div class="row2">${field('sol', 'Cantidad', '', { min: 0.001, max: 1000, step: 0.001, unit: 'SOL' })}
+        <label class="chk"><input type="checkbox" name="all"> ${tr('Todo')}</label></div>
+        <label class="fld"><span class="fl">${tr('Contraseña')}</span><span class="fi"><input type="password" name="pw" autocomplete="current-password"></span></label>
+        <button class="btn small" type="submit" ${realBusy ? 'disabled' : ''}>${tr('Retirar a mi Phantom')}</button>
+      </form>
+      <div class="rbtns"><button class="btn small" data-act="realLock">${tr('Cerrar la wallet ahora')}</button></div>
+      <form class="cop" data-form="realKey">
+        <label class="fld"><span class="fl">${tr('Contraseña (para ver la copia o borrar)')}</span><span class="fi"><input type="password" name="pw" autocomplete="current-password"></span></label>
+        <div class="rbtns"><button class="btn small ghost" type="submit" value="export">${tr('Ver copia de seguridad')}</button><button class="btn small ghost danger" type="submit" value="delete">${tr('Borrar wallet vacía')}</button></div>
+      </form>
+    </details>
+    <p class="muted sm2">${tr('Con Opera cerrado no vigila nada. Si dejas posiciones abiertas y cierras, al volver tendrás que abrir la wallet para que el bot pueda venderlas.')}</p>
+  </section>`;
+}
+
 // ---------- Límites y filtros ----------
 function field(name, label, value, { min, max, step = 1, unit = '', disabled = false, note = '' } = {}) {
   return `<label class="fld"><span class="fl">${tr(label)}</span>
@@ -283,7 +365,7 @@ function intro(cfg, past) {
       <label class="fld"><span class="fl">${tr('Saldo de la sesión')}</span><small>${tr('Fijo: no se puede rellenar a mitad de sesión.')}</small><span class="fi"><input type="number" name="budgetSol" form="startForm" value="${cfg.budgetSol}" min="0.1" max="1000" step="0.1"><em>SOL</em></span></label>
       <form id="startForm" data-form="start"><button class="btn primary" type="submit">${tr('Arrancar sesión')}</button></form>
     </div>
-    <p class="real">${tr('Con dinero real llegará más adelante, con una wallet aparte que conectas tú. Blankfire nunca te pedirá tu frase de recuperación.')}</p>
+    <p class="real">${tr('Dinero real: cuando la simulación vaya en positivo, se desbloquean el copiloto y el modo automático (columna derecha). Blankfire nunca te pedirá la frase de recuperación de tu Phantom.')}</p>
     ${past?.length ? `<h3>${tr('Sesiones anteriores')}</h3><ul class="past">${past.slice(0, 6).map((p) => `<li><span>${day(p.startedAt)}</span><span class="num">${fmtSol(p.budgetSol)} → ${fmtSol(p.balance)} SOL</span><span class="num ${tone(p.balance - p.budgetSol)}">${fmtPct((p.balance / p.budgetSol - 1) * 100, 1, { sign: true })}</span><span>${tr(p.trades === 1 ? '1 operación' : '{n} operaciones', { n: p.trades })}</span></li>`).join('')}</ul>` : ''}
   </section>`;
 }
@@ -295,13 +377,14 @@ function render() {
   // Configuración completa aunque lo guardado esté a medias (versiones viejas o datos tocados a mano).
   const raw = (live ? s.config : store.config) || {};
   const cfg = { ...BOT_DEFAULTS, ...raw, filters: { ...BOT_DEFAULTS.filters, ...(raw.filters || {}) } };
-  const focus = document.activeElement?.name;
-  if (focus && $('#app').contains(document.activeElement) && ['cfg', 'copilot'].includes(document.activeElement.form?.dataset.form)) return;   // no pisar lo que escribe
+  // No repintar mientras escribes en un formulario (se perdería lo escrito).
+  const ae = document.activeElement;
+  if (ae && $('#app').contains(ae) && ae.form && ['cfg', 'copilot', 'realCreate', 'realUnlock', 'realCfg', 'realWithdraw', 'realKey'].includes(ae.form.dataset.form)) return;   // no pisar lo que escribe
   $('#app').innerHTML = `${header(s)}
     ${s ? ledger(s) : ''}
     <main class="grid">
       <div class="main-col">${s ? stream(s) : intro(cfg, store.past)}${s && !live ? intro(cfg, store.past) : ''}</div>
-      <aside class="side">${s ? positions(s) : ''}${s ? recaps(s) : ''}${copilotBlock()}${limits(cfg, live)}</aside>
+      <aside class="side">${s ? positions(s) : ''}${s ? recaps(s) : ''}${copilotBlock()}${realBlock()}${limits(cfg, live)}</aside>
     </main>`;
   document.title = `Blankfire · ${tr('Bot de práctica')}`;
 }
@@ -348,6 +431,16 @@ document.addEventListener('click', async (e) => {
     await act('botStop'); toast(tr('Sesión terminada. Tienes el resumen a la derecha.')); return;
   }
   if (a === 'sell') { b.disabled = true; await act('botSell', { key: b.dataset.key }); return; }
+  if (a === 'copyAddr') { try { await navigator.clipboard.writeText(real.address); toast(tr('Dirección copiada.')); } catch { toast(real.address); } return; }
+  if (a === 'copySecret') { try { await navigator.clipboard.writeText(realBackup.backup); toast(tr('Copiada. Pégala en un sitio seguro y borra el portapapeles.')); } catch { /* selección manual */ } return; }
+  if (a === 'backupDone') { if (!$('[data-ref="savedOk"]')?.checked) { toast(tr('Marca que la has guardado.'), true); return; } realBackup = null; await loadReal(); return; }
+  if (a === 'realMode') { const r = await realAct('realConfig', { config: { mode: b.checked ? 'auto' : 'off' } }); if (!r) b.checked = !b.checked; return; }
+  if (a === 'realPanic') {
+    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = tr('¿Seguro? Pulsa otra vez'); setTimeout(() => { if (b.isConnected) { b.dataset.armed = ''; b.textContent = tr('Pánico: apagar y vender todo'); } }, 4000); return; }
+    realBusy = true; render(); await realAct('realPanic'); realBusy = false; toast(tr('Modo real apagado. Vendiendo lo abierto.')); return;
+  }
+  if (a === 'realLock') { await realAct('realLock'); return; }
+
   if (a === 'scan') { busy = true; render(); await act('botScanNow'); busy = false; render(); }
 });
 
@@ -355,6 +448,27 @@ document.addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target.dataset.form;
   if (f === 'cfg') { const r = await act('botConfig', { config: readCfg(e.target) }); if (r) toast(tr('Guardado.')); }
+  if (f === 'realCreate') {
+    const t = e.target;
+    if (t.pw.value !== t.pw2.value) { toast(tr('Las contraseñas no coinciden.'), true); return; }
+    if (!t.risk.checked) { toast(tr('Marca que entiendes el riesgo.'), true); return; }
+    const btn = t.querySelector('button[type="submit"]'), label = btn.textContent;
+    btn.disabled = true; btn.textContent = tr('Creando…');
+    const r = await send({ type: 'realCreate', password: t.pw.value, withdrawTo: t.to.value });
+    btn.disabled = false; btn.textContent = label;
+    if (!r.ok) { toast(r.error, true); return; }
+    realBackup = r.data; document.activeElement?.blur(); await loadReal(); return;
+  }
+  if (f === 'realKey') {
+    const pw = e.target.pw.value, what = e.submitter?.value;
+    if (!pw) { toast(tr('Escribe la contraseña.'), true); return; }
+    if (what === 'export') { const r = await send({ type: 'realExport', password: pw }); if (r.ok) { realBackup = { backup: r.data.backup, address: real.address }; e.target.reset(); render(); } else toast(r.error, true); }
+    else { const r = await realAct('realDelete', { password: pw }); if (r) toast(tr('Wallet del bot borrada.')); }
+    return;
+  }
+  if (f === 'realUnlock') { const btn = e.target.querySelector('button'); btn.disabled = true; const r = await realAct('realUnlock', { password: e.target.pw.value }); btn.disabled = false; if (r) toast(tr('Wallet abierta hasta que cierres Opera.')); return; }
+  if (f === 'realCfg') { const t = e.target; const r = await realAct('realConfig', { config: { maxSol: Number(t.maxSol.value), maxPerDay: Number(t.maxPerDay.value), maxDailyLossSol: Number(t.maxDailyLossSol.value), maxOpen: Number(t.maxOpen.value) } }); if (r) toast(tr('Guardado.')); return; }
+  if (f === 'realWithdraw') { const t = e.target, btn = t.querySelector('button[type="submit"]'); btn.disabled = true; const r = await realAct('realWithdraw', { sol: Number(t.sol.value), all: t.all.checked, password: t.pw.value }); btn.disabled = false; if (r) toast(tr('Retirado a tu Phantom.')); return; }
   if (f === 'copilot') { const t = e.target; const r = await act('botCopilot', { copilot: { on: t.on.checked, maxSol: Number(t.maxSol.value), maxPerDay: Number(t.maxPerDay.value), ttlMin: Number(t.ttlMin.value) } }); if (r) toast(tr('Guardado.')); }
   if (f === 'start') {
     const budget = Number($('input[name="budgetSol"][form="startForm"]')?.value);
@@ -382,6 +496,16 @@ document.addEventListener('input', (e) => {
 });
 document.addEventListener('focusout', () => setTimeout(() => { if (!$('#app').contains(document.activeElement) || !document.activeElement?.form) render(); }, 0));
 
+async function realAct(type, extra = {}) {
+  const r = await send({ type, ...extra });
+  if (!r.ok) { toast(r.error, true); return null; }
+  real = r.data; document.activeElement?.blur?.(); render();
+  return r.data;
+}
+async function loadReal() { const r = await send({ type: 'realState' }); if (r.ok) real = r.data; render(); }
+chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch.blankfireReal) { clearTimeout(loadReal.t); loadReal.t = setTimeout(loadReal, 300); } });
+setInterval(() => { if (!document.hidden) loadReal(); }, 60e3);
+
 // El service worker guarda; aquí solo se escucha (con un respiro para no repintar 10 veces por segundo).
 let pending = null;
 chrome.storage.onChanged.addListener((ch, area) => {
@@ -398,4 +522,5 @@ setInterval(render, 30e3);   // relojes («hace 3 min», «próximo resumen en�
   const r = await send({ type: 'botState' });
   store = r.ok ? r.data : { config: BOT_DEFAULTS, session: null, past: [] };
   render();
+  loadReal();
 })();

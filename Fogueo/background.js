@@ -12,6 +12,8 @@ import {
   cleanCopilot, copilotGate, signalsToday, COPILOT_DEFAULTS,
 } from './lib/bot.js';
 import { themes, snapshotOf, whaleTape, recentBuys, parseSwaps } from './lib/radar.js';
+import { newKeypair, keypairFromSecret, signTransaction, transferTx, b58encode, b58decode, b64encode, b64decode, isAddress } from './lib/solana.js';
+import { seal, open as openVault, passwordProblem } from './lib/vault.js';
 import { RAW, cmpVer, installedVersion, readUpdate, patchUpdate } from './lib/update.js';
 import { PRO_KEY, LS_API, REVALIDATE_MS, isPro, proSelling, licenseMatches, PRO_CONFIG, maskKey, SUPPORT } from './lib/pro.js';
 import { buildSeries, tradeFacts, tradeFlags, tradeContext, candleWindow } from './lib/review.js';
@@ -1007,9 +1009,17 @@ const handlers = {
   },
 };
 
+// Órdenes delicadas (wallet real, claves, bot): solo desde las ventanas de la propia extensión,
+// nunca desde el script que vive dentro de la página de Padre.
+const PRIVILEGED = /^(real|bot|wallet|saveKeys)/;
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const h = handlers[msg?.type];
   if (!h) return false;
+  const fromExtPage = sender?.id === chrome.runtime.id && String(sender?.url || '').startsWith(chrome.runtime.getURL(''));
+  if (PRIVILEGED.test(msg.type) && !fromExtPage && msg.type !== 'botState') {
+    sendResponse({ ok: false, error: tr('Esta orden solo se puede dar desde las ventanas de Blankfire.') });
+    return false;
+  }
   Promise.resolve(h(msg))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => sendResponse({ ok: false, error: e?.message || String(e) }));
@@ -1612,6 +1622,7 @@ function copilotProcess(store, now = Date.now()) {
   const from = store.copilotSeenAt || s.startedAt;
   const fresh = s.log.filter((l) => l.at > from && (l.kind === 'buy' || l.kind === 'sell'));
   store.copilotSeenAt = Math.max(from, ...s.log.map((l) => l.at));
+  if (fresh.length) realMirror(fresh, store);   // modo automático con dinero real (si está encendido)
   if (!store.copilot.on || !copilotGate(store).ok) return;
   for (const l of fresh) {
     const url = `https://trade.padre.gg/trade/solana/${l.addr}`;
@@ -1849,4 +1860,264 @@ Object.assign(handlers, {
     return handlers.walletsState();
   },
   async walletsRefresh({ address } = {}) { return walletsRefresh({ address }); },
+});
+
+
+// =====================================================================
+// Dinero real (fase 5): wallet propia del bot, cifrada, que opera por Jupiter con límites duros.
+// La clave privada se guarda cifrada (lib/vault.js). Descifrada vive solo en chrome.storage.session:
+// en memoria, nunca en disco, fuera del alcance de los scripts de páginas web, y se borra al cerrar el navegador.
+// =====================================================================
+const REAL_KEY = 'blankfireReal';
+const REAL_SESSION = 'blankfireRealKey';
+const LAMPORTS = 1e9;
+const REAL_DEFAULTS = { mode: 'off', maxSol: 0.05, maxPerDay: 5, maxDailyLossSol: 0.15, maxOpen: 2, buySlipBps: 1500, sellSlipBps: 3000, maxImpactPct: 5, maxPrioLamports: 300000 };
+chrome.storage.session?.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' }).catch?.(() => {});
+let realChain = Promise.resolve();
+const realRun = (fn) => { const r = realChain.then(fn); realChain = r.catch(() => {}); return r; };
+
+function cleanReal(c = {}) {
+  const n = (v, d, a, b) => { const x = Number(v); return Number.isFinite(x) ? Math.min(b, Math.max(a, x)) : d; };
+  const d = REAL_DEFAULTS;
+  return {
+    mode: c.mode === 'auto' ? 'auto' : 'off',
+    maxSol: n(c.maxSol, d.maxSol, 0.01, 2), maxPerDay: Math.round(n(c.maxPerDay, d.maxPerDay, 1, 30)),
+    maxDailyLossSol: n(c.maxDailyLossSol, d.maxDailyLossSol, 0.01, 10), maxOpen: Math.round(n(c.maxOpen, d.maxOpen, 1, 5)),
+    buySlipBps: Math.round(n(c.buySlipBps, d.buySlipBps, 50, 3000)), sellSlipBps: Math.round(n(c.sellSlipBps, d.sellSlipBps, 100, 5000)),
+    maxImpactPct: n(c.maxImpactPct, d.maxImpactPct, 0.5, 15), maxPrioLamports: Math.round(n(c.maxPrioLamports, d.maxPrioLamports, 0, 5e6)),
+  };
+}
+async function realLoad() {
+  const r = (await chrome.storage.local.get(REAL_KEY))[REAL_KEY] || {};
+  return { vault: null, address: null, withdrawTo: null, createdAt: null, positions: {}, log: [], day: null, ...r, config: cleanReal(r.config) };
+}
+async function realSave(r) { await chrome.storage.local.set({ [REAL_KEY]: r }); }
+function realLog(r, entry) { r.log.push({ at: Date.now(), ...entry }); if (r.log.length > 300) r.log.splice(0, r.log.length - 300); }
+async function realKeypair() {
+  const g = await chrome.storage.session.get(REAL_SESSION).catch(() => ({}));
+  if (!g?.[REAL_SESSION]) return null;
+  try { return keypairFromSecret(b64decode(g[REAL_SESSION])); } catch { return null; }
+}
+
+// ---------- RPC (Helius, con tu clave) ----------
+async function rpc(method, params) {
+  if (!userKeys.helius) throw new Error(tr('Para operar con dinero real hace falta tu clave de Helius (Radar → Wallets que sigues).'));
+  if (!(await chrome.permissions.contains({ origins: [`${HELIUS}/*`] }).catch(() => false))) throw new Error(tr('Falta darle permiso a Blankfire para usar Helius (botón «Conectar Helius»).'));
+  const r = await fetch(`${HELIUS}/?api-key=${encodeURIComponent(userKeys.helius)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(15000) });
+  if (!r.ok) throw new Error(tr('La red de Solana no responde ({s}).', { s: r.status }));
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message || 'RPC');
+  return j.result;
+}
+const lamportsOf = async (addr) => (await rpc('getBalance', [addr, { commitment: 'confirmed' }]))?.value ?? 0;
+async function tokenRaw(owner, mint) {
+  const res = await rpc('getTokenAccountsByOwner', [owner, { mint }, { encoding: 'jsonParsed', commitment: 'confirmed' }]);
+  let raw = 0n, decimals = 0;
+  for (const a of res?.value || []) { const t = a.account?.data?.parsed?.info?.tokenAmount; if (t) { raw += BigInt(t.amount); decimals = t.decimals; } }
+  return { raw, decimals };
+}
+async function sendAndConfirm(txBytes) {
+  const sig = await rpc('sendTransaction', [b64encode(txBytes), { encoding: 'base64', skipPreflight: false, maxRetries: 3, preflightCommitment: 'confirmed' }]);
+  for (let i = 0; i < 30; i++) {
+    await new Promise((res) => setTimeout(res, 1500));
+    const st = (await rpc('getSignatureStatuses', [[sig]]))?.value?.[0];
+    if (st?.err) throw Object.assign(new Error(tr('La red rechazó la operación.')), { sig });
+    if (st && (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized')) return sig;
+  }
+  throw Object.assign(new Error(tr('Sin confirmar en 45 s: revisa la wallet en Solscan.')), { sig });
+}
+async function jupPost(path, body) {
+  const key = (userKeys.jupiter || '').trim();
+  const headers = { 'content-type': 'application/json', accept: 'application/json' };
+  if (key) headers['x-api-key'] = key;
+  const res = await fetch((key ? JUP_KEYED : JUP) + path, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(10000) });
+  if (!res.ok) throw new Error(tr('Jupiter respondió {s}', { s: res.status }));
+  return res.json();
+}
+async function swap(kp, { inputMint, outputMint, amount, slippageBps, maxImpactPct, maxPrioLamports }) {
+  const q = await jupJson(`/swap/v1/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}&restrictIntermediateTokens=true`);
+  if (!q?.outAmount) throw new Error(tr('Jupiter no encuentra ruta.'));
+  const impact = Number(q.priceImpactPct) * 100;
+  if (Number.isFinite(impact) && impact > maxImpactPct) throw new Error(tr('Impacto {v} % (máximo {m} %): no opero.', { v: impact.toFixed(1), m: maxImpactPct }));
+  const sw = await jupPost('/swap/v1/swap', {
+    quoteResponse: q, userPublicKey: kp.address, wrapAndUnwrapSol: true, dynamicComputeUnitLimit: true,
+    prioritizationFeeLamports: { priorityLevelWithMaxLamports: { maxLamports: maxPrioLamports, priorityLevel: 'high' } },
+  });
+  if (!sw?.swapTransaction) throw new Error(tr('Jupiter no devolvió la operación.'));
+  const { tx } = signTransaction(b64decode(sw.swapTransaction), kp);
+  const sig = await sendAndConfirm(tx);
+  return { sig, quote: q };
+}
+
+// ---------- Comprobaciones antes de cada compra ----------
+function sameDay(a, b) { const x = new Date(a), y = new Date(b); return x.toDateString() === y.toDateString(); }
+async function realGuards(r, kp, lamportsIn) {
+  const store = (await chrome.storage.local.get(BOT_KEY))[BOT_KEY] || {};
+  if (!copilotGate(store).ok) return tr('el modo real sigue bloqueado: faltan operaciones simuladas en positivo');
+  const now = Date.now();
+  const bal = await lamportsOf(kp.address);
+  const openCost = Object.values(r.positions).reduce((a, p) => a + (p.lamportsIn || 0), 0);
+  if (!r.day || !sameDay(r.day.date, now)) r.day = { date: now, start: bal + openCost, buys: 0 };
+  const loss = (r.day.start - (bal + openCost)) / LAMPORTS;
+  if (loss >= r.config.maxDailyLossSol) {
+    r.config.mode = 'off';
+    realLog(r, { kind: 'halt', t: 'pérdida del día {v} SOL (máximo {m}): modo real apagado', v: { v: loss.toFixed(3), m: r.config.maxDailyLossSol } });
+    notify(tr('Blankfire · dinero real apagado'), tr('Has llegado a la pérdida máxima del día. Vuelve a encenderlo mañana si quieres.'));
+    return 'freno diario';
+  }
+  if (r.day.buys >= r.config.maxPerDay) return tr('límite de {n} compras por hoy', { n: r.config.maxPerDay });
+  if (Object.keys(r.positions).length >= r.config.maxOpen) return tr('ya tiene {n} abiertas con dinero real', { n: r.config.maxOpen });
+  if (bal < lamportsIn + 0.012 * LAMPORTS) return tr('saldo insuficiente en la wallet del bot');
+  return null;
+}
+
+async function realBuy({ addr, symbol, sol }) {
+  const r = await realLoad();
+  if (r.config.mode !== 'auto' || !r.vault) return;
+  const kp = await realKeypair();
+  if (!kp) { realLog(r, { kind: 'skip', symbol, t: 'wallet bloqueada: no compro' }); await realSave(r); return; }
+  if (r.positions[addr]) return;
+  const lamportsIn = Math.floor(Math.min(r.config.maxSol, sol || r.config.maxSol) * LAMPORTS);
+  try {
+    const why = await realGuards(r, kp, lamportsIn);
+    if (why) { realLog(r, { kind: 'skip', symbol, t: 'no compro: {w}', v: { w: why } }); await realSave(r); return; }
+    const { sig, quote } = await swap(kp, { inputMint: SOL_MINT, outputMint: addr, amount: lamportsIn, slippageBps: r.config.buySlipBps, maxImpactPct: r.config.maxImpactPct, maxPrioLamports: r.config.maxPrioLamports });
+    r.day.buys++;
+    r.positions[addr] = { addr, symbol, lamportsIn, sig, at: Date.now(), outQuoted: quote.outAmount };
+    realLog(r, { kind: 'buy', symbol, addr, sol: lamportsIn / LAMPORTS, sig });
+    notify(tr('Blankfire · compra real ${s}', { s: symbol }), tr('{v} SOL. El bot la vigila con tu stop.', { v: fmtSol(lamportsIn / LAMPORTS) }));
+  } catch (e) {
+    realLog(r, { kind: 'error', symbol, t: 'compra fallida: {e}', v: { e: e.message }, sig: e.sig || null });
+  }
+  await realSave(r);
+}
+
+async function realSell({ addr, symbol, reason }) {
+  const r = await realLoad();
+  const pos = r.positions[addr];
+  if (!pos) return;
+  const kp = await realKeypair();
+  if (!kp) { realLog(r, { kind: 'error', symbol, t: 'wallet bloqueada: no puedo vender. Desbloquéala o véndela en Phantom.' }); notify(tr('Blankfire · no puedo vender ${s}', { s: symbol }), tr('La wallet del bot está bloqueada. Desbloquéala en la ventana del Bot.')); await realSave(r); return; }
+  // Un stop tiene que salir: hasta 3 intentos, subiendo el slippage permitido.
+  for (let i = 0; i < 3; i++) {
+    try {
+      const { raw } = await tokenRaw(kp.address, addr);
+      if (raw === 0n) { delete r.positions[addr]; realLog(r, { kind: 'info', symbol, t: 'ya no quedan tokens: posición cerrada' }); break; }
+      const before = await lamportsOf(kp.address);
+      const { sig } = await swap(kp, { inputMint: addr, outputMint: SOL_MINT, amount: raw.toString(), slippageBps: Math.min(5000, r.config.sellSlipBps * (1 + i * 0.5)), maxImpactPct: 99, maxPrioLamports: r.config.maxPrioLamports * (i + 1) });
+      const after = await lamportsOf(kp.address);
+      const pnl = (after - before - pos.lamportsIn) / LAMPORTS;
+      delete r.positions[addr];
+      realLog(r, { kind: 'sell', symbol, addr, reason, sol: (after - before) / LAMPORTS, pnl, sig });
+      notify(tr('Blankfire · venta real ${s}', { s: symbol }), tr('Resultado {v} SOL ({r}).', { v: fmtSol(pnl, { sign: true }), r: tr(reason || '') }));
+      break;
+    } catch (e) {
+      realLog(r, { kind: 'error', symbol, t: 'venta fallida (intento {n}): {e}', v: { n: i + 1, e: e.message }, sig: e.sig || null });
+      if (i === 2) notify(tr('Blankfire · no he podido vender ${s}', { s: symbol }), tr('Tres intentos fallidos. Véndela tú en Phantom o en Padre.'));
+    }
+  }
+  await realSave(r);
+}
+
+// Copia las decisiones del bot simulado: compra cuando él compra y vende cuando él vende.
+function realMirror(fresh) {
+  for (const l of fresh) {
+    if (l.kind === 'buy') realRun(() => realBuy({ addr: l.addr, symbol: l.symbol, sol: l.sol }));
+    if (l.kind === 'sell') realRun(() => realSell({ addr: l.addr, symbol: l.symbol, reason: l.exit }));
+  }
+}
+
+Object.assign(handlers, {
+  async realState() {
+    const r = await realLoad();
+    const kp = await realKeypair();
+    let balance = null, balErr = null;
+    if (r.address && userKeys.helius) { try { balance = (await lamportsOf(r.address)) / LAMPORTS; } catch (e) { balErr = e.message; } }
+    const store = (await chrome.storage.local.get(BOT_KEY))[BOT_KEY] || {};
+    return { has: !!r.vault, address: r.address, withdrawTo: r.withdrawTo, unlocked: !!kp, config: r.config, positions: r.positions, log: r.log.slice(-60), day: r.day, balance, balErr, helius: !!userKeys.helius, gate: copilotGate(store) };
+  },
+  async realCreate({ password, withdrawTo }) {
+    const r = await realLoad();
+    if (r.vault) throw new Error(tr('Ya hay una wallet del bot. Retira el saldo y bórrala antes de crear otra.'));
+    const bad = passwordProblem(password);
+    if (bad) throw new Error(tr(bad));
+    if (!isAddress(withdrawTo)) throw new Error(tr('La dirección para retirar no parece de Solana.'));
+    const kp = newKeypair();
+    r.vault = await seal(kp.secret, password);
+    r.address = kp.address; r.withdrawTo = String(withdrawTo).trim(); r.createdAt = Date.now();
+    realLog(r, { kind: 'info', t: 'wallet del bot creada' });
+    await realSave(r);
+    await chrome.storage.session.set({ [REAL_SESSION]: b64encode(kp.secret) });
+    // Copia de seguridad: se enseña una vez, solo en la ventana del bot.
+    return { address: kp.address, backup: b58encode(kp.secret) };
+  },
+  async realUnlock({ password }) {
+    const r = await realLoad();
+    if (!r.vault) throw new Error(tr('Aún no hay wallet del bot.'));
+    const secret = await openVault(r.vault, password).catch(() => { throw new Error(tr('Contraseña incorrecta.')); });
+    const kp = keypairFromSecret(secret);
+    if (kp.address !== r.address) throw new Error(tr('La clave no coincide con la wallet guardada.'));
+    await chrome.storage.session.set({ [REAL_SESSION]: b64encode(secret) });
+    return handlers.realState();
+  },
+  async realLock() { await chrome.storage.session.remove(REAL_SESSION); return handlers.realState(); },
+  async realConfig({ config }) {
+    const r = await realLoad();
+    const next = cleanReal({ ...r.config, ...(config || {}) });
+    if (next.mode === 'auto') {
+      const store = (await chrome.storage.local.get(BOT_KEY))[BOT_KEY] || {};
+      if (!copilotGate(store).ok) throw new Error(tr('El modo real se desbloquea con {n} operaciones simuladas y resultado positivo.', { n: 20 }));
+      if (!r.vault) throw new Error(tr('Primero crea la wallet del bot.'));
+      if (!userKeys.helius) throw new Error(tr('Para operar con dinero real hace falta tu clave de Helius (Radar → Wallets que sigues).'));
+    }
+    if (next.mode !== r.config.mode) realLog(r, { kind: 'info', t: next.mode === 'auto' ? 'modo real encendido' : 'modo real apagado' });
+    r.config = next;
+    await realSave(r);
+    return handlers.realState();
+  },
+  // Botón de pánico: apaga el modo real y vende todo lo abierto.
+  async realPanic() {
+    const r = await realLoad();
+    r.config.mode = 'off';
+    realLog(r, { kind: 'halt', t: 'pánico: modo real apagado, vendiendo todo' });
+    await realSave(r);
+    for (const p of Object.values(r.positions)) await realRun(() => realSell({ addr: p.addr, symbol: p.symbol, reason: 'manual' }));
+    return handlers.realState();
+  },
+  // Retirar: solo a la dirección fijada al crear la wallet (tu Phantom).
+  async realWithdraw({ sol, all, password }) {
+    const r = await realLoad();
+    if (!r.vault) throw new Error(tr('Aún no hay wallet del bot.'));
+    const secret = await openVault(r.vault, password).catch(() => { throw new Error(tr('Contraseña incorrecta.')); });
+    const kp = keypairFromSecret(secret);
+    const bal = await lamportsOf(kp.address);
+    const fee = 5000;
+    const lamports = all ? bal - fee : Math.floor(Number(sol) * LAMPORTS);
+    if (!(lamports > 0) || lamports + fee > bal) throw new Error(tr('No hay saldo suficiente para retirar eso.'));
+    const { blockhash } = (await rpc('getLatestBlockhash', [{ commitment: 'finalized' }])).value;
+    const { tx } = signTransaction(transferTx({ from: kp.address, to: r.withdrawTo, lamports, blockhash }), kp);
+    const sig = await sendAndConfirm(tx);
+    realLog(r, { kind: 'withdraw', sol: lamports / LAMPORTS, sig, t: 'retirado a tu wallet' });
+    await realSave(r);
+    return handlers.realState();
+  },
+  // Exportar la clave (para importarla en Phantom si hiciera falta): pide la contraseña.
+  async realExport({ password }) {
+    const r = await realLoad();
+    if (!r.vault) throw new Error(tr('Aún no hay wallet del bot.'));
+    const secret = await openVault(r.vault, password).catch(() => { throw new Error(tr('Contraseña incorrecta.')); });
+    return { backup: b58encode(secret) };
+  },
+  // Borrar la wallet del bot: solo si está vacía (o casi) y sin posiciones.
+  async realDelete({ password }) {
+    const r = await realLoad();
+    if (!r.vault) return handlers.realState();
+    await openVault(r.vault, password).catch(() => { throw new Error(tr('Contraseña incorrecta.')); });
+    if (Object.keys(r.positions).length) throw new Error(tr('Tiene posiciones abiertas: véndelas antes.'));
+    let bal = 0; try { bal = await lamportsOf(r.address); } catch { bal = 0; }
+    if (bal > 0.001 * LAMPORTS) throw new Error(tr('Aún tiene {v} SOL: retíralos antes de borrarla.', { v: fmtSol(bal / LAMPORTS) }));
+    await chrome.storage.local.remove(REAL_KEY);
+    await chrome.storage.session.remove(REAL_SESSION);
+    return handlers.realState();
+  },
 });

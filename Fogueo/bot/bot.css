@@ -268,3 +268,36 @@ a.sym:hover { color: var(--fx-brand-hi); }
 .sm2 { font-size: 12px; text-wrap: pretty; }
 .sigs { display: grid; gap: 2px; }
 .sigs li { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; font-size: 12.5px; padding: 3px 0; }
+
+/* Dinero real automático */
+.realb { display: grid; gap: 10px; padding-top: 18px; border-top: 1px solid var(--fx-line-soft); }
+.realb .sec-h h3 { margin: 0 auto 0 0; }
+.realb.on { }
+.rbal { display: flex; gap: 24px; padding: 12px 14px; border-radius: var(--fx-r-lg); background: var(--fx-raise); }
+.rbal div { display: grid; gap: 2px; }
+.rbal span { font-size: 12px; color: var(--fx-ink-3); }
+.rbal b { font-size: 18px; font-weight: 600; }
+.mono { font-family: var(--fx-font-num); font-size: 12.5px; }
+.addr { font-family: var(--fx-font-num); font-size: 12px; word-break: break-all; color: var(--fx-ink); }
+.chk.big { font-size: 14px; font-weight: 600; color: var(--fx-ink); padding: 6px 0; }
+.chk.big input { width: 18px; height: 18px; }
+.warnp { padding: 9px 12px; border-radius: var(--fx-r); background: var(--fx-down-wash); color: var(--fx-ink); font-size: 12.5px; text-wrap: pretty; }
+.backup { display: grid; gap: 8px; padding: 14px; border-radius: var(--fx-r-lg); background: var(--fx-down-wash); font-size: 13px; }
+.backup .btn { justify-self: start; }
+.secret { display: block; padding: 10px; border-radius: var(--fx-r-sm); background: var(--fx-bg); font: 12px/1.5 var(--fx-font-num); word-break: break-all; user-select: all; color: var(--fx-ink); }
+.rlog { display: grid; gap: 2px; max-height: 260px; overflow: auto; }
+.rlog li { display: grid; grid-template-columns: 44px 62px minmax(0, 1fr); gap: 8px; align-items: baseline; font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--fx-line-soft); }
+.rlog .t { color: var(--fx-ink-3); }
+.rlog .kind { font-size: 11px; }
+.rl-error .kind, .rl-halt .kind { background: var(--fx-down-wash); color: var(--fx-down); }
+.rl-buy .kind { background: var(--fx-up-wash); color: var(--fx-up); }
+.rl-sell .kind { background: var(--fx-info-wash); color: var(--fx-info); }
+.rmore summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--fx-ink-2); padding: 4px 0; }
+.rmore[open] summary { margin-bottom: 8px; }
+.rbtns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.btn.ghost { background: none; color: var(--fx-ink-2); }
+.btn.ghost:hover { background: var(--fx-raise); }
+.btn.ghost.danger { color: var(--fx-down); }
+
+.side > .copilot:first-child, .side > .realb:first-child { padding-top: 0; border-top: 0; }
+.backup .muted, .warnp .muted { color: var(--fx-ink-2); }
