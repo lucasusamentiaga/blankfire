@@ -277,7 +277,13 @@ function realBlock() {
       <button class="btn small" type="submit">${tr('Guardar límites')}</button>
     </form>
     <button class="btn danger" data-act="realPanic">${tr('Pánico: apagar y vender todo')}</button>
-    ${pos.length ? `<p class="sub-h">${tr('Abiertas con dinero real')}</p><ul class="sigs">${pos.map((p) => `<li><span class="kind k-buy">${tr('Compra')}</span><a class="sym" href="https://trade.padre.gg/trade/solana/${esc(p.addr)}" target="_blank" rel="noopener">${esc(p.symbol)}</a><span class="num">${fmtSol(p.lamportsIn / 1e9)} SOL</span><span class="muted">${time(p.at)}</span></li>`).join('')}</ul>` : ''}
+    ${pos.length ? `<p class="sub-h">${tr('Abiertas con dinero real')}</p><ul class="rpos">${pos.map((p) => {
+      const st = p.sellPending ? ['warn', tr('venta pendiente')] : p.pending ? ['info', tr('sin confirmar')] : p.orphan ? ['warn', tr('sin apuntar')] : null;
+      return `<li><a class="sym" href="https://trade.padre.gg/trade/solana/${esc(p.addr)}" target="_blank" rel="noopener">${esc(p.symbol)}</a>
+        <span class="num">${p.lamportsIn ? `${fmtSol(p.lamportsIn / 1e9)} SOL` : '—'}</span>
+        ${st ? `<span class="tag ${st[0]}">${st[1]}</span>` : `<span class="muted">${time(p.at)}</span>`}
+        <button class="link" data-act="realSellOne" data-addr="${esc(p.addr)}">${tr('Vender ya')}</button></li>`;
+    }).join('')}</ul>` : ''}
     ${real.log.length ? `<p class="sub-h">${tr('Registro con dinero real')}</p><ul class="rlog">${real.log.slice().reverse().slice(0, 12).map((l) => `<li class="rl-${l.kind}"><span class="t num">${time(l.at)}</span><span class="kind">${tr(kindTxt[l.kind] || 'Aviso')}</span><span>${l.symbol ? `<b>${esc(l.symbol)}</b> ` : ''}${l.kind === 'sell' ? `<b class="num ${tone(l.pnl)}">${fmtSol(l.pnl, { sign: true })} SOL</b>` : l.kind === 'buy' || l.kind === 'withdraw' ? `${fmtSol(l.sol)} SOL` : ''} ${sayL(l)}${l.sig ? ` <a class="link" href="https://solscan.io/tx/${esc(l.sig)}" target="_blank" rel="noopener">${tr('ver')}</a>` : ''}</span></li>`).join('')}</ul>` : ''}
     <details class="rmore"><summary>${tr('Retirar, cerrar y copia de seguridad')}</summary>
       <form class="cop" data-form="realWithdraw">
@@ -440,6 +446,7 @@ document.addEventListener('click', async (e) => {
     realBusy = true; render(); await realAct('realPanic'); realBusy = false; toast(tr('Modo real apagado. Vendiendo lo abierto.')); return;
   }
   if (a === 'realLock') { await realAct('realLock'); return; }
+  if (a === 'realSellOne') { b.disabled = true; b.textContent = tr('Vendiendo…'); await realAct('realSellOne', { addr: b.dataset.addr }); return; }
 
   if (a === 'scan') { busy = true; render(); await act('botScanNow'); busy = false; render(); }
 });

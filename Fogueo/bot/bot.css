@@ -301,3 +301,9 @@ a.sym:hover { color: var(--fx-brand-hi); }
 
 .side > .copilot:first-child, .side > .realb:first-child { padding-top: 0; border-top: 0; }
 .backup .muted, .warnp .muted { color: var(--fx-ink-2); }
+
+.rpos { display: grid; gap: 2px; }
+.rpos li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 10px; align-items: center; font-size: 12.5px; padding: 5px 0; border-bottom: 1px solid var(--fx-line-soft); }
+.tag { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--fx-raise-2); color: var(--fx-ink-2); }
+.tag.warn { background: var(--fx-down-wash); color: var(--fx-down); }
+.tag.info { background: var(--fx-info-wash); color: var(--fx-info); }

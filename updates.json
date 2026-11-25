@@ -3,6 +3,31 @@
     "ai": false
   },
   "releases": {
+    "1.22.0": {
+      "date": "2026-11-25",
+      "es": [
+        "Revisión a fondo del dinero real antes de operar: arreglados los fallos que podían dejarte monedas sin vender",
+        "El pánico y el apagado ya no los puede deshacer una compra que estaba en marcha; si esa compra entra después, se vende sola",
+        "Compras enviadas pero sin confirmar: se apuntan y se vigilan igual. Y cada minuto repasa la wallet del bot por si hay tokens sin apuntar",
+        "Ventas que fallan o que no se pueden hacer con la wallet cerrada quedan pendientes y se reintentan solas (también al abrirla). Botón «Vender ya» en cada posición",
+        "Cuando el bot se para por la pérdida máxima de la sesión, ahora también vende lo que tiene con dinero real",
+        "Antes de enviar cada operación se ensaya en la red: si fallaría no pagas comisión, y si sacara más SOL de lo previsto no se envía",
+        "Retirar: no deja vaciar la wallet con posiciones abiertas (se guarda reserva para venderlas) y lo retirado no cuenta como pérdida del día",
+        "Borrar la wallet: si no puede comprobar saldo y tokens, no borra nada",
+        "Escrituras en fila: dos cambios a la vez ya no se pisan"
+      ],
+      "en": [
+        "Full review of real money before trading: fixed bugs that could leave coins unsold",
+        "Panic and switching off can no longer be undone by an in-flight buy; if that buy lands later, it's sold automatically",
+        "Sent-but-unconfirmed buys are recorded and watched. Every minute the bot wallet is checked for untracked tokens",
+        "Sells that fail or can't run while the wallet is locked stay pending and retry on their own (also on unlock). «Sell now» button on each position",
+        "When the bot stops at the session's max loss, it now also sells its real-money positions",
+        "Each transaction is simulated before sending: if it would fail you pay no fee, and if it would take more SOL than expected it isn't sent",
+        "Withdraw: can't empty the wallet with open positions (keeps a reserve to sell them) and withdrawals don't count as daily loss",
+        "Deleting the wallet: if balance and tokens can't be checked, nothing is deleted",
+        "Queued writes: two simultaneous changes no longer overwrite each other"
+      ]
+    },
     "1.21.0": {
       "date": "2026-11-25",
       "es": [

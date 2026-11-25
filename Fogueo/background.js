@@ -1592,6 +1592,7 @@ async function botTick({ forceScan = false } = {}) {
         s.haltReason = { t: 'la sesión perdió más del {p} %: el bot se ha parado solo', v: { p: s.config.maxLossPct } };
         pushLog(s, { kind: 'halt', reason: s.haltReason }, now);
         botRecap(s, now, true);
+        copilotProcess(store, now);   // las ventas del freno también llegan al dinero real y al copiloto
         notify(tr('Bot de práctica parado'), tr(s.haltReason.t, s.haltReason.v));
         chrome.alarms.clear(BOT_ALARM);
         return;
@@ -1604,7 +1605,7 @@ async function botTick({ forceScan = false } = {}) {
     if (free && (forceScan || now - s.lastScanAt >= BOT_SCAN_MS)) {
       if (userKeys.helius) {
         const ws = await walletsStore();
-        const stale = ws.list.filter((w) => now - (ws.data[w.address]?.at || 0) > 110e3).slice(0, 10);
+        const stale = ws.list.filter((w) => now - (ws.data[w.address]?.at || 0) > 110e3).sort((a, b) => (ws.data[a.address]?.at || 0) - (ws.data[b.address]?.at || 0)).slice(0, 3);
         for (const w of stale) await walletsRefresh({ address: w.address }).catch(() => {});
       }
       await botScan(s, settings, sol, now);
@@ -1623,6 +1624,7 @@ function copilotProcess(store, now = Date.now()) {
   const fresh = s.log.filter((l) => l.at > from && (l.kind === 'buy' || l.kind === 'sell'));
   store.copilotSeenAt = Math.max(from, ...s.log.map((l) => l.at));
   if (fresh.length) realMirror(fresh, store);   // modo automático con dinero real (si está encendido)
+  realRun(() => realRetry()).catch(() => {});   // ventas reales pendientes (wallet cerrada, red caída…)
   if (!store.copilot.on || !copilotGate(store).ok) return;
   for (const l of fresh) {
     const url = `https://trade.padre.gg/trade/solana/${l.addr}`;
@@ -1909,9 +1911,16 @@ async function rpc(method, params) {
   if (j.error) throw new Error(j.error.message || 'RPC');
   return j.result;
 }
-const lamportsOf = async (addr) => (await rpc('getBalance', [addr, { commitment: 'confirmed' }]))?.value ?? 0;
+// Respuestas raras de la red se tratan como error, nunca como «cero»: un cero falso haría
+// olvidar una posición o borrar una wallet con saldo.
+async function lamportsOf(addr) {
+  const v = (await rpc('getBalance', [addr, { commitment: 'confirmed' }]))?.value;
+  if (!Number.isFinite(v)) throw new Error(tr('La red de Solana devolvió un saldo inválido.'));
+  return v;
+}
 async function tokenRaw(owner, mint) {
   const res = await rpc('getTokenAccountsByOwner', [owner, { mint }, { encoding: 'jsonParsed', commitment: 'confirmed' }]);
+  if (!Array.isArray(res?.value)) throw new Error(tr('La red de Solana devolvió una respuesta inválida.'));
   let raw = 0n, decimals = 0;
   for (const a of res?.value || []) { const t = a.account?.data?.parsed?.info?.tokenAmount; if (t) { raw += BigInt(t.amount); decimals = t.decimals; } }
   return { raw, decimals };
@@ -1958,88 +1967,201 @@ async function swap(kp, { inputMint, outputMint, amount, slippageBps, maxImpactP
   });
   if (!sw?.swapTransaction) throw new Error(tr('Jupiter no devolvió la operación.'));
   const { tx } = signTransaction(b64decode(sw.swapTransaction), kp);
+  // Antes de enviar, se ensaya en la red: si fallaría, no se paga comisión; y si la operación
+  // sacara de la wallet más SOL del que toca (Jupiter devolviendo algo raro), no se envía.
+  const before = await lamportsOf(kp.address);
+  const sim = (await rpc('simulateTransaction', [b64encode(tx), { encoding: 'base64', sigVerify: false, replaceRecentBlockhash: false, commitment: 'confirmed', accounts: { encoding: 'base64', addresses: [kp.address] } }]))?.value;
+  if (!sim) throw new Error(tr('No he podido ensayar la operación: no la envío.'));
+  if (sim.err) throw new Error(tr('El ensayo de la operación falla ({e}): no la envío.', { e: typeof sim.err === 'string' ? sim.err : JSON.stringify(sim.err).slice(0, 80) }));
+  const post = Number(sim.accounts?.[0]?.lamports);
+  const maxOut = (inputMint === SOL_MINT ? Number(amount) : 0) + maxPrioLamports + 0.01 * LAMPORTS;
+  if (!Number.isFinite(post) || before - post > maxOut) throw new Error(tr('La operación sacaría más SOL de lo previsto: no la envío.'));
   const sig = await sendAndConfirm(tx);
   return { sig, quote: q };
 }
 
 // ---------- Comprobaciones antes de cada compra ----------
 function sameDay(a, b) { const x = new Date(a), y = new Date(b); return x.toDateString() === y.toDateString(); }
-async function realGuards(r, kp, lamportsIn) {
+// Límites antes de cada compra. Primero se pregunta a la red (sin tocar nada guardado) y después
+// se decide y se apunta de golpe, sin esperas en medio: nada puede colarse entre leer y guardar.
+async function realGuards(kp, lamportsIn) {
   const store = (await chrome.storage.local.get(BOT_KEY))[BOT_KEY] || {};
   if (!copilotGate(store).ok) return tr('el modo real sigue bloqueado: faltan operaciones simuladas en positivo');
-  const now = Date.now();
   const bal = await lamportsOf(kp.address);
-  const openCost = Object.values(r.positions).reduce((a, p) => a + (p.lamportsIn || 0), 0);
-  if (!r.day || !sameDay(r.day.date, now)) r.day = { date: now, start: bal + openCost, buys: 0 };
-  const loss = (r.day.start - (bal + openCost)) / LAMPORTS;
-  if (loss >= r.config.maxDailyLossSol) {
-    r.config.mode = 'off';
-    realLog(r, { kind: 'halt', t: 'pérdida del día {v} SOL (máximo {m}): modo real apagado', v: { v: loss.toFixed(3), m: r.config.maxDailyLossSol } });
-    notify(tr('Blankfire · dinero real apagado'), tr('Has llegado a la pérdida máxima del día. Vuelve a encenderlo mañana si quieres.'));
-    return 'freno diario';
+  const now = Date.now();
+  let halted = false;
+  const why = await realPatch((r) => {
+    if (r.config.mode !== 'auto') return tr('modo real apagado');
+    const openCost = Object.values(r.positions).reduce((a, p) => a + (p.lamportsIn || 0), 0);
+    if (!r.day || !sameDay(r.day.date, now)) r.day = { date: now, start: bal + openCost, buys: 0 };
+    const loss = (r.day.start - (bal + openCost)) / LAMPORTS;
+    if (loss >= r.config.maxDailyLossSol) {
+      r.config.mode = 'off'; halted = true;
+      realLog(r, { kind: 'halt', t: 'pérdida del día {v} SOL (máximo {m}): modo real apagado', v: { v: loss.toFixed(3), m: r.config.maxDailyLossSol } });
+      return tr('freno diario');
+    }
+    if (r.day.buys >= r.config.maxPerDay) return tr('límite de {n} compras por hoy', { n: r.config.maxPerDay });
+    if (Object.keys(r.positions).length >= r.config.maxOpen) return tr('ya tiene {n} abiertas con dinero real', { n: r.config.maxOpen });
+    if (bal < lamportsIn + 0.012 * LAMPORTS) return tr('saldo insuficiente en la wallet del bot');
+    return null;
+  });
+  if (halted) notify(tr('Blankfire · dinero real apagado'), tr('Has llegado a la pérdida máxima del día. Vuelve a encenderlo mañana si quieres.'));
+  return why;
+}
+
+// Escrituras atómicas: se relee lo guardado justo antes de cambiarlo y van en fila, una detrás de otra.
+// Así nada que tarde (una compra esperando a la red) puede pisar un «pánico» o un cambio de límites.
+let patchChain = Promise.resolve();
+function realPatch(fn) {
+  const job = patchChain.then(async () => {
+    const r = await realLoad();
+    const out = fn(r);   // siempre síncrono: nada de esperas entre leer y guardar
+    await realSave(r);
+    return out;
+  });
+  patchChain = job.catch(() => {});
+  return job;
+}
+
+// Tokens en la wallet del bot que Blankfire no tiene apuntados (una compra que se confirmó tarde, por ejemplo).
+async function realReconcile(kp) {
+  const found = new Map();
+  for (const programId of TOKEN_PROGRAMS) {
+    const res = await rpc('getTokenAccountsByOwner', [kp.address, { programId }, { encoding: 'jsonParsed', commitment: 'confirmed' }]).catch(() => null);
+    for (const a of res?.value || []) {
+      const info = a.account?.data?.parsed?.info;
+      if (info?.mint && info.tokenAmount?.amount && info.tokenAmount.amount !== '0') found.set(info.mint, info.tokenAmount.amount);
+    }
   }
-  if (r.day.buys >= r.config.maxPerDay) return tr('límite de {n} compras por hoy', { n: r.config.maxPerDay });
-  if (Object.keys(r.positions).length >= r.config.maxOpen) return tr('ya tiene {n} abiertas con dinero real', { n: r.config.maxOpen });
-  if (bal < lamportsIn + 0.012 * LAMPORTS) return tr('saldo insuficiente en la wallet del bot');
-  return null;
+  const bot = (await chrome.storage.local.get(BOT_KEY))[BOT_KEY];
+  const simOpen = new Set(Object.values(bot?.session?.positions || {}).map((p) => p.addr));
+  return realPatch((r) => {
+    let added = 0;
+    r.ignored ||= {};
+    for (const [mint] of found) {
+      if (r.ignored[mint]) continue;   // basura o regalos sin ruta de venta: ya se intentó
+      if (r.positions[mint]) { delete r.positions[mint].pending; continue; }
+      // Si el bot simulado ya no la tiene, se vende en cuanto se pueda.
+      r.positions[mint] = { addr: mint, symbol: mint.slice(0, 4) + '…', lamportsIn: 0, at: Date.now(), orphan: true, sellPending: simOpen.has(mint) ? null : { reason: 'orphan', nextAt: 0, tries: 0 } };
+      realLog(r, { kind: 'info', symbol: mint.slice(0, 4) + '…', t: 'tokens sin apuntar en la wallet del bot: los vigilo' });
+      added++;
+    }
+    // Compras enviadas sin confirmar que al final no entraron: fuera.
+    for (const p of Object.values(r.positions)) if (p.pending && !found.has(p.addr) && Date.now() - p.at > 120e3) { delete r.positions[p.addr]; realLog(r, { kind: 'info', symbol: p.symbol, t: 'la compra sin confirmar no llegó a entrar' }); }
+    return added;
+  });
 }
 
 async function realBuy({ addr, symbol, sol }) {
-  const r = await realLoad();
-  if (r.config.mode !== 'auto' || !r.vault) return;
+  const r0 = await realLoad();
+  if (r0.config.mode !== 'auto' || !r0.vault || r0.positions[addr]) return;
   const kp = await realKeypair();
-  if (!kp) { realLog(r, { kind: 'skip', symbol, t: 'wallet bloqueada: no compro' }); await realSave(r); return; }
-  if (r.positions[addr]) return;
-  const lamportsIn = Math.floor(Math.min(r.config.maxSol, sol || r.config.maxSol) * LAMPORTS);
+  if (!kp) { await realPatch((r) => realLog(r, { kind: 'skip', symbol, t: 'wallet bloqueada: no compro' })); return; }
+  const lamportsIn = Math.floor(Math.min(r0.config.maxSol, sol || r0.config.maxSol) * LAMPORTS);
+  let why = null;
   try {
-    const why = await realGuards(r, kp, lamportsIn);
-    if (why) { realLog(r, { kind: 'skip', symbol, t: 'no compro: {w}', v: { w: why } }); await realSave(r); return; }
-    const { sig, quote } = await swap(kp, { inputMint: SOL_MINT, outputMint: addr, amount: lamportsIn, slippageBps: r.config.buySlipBps, maxImpactPct: r.config.maxImpactPct, maxPrioLamports: r.config.maxPrioLamports });
-    r.day.buys++;
-    r.positions[addr] = { addr, symbol, lamportsIn, sig, at: Date.now(), outQuoted: quote.outAmount };
-    realLog(r, { kind: 'buy', symbol, addr, sol: lamportsIn / LAMPORTS, sig });
+    // Los guardas trabajan sobre lo guardado ahora mismo y guardan el «día» al momento.
+    why = await realGuards(kp, lamportsIn);
+  } catch (e) { why = e.message; }
+  if (why) { await realPatch((r) => realLog(r, { kind: 'skip', symbol, t: 'no compro: {w}', v: { w: why } })); return; }
+  // Última comprobación justo antes de enviar: si has pulsado pánico o apagado, no se compra.
+  const fresh = await realLoad();
+  if (fresh.config.mode !== 'auto' || fresh.positions[addr]) return;
+  try {
+    const { sig, quote } = await swap(kp, { inputMint: SOL_MINT, outputMint: addr, amount: lamportsIn, slippageBps: fresh.config.buySlipBps, maxImpactPct: fresh.config.maxImpactPct, maxPrioLamports: fresh.config.maxPrioLamports });
+    const late = await realPatch((r) => {
+      if (r.day) r.day.buys++;
+      r.positions[addr] = { addr, symbol, lamportsIn, sig, at: Date.now(), outQuoted: quote.outAmount };
+      realLog(r, { kind: 'buy', symbol, addr, sol: lamportsIn / LAMPORTS, sig });
+      // Si mientras se confirmaba pulsaste pánico o apagaste, se vende en cuanto se pueda.
+      if (r.config.mode !== 'auto') { r.positions[addr].sellPending = { reason: 'manual', nextAt: 0, tries: 0 }; return true; }
+      return false;
+    });
+    if (late) { retryAt = 0; realRun(() => realRetry()).catch(() => {}); }
     notify(tr('Blankfire · compra real ${s}', { s: symbol }), tr('{v} SOL. El bot la vigila con tu stop.', { v: fmtSol(lamportsIn / LAMPORTS) }));
   } catch (e) {
-    realLog(r, { kind: 'error', symbol, t: 'compra fallida: {e}', v: { e: e.message }, sig: e.sig || null });
+    await realPatch((r) => {
+      realLog(r, { kind: 'error', symbol, t: 'compra fallida: {e}', v: { e: e.message }, sig: e.sig || null });
+      // Enviada pero sin confirmar: puede entrar más tarde. Se apunta como pendiente y se vigila igual.
+      if (e.sig) { if (r.day) r.day.buys++; r.positions[addr] = { addr, symbol, lamportsIn, sig: e.sig, at: Date.now(), pending: true }; }
+    });
   }
-  await realSave(r);
 }
 
 async function realSell({ addr, symbol, reason }) {
-  const r = await realLoad();
-  const pos = r.positions[addr];
+  const r0 = await realLoad();
+  const pos = r0.positions[addr];
   if (!pos) return;
   const kp = await realKeypair();
-  if (!kp) { realLog(r, { kind: 'error', symbol, t: 'wallet bloqueada: no puedo vender. Desbloquéala o véndela en Phantom.' }); notify(tr('Blankfire · no puedo vender ${s}', { s: symbol }), tr('La wallet del bot está bloqueada. Desbloquéala en la ventana del Bot.')); await realSave(r); return; }
-  // Un stop tiene que salir: hasta 3 intentos, subiendo el slippage permitido.
+  if (!kp) {
+    await realPatch((r) => {
+      if (!r.positions[addr]) return;
+      r.positions[addr].sellPending = { reason, nextAt: 0, tries: r.positions[addr].sellPending?.tries || 0 };
+      realLog(r, { kind: 'error', symbol, t: 'wallet bloqueada: no puedo vender. Desbloquéala o véndela en Phantom.' });
+    });
+    notify(tr('Blankfire · no puedo vender ${s}', { s: symbol }), tr('La wallet del bot está bloqueada. Desbloquéala en la ventana del Bot.'));
+    return;
+  }
+  // Un stop tiene que salir: hasta 3 intentos seguidos subiendo el slippage; si no, se reintenta cada minuto.
   for (let i = 0; i < 3; i++) {
     try {
       const { raw } = await tokenRaw(kp.address, addr);
-      if (raw === 0n) { delete r.positions[addr]; realLog(r, { kind: 'info', symbol, t: 'ya no quedan tokens: posición cerrada' }); break; }
+      if (raw === 0n) {
+        if (pos.pending && Date.now() - pos.at < 120e3) return;   // la compra aún puede estar entrando
+        await realPatch((r) => { delete r.positions[addr]; realLog(r, { kind: 'info', symbol, t: 'ya no quedan tokens: posición cerrada' }); });
+        return;
+      }
       const before = await lamportsOf(kp.address);
-      const { sig } = await swap(kp, { inputMint: addr, outputMint: SOL_MINT, amount: raw.toString(), slippageBps: Math.min(5000, r.config.sellSlipBps * (1 + i * 0.5)), maxImpactPct: 99, maxPrioLamports: r.config.maxPrioLamports * (i + 1) });
+      const cur = await realLoad();
+      const { sig } = await swap(kp, { inputMint: addr, outputMint: SOL_MINT, amount: raw.toString(), slippageBps: Math.min(5000, Math.round(cur.config.sellSlipBps * (1 + i * 0.5))), maxImpactPct: 99, maxPrioLamports: cur.config.maxPrioLamports * (i + 1) });
       const after = await lamportsOf(kp.address);
-      const pnl = (after - before - pos.lamportsIn) / LAMPORTS;
-      delete r.positions[addr];
-      realLog(r, { kind: 'sell', symbol, addr, reason, sol: (after - before) / LAMPORTS, pnl, sig });
+      const pnl = pos.lamportsIn ? (after - before - pos.lamportsIn) / LAMPORTS : null;
+      await realPatch((r) => { delete r.positions[addr]; realLog(r, { kind: 'sell', symbol, addr, reason, sol: (after - before) / LAMPORTS, pnl, sig }); });
       // Cada moneda deja una cuenta de token con ~0,002 SOL de renta: se cierra para recuperarla.
       const back = await closeEmpty(kp, addr).catch(() => 0);
-      if (back > 0) realLog(r, { kind: 'info', symbol, t: 'recuperada la renta de la cuenta: {v} SOL', v: { v: (back / LAMPORTS).toFixed(4) } });
-      notify(tr('Blankfire · venta real ${s}', { s: symbol }), tr('Resultado {v} SOL ({r}).', { v: fmtSol(pnl, { sign: true }), r: tr(reason || '') }));
-      break;
+      if (back > 0) await realPatch((r) => realLog(r, { kind: 'info', symbol, t: 'recuperada la renta de la cuenta: {v} SOL', v: { v: (back / LAMPORTS).toFixed(4) } }));
+      notify(tr('Blankfire · venta real ${s}', { s: symbol }), pnl == null ? tr('Vendida.') : tr('Resultado {v} SOL ({r}).', { v: fmtSol(pnl, { sign: true }), r: tr(reason || '') }));
+      return;
     } catch (e) {
-      realLog(r, { kind: 'error', symbol, t: 'venta fallida (intento {n}): {e}', v: { n: i + 1, e: e.message }, sig: e.sig || null });
-      if (i === 2) notify(tr('Blankfire · no he podido vender ${s}', { s: symbol }), tr('Tres intentos fallidos. Véndela tú en Phantom o en Padre.'));
+      await realPatch((r) => realLog(r, { kind: 'error', symbol, t: 'venta fallida (intento {n}): {e}', v: { n: i + 1, e: e.message }, sig: e.sig || null }));
     }
   }
-  await realSave(r);
+  const tries = await realPatch((r) => {
+    if (!r.positions[addr]) return 0;
+    const t = (r.positions[addr].sellPending?.tries || 0) + 1;
+    // Tokens que no compró el bot (regalos, spam) y que no se pueden vender: se dejan de vigilar.
+    if (r.positions[addr].orphan && !r.positions[addr].lamportsIn && t >= 5) {
+      r.ignored ||= {}; r.ignored[addr] = true; delete r.positions[addr];
+      realLog(r, { kind: 'info', symbol, t: 'no hay forma de vender esos tokens: los dejo de vigilar' });
+      return -1;
+    }
+    r.positions[addr].sellPending = { reason, nextAt: Date.now() + 60e3, tries: t };
+    return t;
+  });
+  if (tries > 0 && (tries === 1 || tries % 10 === 0)) notify(tr('Blankfire · no he podido vender ${s}', { s: symbol }), tr('Lo sigo intentando cada minuto. Si corre prisa, véndela tú en Phantom.'));
+}
+
+// Ventas que quedaron pendientes (wallet cerrada, red caída, sin ruta): se reintentan solas.
+let retryAt = 0, reconcileAt = 0;
+async function realRetry() {
+  const now = Date.now();
+  if (now - retryAt < 20e3) return;
+  retryAt = now;
+  const r = await realLoad();
+  if (!r.vault) return;
+  const kp = await realKeypair();
+  if (!kp) return;
+  // Repaso de la wallet del bot (cada minuto, y siempre al abrirla): ningún token se queda olvidado.
+  if (now - reconcileAt > 60e3) { reconcileAt = now; await realReconcile(kp).catch(() => {}); }
+  const cur = await realLoad();
+  for (const p of Object.values(cur.positions)) if (p.sellPending && p.sellPending.nextAt <= now) await realSell({ addr: p.addr, symbol: p.symbol, reason: p.sellPending.reason });
 }
 
 // Copia las decisiones del bot simulado: compra cuando él compra y vende cuando él vende.
 function realMirror(fresh) {
   for (const l of fresh) {
-    if (l.kind === 'buy') realRun(() => realBuy({ addr: l.addr, symbol: l.symbol, sol: l.sol }));
-    if (l.kind === 'sell') realRun(() => realSell({ addr: l.addr, symbol: l.symbol, reason: l.exit }));
+    if (l.kind === 'buy') realRun(() => realBuy({ addr: l.addr, symbol: l.symbol, sol: l.sol })).catch(() => {});
+    if (l.kind === 'sell') realRun(() => realSell({ addr: l.addr, symbol: l.symbol, reason: l.exit })).catch(() => {});
   }
 }
 
@@ -2074,30 +2196,46 @@ Object.assign(handlers, {
     const kp = keypairFromSecret(secret);
     if (kp.address !== r.address) throw new Error(tr('La clave no coincide con la wallet guardada.'));
     await chrome.storage.session.set({ [REAL_SESSION]: b64encode(secret) });
+    retryAt = 0; reconcileAt = 0;
+    realRun(() => realRetry()).catch(() => {});   // al abrir, se venden las que quedaron pendientes
     return handlers.realState();
   },
   async realLock() { await chrome.storage.session.remove(REAL_SESSION); return handlers.realState(); },
   async realConfig({ config }) {
     const r = await realLoad();
     const next = cleanReal({ ...r.config, ...(config || {}) });
+    // Apagar nunca espera: se guarda al momento.
+    if (next.mode === 'off' && r.config.mode === 'auto') { await realPatch((x) => { x.config = { ...cleanReal({ ...x.config, ...(config || {}) }), mode: 'off' }; realLog(x, { kind: 'info', t: 'modo real apagado' }); }); return handlers.realState(); }
     if (next.mode === 'auto') {
       const store = (await chrome.storage.local.get(BOT_KEY))[BOT_KEY] || {};
       if (!copilotGate(store).ok) throw new Error(tr('El modo real se desbloquea con {n} operaciones simuladas y resultado positivo.', { n: 20 }));
       if (!r.vault) throw new Error(tr('Primero crea la wallet del bot.'));
       if (!userKeys.helius) throw new Error(tr('Para operar con dinero real hace falta tu clave de Helius (Radar → Wallets que sigues).'));
     }
-    if (next.mode !== r.config.mode) realLog(r, { kind: 'info', t: next.mode === 'auto' ? 'modo real encendido' : 'modo real apagado' });
-    r.config = next;
-    await realSave(r);
+    await realPatch((x) => {
+      const n = cleanReal({ ...x.config, ...(config || {}) });
+      if (n.mode !== x.config.mode) realLog(x, { kind: 'info', t: n.mode === 'auto' ? 'modo real encendido' : 'modo real apagado' });
+      x.config = n;
+    });
     return handlers.realState();
   },
   // Botón de pánico: apaga el modo real y vende todo lo abierto.
   async realPanic() {
+    // Apagar va primero y sin esperar a nada: cualquier compra en marcha lo verá antes de enviar.
+    const list = await realPatch((r) => {
+      r.config.mode = 'off';
+      realLog(r, { kind: 'halt', t: 'pánico: modo real apagado, vendiendo todo' });
+      for (const p of Object.values(r.positions)) p.sellPending = { reason: 'manual', nextAt: 0, tries: p.sellPending?.tries || 0 };
+      return Object.values(r.positions);
+    });
+    for (const p of list) realRun(() => realSell({ addr: p.addr, symbol: p.symbol, reason: 'manual' })).catch(() => {});
+    return handlers.realState();
+  },
+  async realSellOne({ addr }) {
     const r = await realLoad();
-    r.config.mode = 'off';
-    realLog(r, { kind: 'halt', t: 'pánico: modo real apagado, vendiendo todo' });
-    await realSave(r);
-    for (const p of Object.values(r.positions)) await realRun(() => realSell({ addr: p.addr, symbol: p.symbol, reason: 'manual' }));
+    const p = r.positions[addr];
+    if (!p) return handlers.realState();
+    await realRun(() => realSell({ addr, symbol: p.symbol, reason: 'manual' }));
     return handlers.realState();
   },
   // Retirar: solo a la dirección fijada al crear la wallet (tu Phantom).
@@ -2108,13 +2246,17 @@ Object.assign(handlers, {
     const kp = keypairFromSecret(secret);
     const bal = await lamportsOf(kp.address);
     const fee = 5000;
+    // Con posiciones abiertas se deja una reserva para poder venderlas (comisiones y renta).
+    const open = Object.keys(r.positions).length;
+    const reserve = open ? 0.015 * LAMPORTS : 0;
+    if (all && open) throw new Error(tr('Tiene posiciones abiertas: véndelas antes de retirarlo todo (o retira una cantidad).'));
     const lamports = all ? bal - fee : Math.floor(Number(sol) * LAMPORTS);
-    if (!(lamports > 0) || lamports + fee > bal) throw new Error(tr('No hay saldo suficiente para retirar eso.'));
+    if (!(lamports > 0) || lamports + fee + reserve > bal) throw new Error(open ? tr('Con posiciones abiertas hay que dejar 0,015 SOL para poder venderlas.') : tr('No hay saldo suficiente para retirar eso.'));
     const { blockhash } = (await rpc('getLatestBlockhash', [{ commitment: 'finalized' }])).value;
     const { tx } = signTransaction(transferTx({ from: kp.address, to: r.withdrawTo, lamports, blockhash }), kp);
     const sig = await sendAndConfirm(tx);
-    realLog(r, { kind: 'withdraw', sol: lamports / LAMPORTS, sig, t: 'retirado a tu wallet' });
-    await realSave(r);
+    // Lo retirado no es pérdida: se descuenta del punto de partida del día.
+    await realPatch((x) => { if (x.day) x.day.start -= lamports; realLog(x, { kind: 'withdraw', sol: lamports / LAMPORTS, sig, t: 'retirado a tu wallet' }); });
     return handlers.realState();
   },
   // Exportar la clave (para importarla en Phantom si hiciera falta): pide la contraseña.
@@ -2130,8 +2272,14 @@ Object.assign(handlers, {
     if (!r.vault) return handlers.realState();
     await openVault(r.vault, password).catch(() => { throw new Error(tr('Contraseña incorrecta.')); });
     if (Object.keys(r.positions).length) throw new Error(tr('Tiene posiciones abiertas: véndelas antes.'));
-    let bal = 0; try { bal = await lamportsOf(r.address); } catch { bal = 0; }
+    // Si no se puede comprobar el saldo, NO se borra: podría tener SOL dentro y se perderían.
+    const bal = await lamportsOf(r.address).catch(() => { throw new Error(tr('No he podido comprobar el saldo (¿sin conexión?). No borro nada.')); });
     if (bal > 0.001 * LAMPORTS) throw new Error(tr('Aún tiene {v} SOL: retíralos antes de borrarla.', { v: fmtSol(bal / LAMPORTS) }));
+    // Tampoco con tokens dentro (aunque Blankfire no los tenga apuntados).
+    for (const programId of TOKEN_PROGRAMS) {
+      const res = await rpc('getTokenAccountsByOwner', [r.address, { programId }, { encoding: 'jsonParsed' }]).catch(() => { throw new Error(tr('No he podido comprobar los tokens (¿sin conexión?). No borro nada.')); });
+      if ((res?.value || []).some((a) => a.account?.data?.parsed?.info?.tokenAmount?.amount !== '0')) throw new Error(tr('Aún tiene tokens dentro: véndelos o pásalos a Phantom antes.'));
+    }
     await chrome.storage.local.remove(REAL_KEY);
     await chrome.storage.session.remove(REAL_SESSION);
     return handlers.realState();

@@ -53,6 +53,7 @@ await ctx.route('https://mainnet.helius-rpc.com/**', async (r) => {
   const res = (result) => r.fulfill({ json: { jsonrpc: '2.0', id: 1, result } });
   if (method === 'getBalance') return res({ value: lamports });
   if (method === 'getTokenAccountsByOwner') return res({ value: [{ pubkey: TOKACC, account: { owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', lamports: 2039280, data: { parsed: { info: { tokenAmount: { amount: tokenRaw.toString(), decimals: 6 } } } } } }].filter(() => tokenRaw > 0n || accOpen) });
+  if (method === 'simulateTransaction') return res({ value: { err: null, accounts: [{ lamports: (typeof drain !== 'undefined' && drain) ? lamports - 0.4e9 : lamports - 5000 }] } });
   if (method === 'getLatestBlockhash') return res({ value: { blockhash: b58encode(new Uint8Array(32).fill(3)), lastValidBlockHeight: 1 } });
   if (method === 'sendTransaction') {
     const tx = b64decode(params[0]);
@@ -122,7 +123,7 @@ for (let i = 0; i < 40; i++) { rs = (await send({ type: 'realState' })).data; if
 ok(sent.filter((x) => !x.legacy).length === 2 && sent[1].valid && !rs.positions[FROG], 'stop: vende con dinero real, firmado');
 const sellLog = rs.log.find((l) => l.kind === 'sell');
 ok(sellLog && Math.abs(sellLog.pnl + 0.004) < 1e-9 && sellLog.reason === 'stop', 'apunta el resultado real (−0,004 SOL) y el motivo (stop)');
-for (let i = 0; i < 20 && !sent.some((x) => x.close); i++) await bot.waitForTimeout(500);
+for (let i = 0; i < 30; i++) { rs = (await send({ type: 'realState' })).data; if (sent.some((x) => x.close) && rs.log.some((l) => /renta/.test(l.t || ''))) break; await bot.waitForTimeout(500); }
 rs = (await send({ type: 'realState' })).data;
 ok(sent.some((x) => x.close && x.valid && x.to === TOKACC) && rs.log.some((l) => /renta/.test(l.t || '')), 'después de vender cierra la cuenta vacía y recupera ~0,002 SOL de renta');
 // Cerrar y abrir
