@@ -30,25 +30,59 @@ export const PADRE_PLAN = {
     { id: 'ultra', n: 3, name: 'P3 · Salida urgente / carrera', buy: { prio: 0.003, tip: 0.005, slip: 35 }, sell: { prio: 0.003, tip: 0.005, slip: 50 } },
   ],
   mev: true,
-  // Pastillas de Trenches que usa el chequeo de monedas, y la protección contra el doble clic.
-  toggles: [
-    ['trenches-token-audit-top-10-holders', 'Top 10 holders en Trenches'],
-    ['trenches-token-audit-dev-holding', 'Dev holding en Trenches'],
-    ['trenches-token-audit-snipers-count', 'Nº de snipers en Trenches'],
-    ['trenches-token-audit-snipers-holding', '% de snipers en Trenches'],
-    ['trenches-token-audit-insiders-holding', 'Insiders en Trenches'],
-    ['trenches-token-audit-bundles', 'Bundles en Trenches'],
-    ['trenches-token-audit-tax', 'Comisión (tax) en Trenches'],
-    ['trenches-token-metrics-market-cap', 'Market cap en Trenches'],
-    ['trenches-token-metrics-volume', 'Volumen en Trenches'],
-    ['instant-trade-general-button-cooldown', 'Pausa tras comprar/vender (evita doble clic)'],
-  ],
-  // Sección del modal donde vive cada grupo de interruptores.
-  sections: [
-    ['Trenches', ['Token', 'Elements'], 'trenches-token-'],
-    ['Instant Trade', [], 'instant-trade-general-'],
+  // Interruptores, agrupados por dónde viven en el modal de Padre (sección › pestaña › subpestaña).
+  // Cada uno: [ancla data-settings-anchor, texto para el usuario, encendido]. Solo cosas que dan seguridad o
+  // información para decidir; nada de colores ni gustos personales.
+  groups: [
+    { path: ['Orders', 'General'], why: 'Seguridad al operar', toggles: [
+      ['orders-general-button-cooldown', 'Pausa tras comprar/vender (evita doble clic)'],
+      ['orders-general-dev-sold-sound', 'Sonido cuando el dev vende'],
+      ['orders-general-hide-high-tax-warning', 'Aviso de tax alto'],
+      ['orders-general-hide-low-liquidity-warning', 'Aviso de poca liquidez'],
+      ['orders-general-hide-jupiter-route-warning', 'Aviso de ruta rara del agregador'],
+    ] },
+    { path: ['Instant Trade', 'General'], why: 'Seguridad al operar', toggles: [
+      ['instant-trade-general-button-cooldown', 'Pausa tras comprar/vender en compra instantánea'],
+      ['instant-trade-general-position-row', 'Ver tu posición en compra instantánea'],
+    ] },
+    { path: ['Trenches', 'General'], why: 'Trenches más fácil de leer', toggles: [
+      ['trenches-general-pause-on-hover', 'La lista se para al pasar el ratón (sin clics equivocados)'],
+      ['trenches-general-x-card-xReuse', 'Aviso de cuenta de X reutilizada'],
+    ] },
+    { path: ['Trenches', 'Token', 'Layout'], why: 'Detectar copias', toggles: [
+      ['trenches-token-avatar-reused-warning', 'Aviso de imagen reutilizada'],
+      ['trenches-token-socials-reuse-warning', 'Aviso de redes reutilizadas'],
+    ] },
+    { path: ['Trenches', 'Token', 'Elements'], why: 'Lo que usa el chequeo de monedas', toggles: [
+      ['trenches-token-audit-top-10-holders', 'Top 10 holders en Trenches'],
+      ['trenches-token-audit-dev-holding', 'Dev holding en Trenches'],
+      ['trenches-token-audit-dev-funded', 'De dónde sacó el dev su SOL'],
+      ['trenches-token-audit-snipers-count', 'Nº de snipers en Trenches'],
+      ['trenches-token-audit-snipers-holding', '% de snipers en Trenches'],
+      ['trenches-token-audit-insiders-holding', 'Insiders en Trenches'],
+      ['trenches-token-audit-bundles', 'Bundles en Trenches'],
+      ['trenches-token-audit-tax', 'Comisión (tax) en Trenches'],
+      ['trenches-token-audit-hover-bubble-map', 'Bubble map al pasar el ratón'],
+      ['trenches-token-metrics-market-cap', 'Market cap en Trenches'],
+      ['trenches-token-metrics-volume', 'Volumen en Trenches'],
+      ['trenches-token-metrics-net-buy', 'Compra neta (entra o sale dinero)'],
+      ['trenches-token-vitals-total-holders', 'Holders en Trenches'],
+      ['trenches-token-vitals-dev-created', 'Monedas que ha creado el dev'],
+      ['trenches-token-vitals-fresh-wallet-buys', 'Compras de wallets recién creadas (multicuentas)'],
+    ] },
+    { path: ['Market', 'Holders'], why: 'Detectar multicuentas', toggles: [
+      ['market-holders-column-fundedBy', 'Quién financió a cada holder'],
+    ] },
+    { path: ['Market', 'Top traders'], why: 'Detectar multicuentas', toggles: [
+      ['market-top-traders-column-fundedBy', 'Quién financió a cada top trader'],
+    ] },
+    { path: ['Market', 'Position'], why: 'PnL honesto', toggles: [
+      ['market-position-remaining-basis', 'Lo que te queda, descontando el impacto al vender'],
+    ] },
   ],
 };
+
+export const planToggles = (plan) => (plan.groups || []).flatMap((g) => g.toggles.map(([a, label, on = true]) => ({ a, label, on, path: g.path, why: g.why })));
 
 // ---------- Acceso al modal de Padre ----------
 const visible = (el) => { const r = el?.getBoundingClientRect?.(); return !!r && r.width > 0 && r.height > 0; };
@@ -82,11 +116,26 @@ async function goSection(name) {
 }
 async function goTab(name) {
   const root = modalRoot();
+  const byId = [...root.querySelectorAll('[id^="settings-tab-"]')].find((t) => (t.innerText || '').trim() === name && visible(t));
+  if (byId) { byId.click(); await sleep(450); return; }
   const sideRight = Math.max(...byText(root, 'button', 'Orders').map((b) => b.getBoundingClientRect().right), 0);
   const btn = byText(root, 'button', name).find((b) => b.getBoundingClientRect().left > sideRight - 2);
   if (!btn) throw new Error(tr('No encuentro la pestaña «{s}» en los ajustes de Padre.', { s: name }));
   btn.click();
   await sleep(450);
+}
+// Subpestañas de Trenches › Token (Layout, Styling, Elements…): tienen id propio.
+async function goCategory(name) {
+  const id = `trenches-token-category-${name.toLowerCase()}`;
+  const btn = document.getElementById(id);
+  if (!btn || !visible(btn)) throw new Error(tr('No encuentro la pestaña «{s}» en los ajustes de Padre.', { s: name }));
+  btn.click();
+  await sleep(450);
+}
+async function goPath([section, tab, cat]) {
+  await goSection(section);
+  if (tab) await goTab(tab);
+  if (cat) await goCategory(cat);
 }
 async function pickPreset(n) {
   const root = modalRoot();
@@ -163,11 +212,11 @@ async function readPreset(p) {
   return out;
 }
 
-// plan: { presets: [{n, buy:{prio,tip,slip,mev?}, sell:{…}}], mev, toggles: [[anchor, label, on?]] }
+// plan: { presets: [{n, buy:{prio,tip,slip,mev?}, sell:{…}}], mev, groups: [{ path, toggles: [[anchor, label, on?]] }] }
 // onStep(texto) informa del progreso. Devuelve { changes: [...], backup }.
 export async function applyPadrePlan(plan, { onStep = () => {}, backup = true } = {}) {
   const changes = [];
-  const prev = { presets: [], toggles: [] };
+  const prev = { presets: [], groups: [] };
   await openSettings();
   try {
     // 1) Presets de ejecución
@@ -198,17 +247,17 @@ export async function applyPadrePlan(plan, { onStep = () => {}, backup = true } 
         }
       }
     }
-    // 2) Interruptores de Trenches y de compra instantánea
-    for (const [section, tabs, prefix] of PADRE_PLAN.sections) {
-      const mine = (plan.toggles || []).filter(([a]) => a.startsWith(prefix));
-      if (!mine.length) continue;
-      onStep(tr('Ajustes de {s}…', { s: section }));
-      await goSection(section);
-      for (const t of tabs) await goTab(t);
-      for (const [anchor, label, wantOn = true] of mine) {
+    // 2) Interruptores, sección por sección. Si Padre quita una opción, se salta sin romper nada.
+    for (const g of plan.groups || []) {
+      onStep(tr('Ajustes de {s}…', { s: g.path.join(' › ') }));
+      try { await goPath(g.path); } catch { continue; }   // esa sección ya no existe en esta versión de Padre
+      for (const [anchor, label, wantOn = true] of g.toggles) {
         const { el, on } = toggleState(anchor);
-        if (!el) continue;   // esa opción ya no existe en esta versión de Padre
-        prev.toggles.push([anchor, label, on]);
+        if (!el) continue;
+        prev.groups ||= [];
+        let pg = prev.groups.find((x) => x.path.join('/') === g.path.join('/'));
+        if (!pg) { pg = { path: g.path, why: g.why, toggles: [] }; prev.groups.push(pg); }
+        pg.toggles.push([anchor, label, on]);
         if (on !== wantOn) {
           el.click();
           await waitFor(() => toggleState(anchor).on === wantOn, 1500);
@@ -269,7 +318,10 @@ export async function restorePadreBackup({ onStep } = {}) {
   const plan = {
     presets: b.plan.presets.map((p) => ({ n: p.n, id: p.id, buy: { prio: num(p.buy.prio), tip: num(p.buy.tip), slip: num(p.buy.slip), mev: p.buy.mev ?? undefined }, sell: { prio: num(p.sell.prio), tip: num(p.sell.tip), slip: num(p.sell.slip), mev: p.sell.mev ?? undefined } })),
     mev: null,
-    toggles: b.plan.toggles.filter((t) => t[2] != null),
+    // Copias de versiones anteriores (lista plana de Trenches) siguen sirviendo para deshacer.
+    groups: b.plan.groups ? b.plan.groups.map((g) => ({ path: g.path, toggles: g.toggles.filter((t) => t[2] != null) }))
+      : [{ path: ['Trenches', 'Token', 'Elements'], toggles: (b.plan.toggles || []).filter((t) => t[2] != null && t[0].startsWith('trenches-')) },
+         { path: ['Instant Trade', 'General'], toggles: (b.plan.toggles || []).filter((t) => t[2] != null && t[0].startsWith('instant-trade-')) }],
   };
   const res = await applyPadrePlan(plan, { onStep, backup: false });
   try { await chrome.storage.local.remove(BACKUP_KEY); } catch { /* ya está */ }

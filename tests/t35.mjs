@@ -56,13 +56,15 @@ const txt = await P.locator('.popt').innerText();
 ok(S.presets[1].buy.prio === '0.001' && S.presets[1].buy.tip === '0.001' && S.presets[1].buy.slip === '25' && S.presets[1].sell.slip === '40', 'P1 (nuevos pares): 0,001 · 0,001 · 25 % / venta 40 %');
 ok(S.presets[2].buy.prio === '0.0005' && S.presets[2].buy.slip === '12' && S.presets[2].sell.slip === '25' && S.presets[2].sell.tip === '0.001', 'P2 (graduados): 0,0005 · 0,001 · 12 % / venta 25 %');
 ok(S.presets[3].buy.tip === '0.005' && S.presets[3].sell.slip === '50' && S.presets[3].buy.mev === true, 'P3 (urgente) con MEV Secure (estaba en Off)');
+ok(['trenches-token-vitals-fresh-wallet-buys', 'trenches-token-metrics-net-buy', 'trenches-token-audit-hover-bubble-map', 'orders-general-button-cooldown', 'orders-general-dev-sold-sound', 'trenches-general-pause-on-hover', 'trenches-token-socials-reuse-warning', 'market-top-traders-column-fundedBy'].every((a) => S.toggles[a] === true), 'Activa lo nuevo en todas las secciones: multicuentas, compra neta, bubble map, sonido del dev, pausa al pasar el ratón, copias y quién financió');
+ok(S.untouched['appearance-full-numbers'] === false, 'No toca ajustes de gusto personal (Apariencia)');
 ok(S.toggles['trenches-token-audit-snipers-holding'] && S.toggles['trenches-token-audit-bundles'] && S.toggles['instant-trade-general-button-cooldown'], 'Activa las pastillas que faltaban en Trenches y la pausa anti doble clic');
 ok(!S.open, 'Cierra el modal de ajustes al terminar');
 console.log(JSON.stringify(txt.slice(0,200))); ok(/(cambiado|changed) [0-9]+ /.test(txt), 'Resumen de cambios');
 const st = (await send({ type: 'state' })).data.settings;
 ok(st.tipSol === 0.001 && st.priorityFee === 0.001 && st.maxSlippagePct === 25 && st.sellSlippagePct === 40 && st.mevSecure === true, 'La práctica pasa a cobrar como el nuevo P1');
 const bk = await host.evaluate(() => chrome.storage.local.get('blankfirePadreBackup').then((x) => x.blankfirePadreBackup));
-ok(bk?.plan?.presets?.[0]?.buy?.tip === '0.01' && bk.plan.toggles.length >= 9, 'Guarda copia de los ajustes anteriores');
+ok(bk?.plan?.presets?.[0]?.buy?.tip === '0.01' && bk.plan.groups.flatMap((g) => g.toggles).length >= 25, 'Guarda copia de los ajustes anteriores');
 await pg.screenshot({ path: TDIR + `t35-done-${lang}.png`, clip: await box() });
 // Preset activo de Padre frente al tipo de token
 await P.locator('.popt [data-act="padreCancel"]').click(); await pg.waitForTimeout(300);
@@ -83,7 +85,7 @@ await P.locator('.popt [data-act="padreUndo"]').click();
 await pg.waitForFunction(() => document.querySelector('#fogueo-root').shadowRoot.querySelector('.popt [data-act="padreCancel"].btn-brand, .popt .popt-err'), null, { timeout: 90000 }).catch(() => {});
 const S2 = await pg.evaluate(() => window.__padreState);
 ok(S2.presets[1].buy.tip === '0.01' && S2.presets[2].buy.prio === '0.002' && S2.presets[3].buy.mev === false && S2.presets[3].sell.slip === '40', 'Deshacer devuelve los presets originales (incluido MEV Off en P3)');
-ok(S2.toggles['trenches-token-audit-bundles'] === false && S2.toggles['instant-trade-general-button-cooldown'] === false, 'Deshacer devuelve los interruptores originales');
+ok(S2.toggles['trenches-token-audit-bundles'] === false && S2.toggles['instant-trade-general-button-cooldown'] === false && S2.toggles['trenches-general-pause-on-hover'] === false && S2.toggles['market-top-traders-column-fundedBy'] === false, 'Deshacer devuelve los interruptores originales');
 ok(!(await host.evaluate(() => chrome.storage.local.get('blankfirePadreBackup').then((x) => x.blankfirePadreBackup))), 'Tras deshacer se borra la copia');
 // Error: Padre sin botón de ajustes
 withGear = false;

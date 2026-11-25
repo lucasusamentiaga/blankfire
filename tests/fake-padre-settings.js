@@ -6,7 +6,15 @@
                3: { buy: { prio: '0.003', tip: '0.03', slip: '20', mev: false }, sell: { prio: '0.003', tip: '0.03', slip: '40', mev: true } } },
     toggles: { 'trenches-token-audit-top-10-holders': true, 'trenches-token-audit-dev-holding': true, 'trenches-token-audit-snipers-count': true,
       'trenches-token-audit-snipers-holding': false, 'trenches-token-audit-insiders-holding': true, 'trenches-token-audit-bundles': false,
-      'trenches-token-audit-tax': true, 'trenches-token-metrics-market-cap': true, 'trenches-token-metrics-volume': true, 'instant-trade-general-button-cooldown': false },
+      'trenches-token-audit-tax': true, 'trenches-token-metrics-market-cap': true, 'trenches-token-metrics-volume': true, 'instant-trade-general-button-cooldown': false,
+      'trenches-token-audit-dev-funded': true, 'trenches-token-audit-hover-bubble-map': false, 'trenches-token-metrics-net-buy': false, 'trenches-token-vitals-total-holders': true,
+      'trenches-token-vitals-dev-created': true, 'trenches-token-vitals-fresh-wallet-buys': false,
+      'orders-general-button-cooldown': false, 'orders-general-dev-sold-sound': false, 'orders-general-hide-high-tax-warning': true, 'orders-general-hide-low-liquidity-warning': true,
+      'instant-trade-general-position-row': true, 'trenches-general-pause-on-hover': false, 'trenches-general-x-card-xReuse': true,
+      'trenches-token-avatar-reused-warning': true, 'trenches-token-socials-reuse-warning': false,
+      'market-holders-column-fundedBy': true, 'market-top-traders-column-fundedBy': false, 'market-position-remaining-basis': true },
+    // Ajustes que Blankfire no debe tocar nunca (colores, idioma…).
+    untouched: { 'appearance-full-numbers': false },
     open: false, section: 'Appearance', tab: '', sub: '', preset: 1, side: 'buy',
   };
   const gear = document.createElement('button');
@@ -31,14 +39,33 @@
       <div style="width:200px;padding:8px;display:flex;flex-direction:column;gap:4px"><input placeholder="Search settings"><p>Display</p><p>Trading</p></div>
       <div id="pc" style="flex:1;padding:10px;display:flex;flex-direction:column;gap:6px"><div style="display:flex;justify-content:space-between"><b>${S.section}</b><button aria-label="Close">×</button></div></div></div>`);
     const side = m.firstElementChild;
-    for (const name of ['Appearance', 'Orders', 'Chart', 'Trenches', 'Instant Trade']) {
-      const b = h(`<button>${name}</button>`); b.onclick = () => { S.section = name; S.tab = name === 'Orders' ? 'General' : name === 'Trenches' ? 'General' : ''; S.sub = ''; render(); }; side.appendChild(b);
+    for (const name of ['Appearance', 'Orders', 'Chart', 'Trenches', 'Market', 'Instant Trade']) {
+      const b = h(`<button>${name}</button>`); b.onclick = () => { S.section = name; S.tab = { Orders: 'General', Trenches: 'General', Market: 'General', 'Instant Trade': 'General' }[name] || ''; S.sub = ''; render(); }; side.appendChild(b);
     }
     const pc = m.querySelector('#pc');
     m.querySelector('[aria-label="Close"]').onclick = () => { S.open = false; render(); };
-    const tabs = (list, key) => { const row = h('<div style="display:flex;gap:6px"></div>'); for (const t of list) { const b = h(`<button>${t}</button>`); b.onclick = () => { S[key] = t; render(); }; row.appendChild(b); } pc.appendChild(row); };
-    if (S.section === 'Orders') {
+    // Pestañas con id como en Padre (settings-tab-ORDERS_GENERAL) y subpestañas de Token (trenches-token-category-elements).
+    const tabs = (list, key) => { const row = h('<div style="display:flex;gap:6px"></div>'); for (const t of list) { const id = key === 'tab' ? `settings-tab-${S.section.toUpperCase().replace(/ /g, '_')}_${t.toUpperCase().replace(/ /g, '_')}` : `trenches-token-category-${t.toLowerCase()}`; const b = h(`<button id="${id}">${t}</button>`); b.onclick = () => { S[key] = t; render(); }; row.appendChild(b); } pc.appendChild(row); };
+    // Fila con interruptor propio (role=switch en la fila) o con el interruptor dentro.
+    const swRow = (a, label, inner = false) => {
+      const row = inner ? h(`<div data-settings-anchor="${a}"><span>${label}</span><button role="switch" aria-checked="${S.toggles[a]}"></button></div>`)
+        : h(`<div role="switch" aria-checked="${S.toggles[a]}" data-settings-anchor="${a}"><span>${label}</span></div>`);
+      (inner ? row.querySelector('button') : row).onclick = () => { S.toggles[a] = !S.toggles[a]; render(); };
+      pc.appendChild(row);
+    };
+    const rowsWith = (prefix) => Object.keys(S.toggles).filter((a) => a.startsWith(prefix)).forEach((a) => swRow(a, a, a === 'market-position-remaining-basis'));
+    if (S.section === 'Appearance') {
+      const row = h(`<div role="switch" aria-checked="${S.untouched['appearance-full-numbers']}" data-settings-anchor="appearance-full-numbers">Full numbers</div>`);
+      row.onclick = () => { S.untouched['appearance-full-numbers'] = !S.untouched['appearance-full-numbers']; render(); };
+      pc.appendChild(row);
+    } else if (S.section === 'Market') {
+      tabs(['General', 'Position', 'Holders', 'Top traders'], 'tab');
+      if (S.tab === 'Holders') rowsWith('market-holders-');
+      if (S.tab === 'Top traders') rowsWith('market-top-traders-');
+      if (S.tab === 'Position') rowsWith('market-position-');
+    } else if (S.section === 'Orders') {
       tabs(['General', 'Presets', 'Execution'], 'tab');
+      if (S.tab === 'General') rowsWith('orders-general-');
       if (S.tab === 'Presets') {
         const radios = h('<div style="display:flex;gap:6px"></div>');
         for (const n of [1, 2, 3]) { const r = h(`<div role="radio" aria-checked="${S.preset === n}" tabindex="0">Preset ${n}</div>`); r.onclick = () => { setTimeout(() => { S.preset = n; render(); }, 80); }; radios.appendChild(r); }
@@ -62,11 +89,13 @@
       }
     } else if (S.section === 'Trenches') {
       tabs(['General', 'Token'], 'tab');
+      if (S.tab === 'General') rowsWith('trenches-general-');
       if (S.tab === 'Token') {
         tabs(['Layout', 'Styling', 'Elements'], 'sub');
+        if (S.sub === 'Layout') { swRow('trenches-token-avatar-reused-warning', 'Avatar reuse warning'); swRow('trenches-token-socials-reuse-warning', 'Socials reuse warning'); }
         if (S.sub === 'Elements') {
           for (const [a, on] of Object.entries(S.toggles)) {
-            if (!a.startsWith('trenches-')) continue;
+            if (!/^trenches-token-(audit|metrics|vitals)-/.test(a)) continue;
             const b = h(`<button aria-pressed="${on}" data-settings-anchor="${a}" aria-label="${a}">${a.replace('trenches-token-', '')}</button>`);
             b.onclick = () => { S.toggles[a] = !S.toggles[a]; render(); };
             pc.appendChild(b);
@@ -74,10 +103,8 @@
         }
       }
     } else if (S.section === 'Instant Trade') {
-      const a = 'instant-trade-general-button-cooldown';
-      const row = h(`<div data-slot="settings-row" data-settings-anchor="${a}"><span>Buy/sell button cooldown</span><button role="switch" aria-checked="${S.toggles[a]}"></button></div>`);
-      row.querySelector('button').onclick = () => { S.toggles[a] = !S.toggles[a]; render(); };
-      pc.appendChild(row);
+      tabs(['General', 'Buttons'], 'tab');
+      if (S.tab === 'General') { swRow('instant-trade-general-button-cooldown', 'Buy/sell button cooldown', true); swRow('instant-trade-general-position-row', 'Show position row'); }
     }
     wrap.appendChild(m);
   }

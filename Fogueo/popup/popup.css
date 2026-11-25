@@ -866,3 +866,9 @@ a.upd-link { font-weight: 600; }
 .pg-safe ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 12px; line-height: 1.45; color: var(--fx-ink-2); text-wrap: pretty; }
 .pg-safe b { color: var(--fx-ink); }
 @media (prefers-reduced-motion: reduce) { .m-bar .x { box-shadow: none; outline: 1px solid var(--fx-brand-ring); } }
+
+/* Acceso al bot de práctica (página propia) */
+.bot-btn { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px 0 6px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--fx-ink-3); border: 1px solid var(--fx-line); transition: background var(--fx-fast) var(--fx-ease), color var(--fx-fast) var(--fx-ease); }
+.bot-btn svg { width: 14px; height: 14px; }
+.bot-btn:hover { background: var(--fx-raise); color: var(--fx-brand-hi); }
+.bot-btn:focus-visible { outline: 2px solid var(--fx-brand); outline-offset: 1px; }

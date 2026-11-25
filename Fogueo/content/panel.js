@@ -7,7 +7,7 @@ import {
 import { tr, setLang, getLang } from '../lib/i18n.js';
 import { Tour } from './tour.js';
 import { startScan, setScanOptions, cachedFacts } from './scan.js';
-import { PADRE_PLAN, applyPadrePlan, restorePadreBackup, getPadreBackup } from './padre-setup.js';
+import { PADRE_PLAN, planToggles, applyPadrePlan, restorePadreBackup, getPadreBackup } from './padre-setup.js';
 import { readTokenData, readPadrePreset, mergeFacts, screenToken, screenRisks, checkName, checkValue, checkWhy, checkShort, VERDICT } from '../lib/screen.js';
 import { scoreBand } from '../lib/shield.js';
 import { UPD_KEY, updateView, updateCard, readUpdate, onUpdateAction } from '../lib/update.js';
@@ -909,10 +909,8 @@ class Panel {
         <p>${tr('Voy a cambiar los ajustes de <b>tu cuenta de Padre</b>, que se usan en tus trades reales. Guardo una copia de los actuales para poder deshacerlo.')}</p>
         <table class="popt-t"><thead><tr><td></td><th>${tr('Compra')}</th><th>${tr('Venta')}</th></tr></thead><tbody>${rows}</tbody></table>
         <p class="popt-legend">${tr('Prioridad · tip (SOL) · slippage. MEV «Secure» en todos.')}</p>
-        <ul class="popt-list">
-          <li>${tr('Trenches enseña top 10, dev, snipers, insiders, bundles y tax: lo que usa el chequeo de monedas.')}</li>
-          <li>${tr('Pausa corta tras comprar o vender para no repetir la orden con un doble clic.')}</li>
-        </ul>
+        <ul class="popt-list">${[...new Set(planToggles(PADRE_PLAN).map((t) => t.why))].map((why) => `<li><b>${tr(why)}:</b> ${planToggles(PADRE_PLAN).filter((t) => t.why === why).map((t) => tr(t.label).replace(/ (en|in) Trenches$/, '')).join(' · ')}.</li>`).join('')}</ul>
+        <p class="popt-legend">${tr('No toco colores, idioma, atajos ni nada de tu gusto personal. Si Padre ha quitado alguna opción, me la salto.')}</p>
         <p class="popt-why">${tr('El tip de 0,01 SOL que trae Padre por defecto cuesta 0,02 SOL por trade: con 0,1 SOL de compra son un 20 % antes de empezar. Con 0,001 la orden entra igual de rápido casi siempre.')}</p>
         <div class="review-a">
           ${o.backup ? `<button class="link-btn" data-act="padreUndo">${tr('Deshacer lo anterior')}</button>` : ''}

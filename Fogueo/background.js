@@ -6,6 +6,10 @@ import {
 } from './lib/core.js';
 import { tr, setLang } from './lib/i18n.js';
 import { analyzeCopies, analyzeChart } from './lib/shield.js';
+import {
+  BOT_KEY, BOT_DEFAULTS, RECAP_MS, EXIT_TEXT, cleanConfig, freshSession, filterPair, smartsAgent, trendsAgent, debateAgent,
+  routerAgent, councilScore, decide, entrySize, exitReason, sessionEquity, lossHit, pushLog, makeRecap, metaWords,
+} from './lib/bot.js';
 import { RAW, cmpVer, installedVersion, readUpdate, patchUpdate } from './lib/update.js';
 import { PRO_KEY, LS_API, REVALIDATE_MS, isPro, proSelling, licenseMatches, PRO_CONFIG, maskKey, SUPPORT } from './lib/pro.js';
 import { buildSeries, tradeFacts, tradeFlags, tradeContext, candleWindow } from './lib/review.js';
@@ -1332,3 +1336,270 @@ chrome.commands?.onCommand.addListener(async (command) => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: 'toggle' }).catch(() => {});
 });
+
+
+// =====================================================================
+// Bot de práctica: cuatro agentes deciden por separado, el ejecutor obedece límites duros.
+// Saldo propio de sesión en SOL ficticios: no toca la cuenta del usuario ni ninguna wallet.
+// =====================================================================
+const BOT_ALARM = 'blankfire-bot';
+const BOT_SCAN_MS = 120e3;
+let botChain = Promise.resolve();
+// Todo lo que cambia el bot pasa por esta cola: un tick y un «Parar» nunca se pisan.
+function botRun(fn) {
+  const run = botChain.then(async () => {
+    const store = (await chrome.storage.local.get(BOT_KEY))[BOT_KEY] || { config: cleanConfig(BOT_DEFAULTS), session: null, past: [] };
+    const out = await fn(store);
+    await chrome.storage.local.set({ [BOT_KEY]: store });
+    return out;
+  });
+  botChain = run.catch(() => {});
+  return run;
+}
+
+function botBestPairs(pairs) {
+  const best = new Map();
+  for (const p of pairs || []) {
+    const a = p?.baseToken?.address;
+    if (p?.chainId !== 'solana' || !a || !(Number(p.priceUsd) > 0)) continue;
+    const cur = best.get(a);
+    if (!cur || (Number(p.liquidity?.usd) || 0) > (Number(cur.liquidity?.usd) || 0)) best.set(a, p);
+  }
+  return [...best.values()];
+}
+
+async function botJupRoute(mint, sizeSol, slipPct) {
+  try {
+    const lamports = Math.round(sizeSol * 1e9);
+    const j = await jupJson(`/swap/v1/quote?inputMint=${SOL_MINT}&outputMint=${mint}&amount=${lamports}&slippageBps=${Math.round(slipPct * 100)}&restrictIntermediateTokens=true`);
+    const labels = [...new Set((j.routePlan || []).map((r) => r.swapInfo?.label).filter(Boolean))];
+    return { route: labels.length ? 'Jupiter · ' + labels.join(' → ') : null, impactPct: Number(j.priceImpactPct) * 100 };
+  } catch { return null; }
+}
+
+function botOpen(s, pair, quote, router, verdict, agents, sol, settings, now) {
+  const key = 'solana:' + pair.baseToken.address;
+  const sim = simulateBuy({ solIn: router.sizeSol, quote, solUsd: sol, settings: { ...settings, maxSlippagePct: router.slipPct } });
+  if (!sim.ok) {
+    pushLog(s, { kind: 'skip', symbol: pair.baseToken.symbol, addr: pair.baseToken.address, score: verdict.score, agents, reason: { t: 'la orden habría fallado por slippage' } }, now);
+    return false;
+  }
+  if (sim.totalDebit > s.balance + 1e-9) return false;
+  s.balance -= sim.totalDebit;
+  s.positions[key] = {
+    key, addr: pair.baseToken.address, symbol: pair.baseToken.symbol, name: pair.baseToken.name, icon: pair.info?.imageUrl || null,
+    qty: sim.qty, entryPrice: sim.fillPrice, peak: sim.fillPrice, lastPrice: quote.priceUsd, costSol: sim.totalDebit, valueSol: sim.totalDebit,
+    openedAt: now, score: verdict.score, slipPct: router.slipPct, impactPct: sim.impactPct, route: router.route,
+    stopPrice: sim.fillPrice * (1 - s.config.stopPct / 100), url: `https://trade.padre.gg/trade/solana/${pair.baseToken.address}`,
+  };
+  s.seen[pair.baseToken.address] = now;
+  s.stats.buys++;
+  pushLog(s, { kind: 'buy', symbol: pair.baseToken.symbol, addr: pair.baseToken.address, score: verdict.score, agents, reason: verdict.reason, sol: sim.totalDebit, price: sim.fillPrice }, now);
+  return true;
+}
+
+function botClose(s, key, quote, sol, settings, exit, now) {
+  const p = s.positions[key];
+  if (!p) return;
+  let netSol = p.valueSol ?? 0;
+  if (quote?.priceUsd > 0 && sol > 0) {
+    const sim = simulateSell({ qty: p.qty, quote, solUsd: sol, settings: { ...settings, sellSlippagePct: 99 } });
+    if (Number.isFinite(sim.netSol)) netSol = Math.max(0, sim.netSol);
+  }
+  const ch = quote?.priceUsd > 0 ? (quote.priceUsd / p.entryPrice - 1) * 100 : null;
+  s.balance += netSol;
+  const pnlSol = netSol - p.costSol, pnlPct = (netSol / p.costSol - 1) * 100;
+  s.closed.push({ symbol: p.symbol, addr: p.addr, openedAt: p.openedAt, closedAt: now, costSol: p.costSol, netSol, pnlSol, pnlPct, exit, ch, score: p.score });
+  if (s.closed.length > 500) s.closed.splice(0, s.closed.length - 500);
+  delete s.positions[key];
+  pushLog(s, { kind: 'sell', symbol: p.symbol, addr: p.addr, exit, ch, pnlSol, pnlPct, mins: Math.round((now - p.openedAt) / 60e3) }, now);
+}
+
+async function botScan(s, settings, sol, now) {
+  s.lastScanAt = now;
+  const [boosts, profiles] = await Promise.all([
+    getJson(`${DS}/token-boosts/latest/v1`).catch(() => []),
+    getJson(`${DS}/token-profiles/latest/v1`).catch(() => []),
+  ]);
+  const list = [...(Array.isArray(boosts) ? boosts : []), ...(Array.isArray(profiles) ? profiles : [])].filter((x) => x?.chainId === 'solana' && x.tokenAddress);
+  const boosted = new Set((Array.isArray(boosts) ? boosts : []).map((x) => x.tokenAddress));
+  const addrs = [...new Set(list.map((x) => x.tokenAddress))].slice(0, 60);
+  if (!addrs.length) { pushLog(s, { kind: 'info', reason: { t: 'DexScreener no ha respondido: vuelve a mirar en 2 min' } }, now); return; }
+  const raw = [];
+  for (let i = 0; i < addrs.length; i += 30) raw.push(...(await getJson(`${DS}/tokens/v1/solana/${addrs.slice(i, i + 30).join(',')}`).catch(() => [])));
+  const pairs = botBestPairs(raw);
+  const meta = metaWords(pairs);
+  const held = Object.fromEntries(Object.values(s.positions).map((p) => [p.addr, true]));
+  s.skipSeen ||= {};
+  const keep = [];
+  for (const pair of pairs) {
+    const addr = pair.baseToken.address;
+    s.stats.scanned++;
+    const why = filterPair(pair, s.config, { now, held, recent: s.seen });
+    if (why.length) {
+      s.stats.skipped++;
+      // Un descarte por moneda cada 30 min: el registro cuenta lo que pasa, no repite lo mismo.
+      if (!held[addr] && (!s.skipSeen[addr] || now - s.skipSeen[addr] > 30 * 60e3)) {
+        s.skipSeen[addr] = now;
+        pushLog(s, { kind: 'skip', stage: 'filter', symbol: pair.baseToken.symbol, addr, reason: why[0], more: why.slice(1, 4) }, now);
+      }
+      continue;
+    }
+    const smarts = smartsAgent(pair), trends = trendsAgent(pair, { meta, boosted });
+    keep.push({ pair, smarts, trends, pre: councilScore({ smarts, trends }) ?? -1 });
+  }
+  const pruned = Object.entries(s.skipSeen).sort((a, b) => b[1] - a[1]).slice(0, 300);
+  s.skipSeen = Object.fromEntries(pruned);
+  keep.sort((a, b) => b.pre - a.pre);
+  let slots = s.config.maxOpen - Object.keys(s.positions).length;
+  // Solo las tres mejores pasan al debate (cada una cuesta peticiones del escudo anti-rug).
+  for (const c of keep.slice(0, 3)) {
+    const { pair, smarts, trends } = c, addr = pair.baseToken.address;
+    const shield = await shieldFor({ mint: addr, name: pair.baseToken.name, symbol: pair.baseToken.symbol, createdAt: pair.pairCreatedAt, mcUsd: Number(pair.marketCap ?? pair.fdv) || 0 }).catch(() => null);
+    const debate = debateAgent(pair, { smarts, trends, shield });
+    const quote = withTax(pairToQuote(pair));
+    let router = routerAgent({ quote, sizeSol: Math.min(entrySize(s), s.balance), solUsd: sol, settings, cfg: s.config, simulateBuy, simulateSell });
+    if (router.ok && slots > 0 && !debate.veto) {
+      const jup = await botJupRoute(addr, router.sizeSol, router.slipPct);
+      if (jup) router = routerAgent({ quote, sizeSol: router.sizeSol, solUsd: sol, settings, cfg: s.config, simulateBuy, simulateSell, jup });
+    }
+    const agents = { smarts, trends, debate, router };
+    const verdict = decide(agents, s.config);
+    if (verdict.action === 'buy' && slots > 0 && s.balance >= 0.02) { if (botOpen(s, pair, quote, router, verdict, agents, sol, settings, now)) slots--; }
+    else {
+      s.stats.skipped++;
+      s.skipSeen[addr] = now;
+      pushLog(s, { kind: 'skip', stage: 'council', symbol: pair.baseToken.symbol, addr, score: verdict.score, agents, reason: slots > 0 ? verdict.reason : { t: 'sin hueco: ya tiene {n} abiertas', v: { n: s.config.maxOpen } } }, now);
+    }
+  }
+  if (!keep.length) pushLog(s, { kind: 'info', reason: { t: 'ninguna de las {n} monedas pasó los filtros', v: { n: pairs.length } } }, now);
+}
+
+function botRecap(s, now, final = false) {
+  const r = makeRecap(s, s.lastRecapAt, now);
+  r.final = final;
+  s.recaps.push(r);
+  if (s.recaps.length > 60) s.recaps.splice(0, s.recaps.length - 60);
+  s.lastRecapAt = now;
+  pushLog(s, { kind: 'recap', recap: r }, now);
+  notify(tr('Bot de práctica · resumen'), tr('{n} operaciones · {pnl} SOL · saldo {b} SOL', { n: r.trades, pnl: fmtSol(r.pnlSol, { sign: true }), b: fmtSol(s.balance) }));
+}
+
+async function botTick({ forceScan = false } = {}) {
+  return botRun(async (store) => {
+    const s = store.session;
+    if (!s || !['running', 'paused'].includes(s.status)) { chrome.alarms.clear(BOT_ALARM); return; }
+    const st = await load();
+    const settings = st.settings;
+    const sol = await solUsd().catch(() => null);
+    const now = Date.now();
+    if (!sol) { pushLog(s, { kind: 'info', reason: { t: 'sin precio de SOL: espera' } }, now); return; }
+    // 1) Vigilar las abiertas: stop duro, objetivo, stop que sigue al precio y tiempo máximo.
+    const keys = Object.keys(s.positions);
+    if (keys.length) {
+      const q = await refreshQuotes(keys, { force: true }).catch(() => ({}));
+      for (const k of keys) {
+        const p = s.positions[k], quote = q[k];
+        if (!(quote?.priceUsd > 0) || now - (quote.at || 0) > 60e3) continue;
+        p.lastPrice = quote.priceUsd;
+        p.peak = Math.max(p.peak || p.entryPrice, quote.priceUsd);
+        const sim = simulateSell({ qty: p.qty, quote, solUsd: sol, settings: { ...settings, sellSlippagePct: 99 } });
+        if (Number.isFinite(sim.netSol)) p.valueSol = Math.max(0, sim.netSol);
+        const ex = exitReason(p, quote.priceUsd, s.config, now);
+        if (ex) botClose(s, k, quote, sol, settings, ex.id, now);
+      }
+      if (lossHit(s, sessionEquity(s))) {
+        for (const k of Object.keys(s.positions)) botClose(s, k, q[k], sol, settings, 'halt', now);
+        s.status = 'halted';
+        s.haltReason = { t: 'la sesión perdió más del {p} %: el bot se ha parado solo', v: { p: s.config.maxLossPct } };
+        pushLog(s, { kind: 'halt', reason: s.haltReason }, now);
+        botRecap(s, now, true);
+        notify(tr('Bot de práctica parado'), tr(s.haltReason.t, s.haltReason.v));
+        chrome.alarms.clear(BOT_ALARM);
+        return;
+      }
+    }
+    // 2) Resumen cada 12 horas.
+    if (now - s.lastRecapAt >= RECAP_MS) botRecap(s, now);
+    // 3) Buscar entradas cada 2 min, si queda hueco y saldo.
+    const free = s.status === 'running' && Object.keys(s.positions).length < s.config.maxOpen && s.balance >= 0.02;
+    if (free && (forceScan || now - s.lastScanAt >= BOT_SCAN_MS)) await botScan(s, settings, sol, now);
+  });
+}
+
+Object.assign(handlers, {
+  async botState() { return botRun(async (store) => store); },
+  async botConfig({ config }) {
+    return botRun(async (store) => {
+      const next = cleanConfig({ ...store.config, ...(config || {}), filters: { ...store.config?.filters, ...(config?.filters || {}) } });
+      store.config = next;
+      // El saldo de la sesión es fijo: los demás límites se aplican al momento, el saldo en la próxima sesión.
+      if (store.session && ['running', 'paused'].includes(store.session.status)) {
+        store.session.config = { ...next, budgetSol: store.session.config.budgetSol };
+        pushLog(store.session, { kind: 'info', reason: { t: 'límites actualizados' } });
+      }
+      return store;
+    });
+  },
+  async botStart({ config } = {}) {
+    const store = await botRun(async (store) => {
+      if (store.session && ['running', 'paused'].includes(store.session.status)) throw new Error(tr('Ya hay una sesión en marcha.'));
+      if (store.session) { store.past = [{ id: store.session.id, startedAt: store.session.startedAt, endedAt: store.session.endedAt || Date.now(), budgetSol: store.session.config.budgetSol, balance: store.session.balance, trades: store.session.closed.length, status: store.session.status }, ...(store.past || [])].slice(0, 20); }
+      store.config = cleanConfig({ ...store.config, ...(config || {}), filters: { ...store.config?.filters, ...(config?.filters || {}) } });
+      store.session = freshSession(store.config);
+      pushLog(store.session, { kind: 'start', reason: { t: 'sesión iniciada con {b} SOL de práctica', v: { b: fmtSol(store.config.budgetSol) } } });
+      return store;
+    });
+    chrome.alarms.create(BOT_ALARM, { periodInMinutes: 0.5 });
+    botTick({ forceScan: true }).catch(() => {});
+    return store;
+  },
+  async botPause() {
+    return botRun(async (store) => {
+      const s = store.session;
+      if (s?.status === 'running') { s.status = 'paused'; pushLog(s, { kind: 'info', reason: { t: 'en pausa: vigila las abiertas, no compra' } }); }
+      return store;
+    });
+  },
+  async botResume() {
+    const store = await botRun(async (store) => {
+      const s = store.session;
+      if (s?.status === 'paused') { s.status = 'running'; pushLog(s, { kind: 'info', reason: { t: 'reanudado' } }); }
+      return store;
+    });
+    chrome.alarms.create(BOT_ALARM, { periodInMinutes: 0.5 });
+    return store;
+  },
+  async botStop() {
+    const st = await load();
+    const sol = await solUsd().catch(() => null);
+    return botRun(async (store) => {
+      const s = store.session;
+      if (!s || !['running', 'paused'].includes(s.status)) return store;
+      const keys = Object.keys(s.positions);
+      const q = keys.length ? await refreshQuotes(keys, { force: true }).catch(() => ({})) : {};
+      const now = Date.now();
+      for (const k of keys) botClose(s, k, q[k], sol, st.settings, 'manual', now);
+      s.status = 'stopped'; s.endedAt = now;
+      pushLog(s, { kind: 'stop', reason: { t: 'sesión terminada' } }, now);
+      botRecap(s, now, true);
+      chrome.alarms.clear(BOT_ALARM);
+      return store;
+    });
+  },
+  async botSell({ key }) {
+    const st = await load();
+    const sol = await solUsd().catch(() => null);
+    const q = await refreshQuotes([String(key)], { force: true }).catch(() => ({}));
+    return botRun(async (store) => {
+      const s = store.session;
+      if (s?.positions?.[key]) botClose(s, key, q[key], sol, st.settings, 'manual', Date.now());
+      return store;
+    });
+  },
+  async botScanNow() { await botTick({ forceScan: true }); return botRun(async (store) => store); },
+});
+
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === BOT_ALARM) botTick().catch(() => {}); });
+// Si el navegador se reinició con una sesión en marcha, la alarma sigue; si se perdió, se recrea.
+chrome.storage.local.get(BOT_KEY).then((g) => { if (['running', 'paused'].includes(g[BOT_KEY]?.session?.status)) ensureAlarm(BOT_ALARM, 0.5); }).catch(() => {});

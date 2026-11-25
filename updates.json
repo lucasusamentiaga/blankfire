@@ -3,6 +3,25 @@
     "ai": false
   },
   "releases": {
+    "1.18.0": {
+      "date": "2026-11-25",
+      "es": [
+        "Bot de práctica (botón «Bot» arriba del popup): opera solo con SOL de práctica y saldo propio, sin tocar tu cuenta ni ninguna wallet",
+        "Cuatro agentes deciden por separado: dinero inteligente (flujo de compras), tendencias (momento y temas de moda), debate a favor y en contra con veto anti-rug, y ruta y slippage (con Jupiter)",
+        "Límites duros: stop siempre entre −6 % y −8 %, saldo fijo por sesión, freno que lo para solo si pierde un 25 % y tamaño que no mueve el precio más de un 3 %",
+        "Calcula lo que cuesta entrar y salir con tus comisiones y no compra si se comerían el stop",
+        "Filtros para saltarse monedas, registro de cada decisión con lo que dijo cada agente y resumen cada 12 horas",
+        "Optimizar Padre revisa ahora 29 ajustes en 8 apartados (Orders, Instant Trade, Trenches, Market): avisos de tax y liquidez, sonido cuando el dev vende, lista que se para al pasar el ratón, avisos de copias, wallets nuevas, bubble map y quién financió a cada holder. No toca colores ni gustos, y se puede deshacer"
+      ],
+      "en": [
+        "Practice bot (the “Bot” button at the top of the popup): trades only practice SOL with its own balance, never your account or any wallet",
+        "Four agents decide separately: smart money (buy flow), trends (momentum and hot themes), a for/against debate with an anti-rug veto, and route & slippage (via Jupiter)",
+        "Hard limits: stop always between −6% and −8%, fixed balance per session, a brake that stops it at −25% and sizing that never moves the price more than 3%",
+        "Works out what getting in and out costs with your fees and won't buy if they'd eat the stop",
+        "Filters to skip coins, a log of every decision with what each agent said, and a recap every 12 hours",
+        "Optimize Padre now reviews 29 settings across 8 areas (Orders, Instant Trade, Trenches, Market): tax and liquidity warnings, a sound when the dev sells, a list that stops on hover, copy warnings, fresh wallets, bubble map and who funded each holder. It leaves colors and personal taste alone, and can be undone"
+      ]
+    },
     "1.17.0": {
       "date": "2026-11-24",
       "es": [

@@ -629,6 +629,7 @@ document.addEventListener('click', async (e) => {
   if (await proAction(act, t.closest('[data-act]'))) return;
   if (act === 'csv') exportCsv();
   if (act === 'lang') { await switchLang(); return; }
+  if (act === 'openBot') { chrome.tabs.create({ url: chrome.runtime.getURL('bot/bot.html') }); window.close(); return; }
   if (act === 'tour') { startTour(); return; }
   if (act === 'panelTour') {
     const [tb] = await chrome.tabs.query({ active: true, currentWindow: true });
