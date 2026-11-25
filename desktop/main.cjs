@@ -12,16 +12,36 @@ const BASE = `${SCHEME}://app/`;
 const PAGES = { bot: 'bot/bot.html', radar: 'radar/radar.html', replay: 'replay/replay.html' };
 
 // Una sola copia: si ya está abierta, la segunda solo enseña la ventana de la primera.
-if (!app.requestSingleInstanceLock()) { app.quit(); }
+// Sale al momento (app.exit), antes de arrancar un segundo motor que podría operar en paralelo.
+const FIRST = app.requestSingleInstanceLock();
+if (!FIRST) app.exit(0);
 
 // Para pruebas automáticas: carpeta de datos aparte y captura de la ventana (no afecta al uso normal).
 if (process.env.BLANKFIRE_DATA) app.setPath('userData', process.env.BLANKFIRE_DATA);
 protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 nativeTheme.themeSource = 'dark';
-app.setAppUserModelId('gg.blankfire.desktop');
 
 let win = null, tray = null, engine = null, quitting = false;
 const icon = (s = 128) => nativeImage.createFromPath(path.join(ROOT, 'icons', `icon${s}.png`));
+// Icono de la bandeja nítido también en pantallas con escalado (16 px y su versión al doble).
+function trayIcon() {
+  const img = nativeImage.createFromPath(path.join(ROOT, 'icons', 'icon16.png'));
+  img.addRepresentation({ scaleFactor: 2, buffer: fs.readFileSync(path.join(ROOT, 'icons', 'icon32.png')) });
+  return img;
+}
+const AUMID = 'gg.blankfire.desktop';
+const APP_ARGS = [path.resolve(__dirname)];
+app.setAppUserModelId(AUMID);
+// Windows solo enseña los avisos de una app si su acceso directo del menú Inicio lleva su identificador:
+// se crea (o se arregla) al arrancar, y el del escritorio también.
+function ensureShortcuts() {
+  if (process.platform !== 'win32' || process.env.BLANKFIRE_DATA) return;
+  const link = { target: process.execPath, args: `"${APP_ARGS[0]}"`, cwd: APP_ARGS[0], icon: path.join(__dirname, 'blankfire.ico'), iconIndex: 0, appUserModelId: AUMID, description: 'Blankfire: bot de práctica y dinero real' };
+  if (!fs.existsSync(link.icon)) { link.icon = process.execPath; }
+  for (const dir of [path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs'), app.getPath('desktop')]) {
+    try { const f = path.join(dir, 'Blankfire.lnk'); shell.writeShortcutLink(f, fs.existsSync(f) ? 'replace' : 'create', link); } catch (e) { console.error('[acceso directo]', e.message); }
+  }
+}
 
 function broadcast(channel, payload) {
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send(channel, payload);
@@ -91,7 +111,7 @@ async function refreshTray() {
   const live = s && ['running', 'paused'].includes(s.status);
   const label = !s ? 'Sin sesión' : s.status === 'running' ? 'En marcha' : s.status === 'paused' ? 'En pausa' : 'Parado';
   tray.setToolTip(`Blankfire · Bot: ${label}`);
-  const login = app.getLoginItemSettings({ path: process.execPath, args: [path.resolve(__dirname)] }).openAtLogin;
+  const login = app.getLoginItemSettings({ path: process.execPath, args: [...APP_ARGS, '--hidden'] }).openAtLogin;
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: `Bot: ${label}`, enabled: false },
     { type: 'separator' },
@@ -100,7 +120,7 @@ async function refreshTray() {
     { label: 'Abrir la repetición', click: () => createWindow('replay') },
     { type: 'separator' },
     ...(live ? [s.status === 'running' ? { label: 'Pausar el bot', click: () => botCall('botPause').then(refreshTray) } : { label: 'Reanudar el bot', click: () => botCall('botResume').then(refreshTray) }] : []),
-    { label: 'Arrancar con Windows', type: 'checkbox', checked: login, click: (i) => { app.setLoginItemSettings({ openAtLogin: i.checked, path: process.execPath, args: [path.resolve(__dirname), '--hidden'] }); refreshTray(); } },
+    { label: 'Arrancar con Windows', type: 'checkbox', checked: login, click: (i) => { app.setLoginItemSettings({ openAtLogin: i.checked, path: process.execPath, args: [...APP_ARGS, '--hidden'] }); refreshTray(); } },
     { type: 'separator' },
     { label: 'Salir (el bot deja de vigilar)', click: () => { quitting = true; app.quit(); } },
   ]));
@@ -108,9 +128,18 @@ async function refreshTray() {
 
 app.on('second-instance', () => show());
 app.on('window-all-closed', (e) => e?.preventDefault?.());
-app.on('before-quit', async () => { quitting = true; try { await engine?.flush(); } catch {} });
+// Antes de salir se termina de guardar lo pendiente (si no, se podría perder lo último del registro).
+let flushed = false;
+app.on('before-quit', (e) => {
+  quitting = true;
+  if (flushed || !engine) return;
+  e.preventDefault();
+  Promise.race([engine.flush(), new Promise((r) => setTimeout(r, 4000))]).catch(() => {}).finally(() => { flushed = true; app.quit(); });
+});
 
 app.whenReady().then(async () => {
+  if (!FIRST) return;
+  ensureShortcuts();
   const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'";
   protocol.handle(SCHEME, async (req) => {
     const u = new URL(req.url);
@@ -134,7 +163,7 @@ app.whenReady().then(async () => {
     return null;   // las ventanas no escriben directamente: todo pasa por el motor
   });
   await startEngine();
-  tray = new Tray(icon(32).resize({ width: 16, height: 16 }));
+  tray = new Tray(trayIcon());
   tray.on('click', () => show());
   refreshTray();
   setInterval(refreshTray, 30e3);

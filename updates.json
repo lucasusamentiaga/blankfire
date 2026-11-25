@@ -3,6 +3,27 @@
     "ai": false
   },
   "releases": {
+    "1.24.1": {
+      "date": "2026-11-26",
+      "es": [
+        "Revisión a fondo de la app de escritorio: una segunda copia ya no puede arrancar otro motor en paralelo, y al salir guarda todo lo pendiente",
+        "Los avisos de Windows (stop, ventas pendientes) ahora aparecen: el acceso directo lleva el identificador que Windows exige",
+        "«Arrancar con Windows» se marca bien en el menú de la bandeja; icono de la bandeja nítido",
+        "En ritmo Rápido, si la red va lenta, las vueltas del bot ya no se acumulan en cola",
+        "El saldo de práctica mal escrito ya no arranca con el mínimo a escondidas",
+        "Radar: las monedas de cada tema van en sus columnas, con botones claros «Ver ballenas» y «Padre»",
+        "Repetición: la leyenda explica qué marca es tu partida y cuál lo que hiciste de verdad"
+      ],
+      "en": [
+        "Full review of the desktop app: a second copy can no longer start another engine in parallel, and quitting saves everything pending",
+        "Windows notifications (stops, pending sells) now show: the shortcut carries the ID Windows requires",
+        "“Start with Windows” is ticked correctly in the tray menu; crisp tray icon",
+        "At Fast pace, if the network is slow, bot cycles no longer pile up",
+        "A mistyped practice balance no longer silently starts with the minimum",
+        "Radar: each theme's coins line up in their columns, with clear “See whales” and “Padre” buttons",
+        "Replay: the legend explains which mark is your game and which is what you actually did"
+      ]
+    },
     "1.24.0": {
       "date": "2026-11-26",
       "es": [

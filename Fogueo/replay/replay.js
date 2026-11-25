@@ -236,7 +236,7 @@ function render() {
     main = `<section class="stage">
       <div class="meta"><span class="num">${new Date(c[0] * 1000).toLocaleString(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span><span class="num">${esc(fmtPrice(c[4]))}</span><span>${tr('vela {i} de {n}', { i: S.cur + 1, n: cs.length })}${d.aggregate > 1 ? ` · ${tr('velas de {m} min', { m: d.aggregate })}` : ''}</span>${d.source === 'blankfire' ? `<span class="muted">${tr('precios guardados por Blankfire')}</span>` : ''}</div>
       <div class="chart-w" data-ref="chart">${chart()}</div>
-      ${S.mode === 'study' ? `<div class="legend" aria-hidden="true"><span><i class="lg w"></i>${tr('entrar ahí habría ganado')}</span><span><i class="lg l"></i>${tr('habría perdido')}</span></div>` : ''}
+      ${S.mode === 'study' ? `<div class="legend" aria-hidden="true"><span><i class="lg w"></i>${tr('entrar ahí habría ganado')}</span><span><i class="lg l"></i>${tr('habría perdido')}</span><span><b class="lg-m up">▲</b><b class="lg-m down">▼</b>${tr('tu partida en la repetición')}</span><span><b class="lg-m">○</b>${tr('lo que hiciste de verdad')}</span></div>` : ''}
       ${livePnl()}
       ${controls()}
       ${results()}

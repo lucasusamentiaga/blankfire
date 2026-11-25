@@ -77,3 +77,13 @@
   .wt { grid-template-columns: 56px 64px 64px 1fr; } .wt > :last-child { display: none; }
   .coins li { grid-template-columns: 1fr 70px 60px; } .coins li > :nth-child(n+4) { display: none; }
 }
+
+/* 1.24 · Las monedas de un tema van en las mismas columnas que su cabecera */
+.coins li { grid-template-columns: minmax(120px, 1.2fr) 1fr 1fr minmax(0, 1.2fr); padding: 6px 8px; }
+.coins li .sym { padding-left: 14px; position: relative; }
+.coins li .sym::before { content: ''; position: absolute; left: 2px; top: 50%; width: 7px; height: 1px; background: var(--fx-line); }
+.coins li small { font: 500 11.5px var(--fx-font); color: var(--fx-ink-3); }
+.acts { display: flex; gap: 6px; justify-content: flex-end; }
+.mini { display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 9px; border-radius: var(--fx-r-sm); font-size: 12.5px; font-weight: 600; color: var(--fx-ink-2); background: var(--fx-raise-2); text-decoration: none; transition: background var(--fx-fast) var(--fx-ease), color var(--fx-fast) var(--fx-ease); }
+.mini:hover { background: var(--fx-line); color: var(--fx-ink); }
+@media (max-width: 700px) { .coins li { grid-template-columns: 1fr auto auto; } .coins li > .acts { display: flex; grid-column: 1 / -1; justify-content: flex-start; } }

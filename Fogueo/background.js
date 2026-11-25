@@ -1805,7 +1805,14 @@ Object.assign(handlers, {
   },
 });
 
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === BOT_ALARM) botTick().catch(() => {}); });
+// Una vuelta a la vez: si la red va lenta, la siguiente alarma se salta en vez de hacer cola
+// (en la app de escritorio el ritmo Rápido vigila cada 5 s y una búsqueda puede tardar más).
+let botTicking = false;
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name !== BOT_ALARM || botTicking) return;
+  botTicking = true;
+  botTick().catch(() => {}).finally(() => { botTicking = false; });
+});
 // Si el navegador se reinició con una sesión en marcha, la alarma sigue; si se perdió, se recrea.
 chrome.storage.local.get(BOT_KEY).then((g) => { if (['running', 'paused'].includes(g[BOT_KEY]?.session?.status)) ensureAlarm(BOT_ALARM, botWatchMin(g[BOT_KEY].session.config)); }).catch(() => {});
 

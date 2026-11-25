@@ -24,7 +24,7 @@
 .chart .hs.w { fill: var(--fx-up); } .chart .hs.l { fill: var(--fx-down); }
 .chart .hover { stroke: var(--fx-ink-3); stroke-width: 1; }
 .chart-w:has(.hs) .chart { cursor: crosshair; }
-.legend { display: flex; gap: 18px; font-size: 12px; color: var(--fx-ink-3); margin-top: -6px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--fx-ink-3); margin-top: -6px; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .lg { width: 14px; height: 8px; border-radius: 2px; }
 .lg.w { background: var(--fx-up); } .lg.l { background: var(--fx-down); }
@@ -77,3 +77,7 @@
 .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--fx-raise-2); border-top-color: var(--fx-brand); animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+
+/* 1.24 · La leyenda explica también las marcas: triángulos = tu partida, círculos = lo real */
+.legend .lg-m { font-weight: 600; font-size: 11px; margin-right: 3px; color: var(--fx-ink-2); }
+.legend .lg-m.up { color: var(--fx-up); } .legend .lg-m.down { color: var(--fx-down); margin-right: 6px; }

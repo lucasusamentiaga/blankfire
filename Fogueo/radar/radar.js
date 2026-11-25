@@ -57,9 +57,8 @@ function themesBlock() {
         <span class="th-h num ${tone(x.avgH1)}">${fmtPct(x.avgH1, 0, { sign: true })} <small>${tr('media 1 h')}</small></span>
         <span class="th-l">${x.leader ? `${esc(x.leader.symbol)} <small class="num">${esc(fmtCompact(x.leader.mc, '$'))}</small>` : ''}</span>
       </button>
-      ${open ? `<ul class="coins">${x.coins.map((c) => `<li><span class="sym">${esc(c.symbol)}</span><span class="num">${esc(fmtCompact(c.mc, '$'))}</span><span class="num ${tone(c.h1)}">${fmtPct(c.h1, 0, { sign: true })}</span>
-        <a class="link" href="https://trade.padre.gg/trade/solana/${esc(c.address)}" target="_blank" rel="noopener">${tr('Padre')}</a>
-        <button class="link" data-act="whales" data-mint="${esc(c.address)}">${tr('ballenas')}</button></li>`).join('')}</ul>` : ''}
+      ${open ? `<ul class="coins">${x.coins.map((c) => `<li><span class="sym">${esc(c.symbol)}</span><span class="num">${esc(fmtCompact(c.mc, '$'))} <small>${tr('market cap')}</small></span><span class="num ${tone(c.h1)}">${fmtPct(c.h1, 0, { sign: true })}</span>
+        <span class="acts"><button class="mini" data-act="whales" data-mint="${esc(c.address)}">${tr('Ver ballenas')}</button><a class="mini" href="https://trade.padre.gg/trade/solana/${esc(c.address)}" target="_blank" rel="noopener">${tr('Padre')} <span aria-hidden="true">↗</span></a></span></li>`).join('')}</ul>` : ''}
     </li>`;
   }).join('');
   return `<section class="blk">${head}
@@ -122,7 +121,7 @@ function heliusBox(w) {
     <ol class="steps">
       <li>${tr('Entra en dashboard.helius.dev y crea una cuenta gratis (la creas tú).')}</li>
       <li>${tr('Copia tu «API key» (son letras y números con guiones).')}</li>
-      <li>${tr('Pégala aquí y pulsa «Conectar Helius». Opera te pedirá permiso para ese sitio.')}</li>
+      <li>${tr(globalThis.blankfireDesktop ? 'Pégala aquí y pulsa «Conectar Helius».' : 'Pégala aquí y pulsa «Conectar Helius». Opera te pedirá permiso para ese sitio.')}</li>
     </ol>
     <label class="fld"><span class="fl">${tr('Clave de Helius')}</span><span class="fi"><input name="key" type="password" autocomplete="off" spellcheck="false" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></span><small>${tr('Se guarda solo en este navegador, aparte de tus datos, y solo se usa para leer historiales públicos de wallets.')}</small></label>
     <button class="btn small primary" type="submit">${tr('Conectar Helius')}</button>

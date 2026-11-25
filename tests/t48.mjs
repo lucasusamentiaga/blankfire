@@ -31,6 +31,7 @@ const { makeChrome } = await import(pathToFileURL(path.resolve('../desktop/shim.
 const manifest = JSON.parse(fs.readFileSync(new URL('manifest.json', ROOT), 'utf8'));
 const eng = makeChrome({ dataDir: dir, baseUrl: 'blankfire://app/', manifest, notify: (id, o) => notes.push(o), broadcast: (c, p) => sent.push(c) });
 globalThis.chrome = eng.chrome;
+globalThis.BLANKFIRE_DESKTOP = true;
 await import(new URL('background.js', ROOT).href);
 eng.startup();
 const page = (msg) => eng.dispatch(msg, { id: 'blankfire-desktop', url: 'blankfire://app/bot/bot.html' });
@@ -53,7 +54,11 @@ const disk = JSON.parse(fs.readFileSync(path.join(dir, 'storage.json'), 'utf8'))
 ok(disk.blankfireBot?.session?.status === 'running' && !fs.existsSync(path.join(dir, 'storage.json.tmp')), 'lo guarda en disco (escritura atómica, sin restos)');
 ok(sent.includes('storage-changed'), 'avisa a las ventanas de cada cambio');
 const al = await new Promise((r) => eng.chrome.alarms.get('blankfire-bot', r));
-ok(al && al.periodInMinutes === 0.5, 'la vigilancia cada 30 s está programada');
+ok(al && Math.abs(al.periodInMinutes - 0.25) < 1e-9, 'en la app, el ritmo Equilibrado vigila cada 15 s');
+await page({ type: 'botConfig', config: { pace: 'fast', usePace: true } });
+const al2 = await new Promise((r) => eng.chrome.alarms.get('blankfire-bot', r));
+const bs2 = (await page({ type: 'botState' })).data.session.config;
+ok(Math.abs(al2.periodInMinutes - 5 / 60) < 1e-9 && bs2.pace === 'fast' && bs2.tpPct === 12 && bs2.budgetSol === 10, 'cambiar a Rápido en marcha: vigila cada 5 s, cambia objetivo y no toca el saldo de la sesión');
 const s2 = await eng.chrome.storage.session.get(null);
 ok(!Object.keys(s2).some((k) => k in disk), 'lo de la sesión (clave abierta) nunca va al disco');
 await page({ type: 'botStop' });

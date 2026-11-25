@@ -1755,4 +1755,10 @@ export const EN = {
   "En caídas bruscas el stop sale peor de lo marcado: el precio llega con segundos de retraso.": "In sharp drops the stop fills worse than set: prices arrive seconds late.",
   "Más operaciones no es más ganancia: cada una paga comisiones. Los bots de los vídeos enseñan las rachas buenas, no la cuenta del mes.": "More trades isn't more profit: each one pays fees. The bots in videos show the winning streaks, not the monthly total.",
   "RugCheck puede equivocarse o no responder. Sin su informe, el bot no compra (puedes cambiarlo en Ajustes avanzados).": "RugCheck can be wrong or not respond. Without its report the bot doesn't buy (you can change this in Advanced settings).",
+  "Ver ballenas": "See whales",
+  "market cap": "market cap",
+  "Pégala aquí y pulsa «Conectar Helius».": "Paste it here and press “Connect Helius”.",
+  "Escribe un saldo entre 0,05 y 1000 SOL (con punto: 0.13).": "Enter a balance between 0.05 and 1000 SOL (with a dot: 0.13).",
+  "tu partida en la repetición": "your game in the replay",
+  "lo que hiciste de verdad": "what you actually did",
 };

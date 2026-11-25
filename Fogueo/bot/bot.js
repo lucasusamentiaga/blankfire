@@ -2,7 +2,7 @@
 import { tr, setLang, getLang, locale } from '../lib/i18n.js';
 import { pagesNav } from '../lib/pages-nav.js';
 import { fmtSol, fmtPct, fmtCompact, fmtDuration, fmtPrice, roundTripPct, DEFAULT_SETTINGS } from '../lib/core.js';
-import { BOT_KEY, BOT_DEFAULTS, STOP_MIN, STOP_MAX, RECAP_MS, EXIT_TEXT, copilotGate, cleanCopilot, COPILOT_UNLOCK, PACES, applyPace, costSettings, paceTimes } from '../lib/bot.js';
+import { BOT_KEY, BOT_DEFAULTS, STOP_MIN, STOP_MAX, RECAP_MS, EXIT_TEXT, copilotGate, cleanCopilot, COPILOT_UNLOCK, PACES, costSettings, paceTimes } from '../lib/bot.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -626,6 +626,8 @@ document.addEventListener('submit', async (e) => {
   if (f === 'copilot') { const t = e.target; const r = await act('botCopilot', { copilot: defined({ on: t.on.checked, maxSol: numIn(t.maxSol), maxPerDay: numIn(t.maxPerDay), ttlMin: numIn(t.ttlMin) }) }); if (r) toast(tr('Guardado.')); }
   if (f === 'start') {
     const budget = Number($('input[name="budgetSol"][form="startForm"]')?.value);
+    // Un saldo vacío o mal escrito (p. ej. con coma en un navegador en inglés) no arranca con el mínimo a escondidas.
+    if (!(budget >= 0.05 && budget <= 1000)) { toast(tr('Escribe un saldo entre 0,05 y 1000 SOL (con punto: 0.13).'), true); return; }
     const form = $('form[data-form="cfg"]');
     document.activeElement?.blur?.();
     await act('botStart', { config: { ...(form ? readCfg(form) : {}), budgetSol: budget } });

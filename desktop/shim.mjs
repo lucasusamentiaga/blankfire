@@ -15,9 +15,13 @@ export function makeChrome({ dataDir, baseUrl, manifest, notify, broadcast, onRe
     writing = writing.then(async () => {
       if (!dirty) return;
       dirty = false;
-      const tmp = file + '.tmp';
-      await fs.promises.writeFile(tmp, JSON.stringify(data));
-      await fs.promises.rename(tmp, file);
+      const tmp = file + '.tmp', body = JSON.stringify(data);
+      await fs.promises.writeFile(tmp, body);
+      // En Windows un antivirus o el indexador pueden tener el archivo abierto un instante: se reintenta.
+      for (let i = 0; ; i++) {
+        try { await fs.promises.rename(tmp, file); break; }
+        catch (e) { if (i >= 4 || !['EPERM', 'EBUSY', 'EACCES'].includes(e.code)) throw e; await new Promise((r) => setTimeout(r, 60 * (i + 1))); }
+      }
     }).catch((e) => console.error('[storage]', e));
     return writing;
   };
