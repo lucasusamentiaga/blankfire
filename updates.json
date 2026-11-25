@@ -3,6 +3,23 @@
     "ai": false
   },
   "releases": {
+    "1.20.0": {
+      "date": "2026-11-25",
+      "es": [
+        "Radar (nueva ventana, junto al Bot y la Repetición): temas de moda que se repiten entre las monedas que salen ahora, y si crecen o se apagan",
+        "Ballenas en directo: compras y ventas grandes de cualquier moneda, flujo de dinero de 5 min, 15 min y 1 h, y wallets que reparten muchas órdenes",
+        "Wallets que sigues (con tu clave gratis de Helius): sus últimos movimientos y su patrón: dónde entra, cuánto aguanta, cuánto acierta y cuánto gana y pierde",
+        "El bot tiene en cuenta las wallets que sigues: si una compra, el agente de dinero inteligente lo sabe",
+        "Copiloto con dinero real: cuando el bot compra o vende, te avisa con tamaño, slippage y stop (y lo ves en el panel de Padre) para que lo hagas tú con tu wallet aparte. Se desbloquea con 20 operaciones simuladas en positivo y nunca firma nada"
+      ],
+      "en": [
+        "Radar (new window, next to Bot and Replay): trending themes repeating across the coins launching now, and whether they're growing or fading",
+        "Live whales: big buys and sells on any coin, money flow over 5 min, 15 min and 1 h, and wallets splitting many orders",
+        "Wallets you follow (with your free Helius key): their latest moves and their pattern: where they enter, how long they hold, how often they win and by how much",
+        "The bot takes the wallets you follow into account: if one buys, the smart money agent knows",
+        "Real-money copilot: when the bot buys or sells, it alerts you with size, slippage and stop (also shown in the Padre panel) so you do it yourself with your separate wallet. It unlocks after 20 simulated trades in profit and never signs anything"
+      ]
+    },
     "1.19.0": {
       "date": "2026-11-25",
       "es": [

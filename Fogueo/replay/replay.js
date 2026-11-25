@@ -1,5 +1,6 @@
 // Blankfire — Repetición: juega una operación vela a vela sin ver el futuro y luego prueba otras entradas.
 import { tr, setLang, getLang, locale } from '../lib/i18n.js';
+import { pagesNav } from '../lib/pages-nav.js';
 import { fmtSol, fmtPct, fmtPrice, fmtDuration, roundTripPct, DEFAULT_SETTINGS } from '../lib/core.js';
 import { testEntry, entryMap, gameResult, indexAt, startIndex } from '../lib/replay.js';
 
@@ -224,7 +225,7 @@ function render() {
         <p class="paper">${tr('Vuelve a vivir una operación vela a vela sin saber qué viene. Al final, prueba en qué vela habría sido mejor entrar.')}</p>
       </div>
     </div>
-    <div class="ctl"><button class="lang" data-act="lang" aria-label="${getLang() === 'en' ? 'Cambiar a español' : 'Switch to English'}">${getLang() === 'en' ? 'ES' : 'EN'}</button></div>
+    <div class="ctl">${pagesNav('replay')}<button class="lang" data-act="lang" aria-label="${getLang() === 'en' ? 'Cambiar a español' : 'Switch to English'}">${getLang() === 'en' ? 'ES' : 'EN'}</button></div>
   </header>`;
   let main;
   if (S.loading) main = `<div class="empty big-e"><span class="spin" aria-hidden="true"></span>${tr('Cargando velas…')}</div>`;

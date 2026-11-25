@@ -109,12 +109,14 @@ export function filterPair(pair, cfg, { now = Date.now(), held = {}, recent = {}
 
 // ---------- Agente 1 · Dinero inteligente ----------
 // Mientras no sigamos wallets concretas (fase 4), lee el flujo de órdenes: quién compra, cuánto y con qué prisa.
-export function smartsAgent(pair) {
+export function smartsAgent(pair, { tracked = null, now = Date.now() } = {}) {
   const t5 = pair?.txns?.m5, t1 = pair?.txns?.h1;
-  if (!t5 || !t1) return { id: 'smarts', score: null, notes: [note('sin datos de operaciones')] };
+  // Wallets que sigues (Radar): si alguna ha comprado hace poco, es la señal más fuerte que hay.
+  const follow = tracked?.length ? note('{n}, que sigues, compró hace {m} min', { n: tracked[0].name || tracked[0].wallet.slice(0, 4) + '…', m: Math.max(0, Math.round((now - Math.max(...tracked.map((x) => x.at))) / 60e3)) }) : null;
+  if (!t5 || !t1) return { id: 'smarts', score: follow ? 0.4 : null, notes: follow ? [follow] : [note('sin datos de operaciones')] };
   const b5 = +t5.buys || 0, s5 = +t5.sells || 0, b1 = +t1.buys || 0, s1 = +t1.sells || 0;
   const v5 = num(pair.volume?.m5) || 0, v1 = num(pair.volume?.h1) || 0;
-  if (b1 + s1 < 20) return { id: 'smarts', score: -0.3, notes: [note('solo {n} operaciones en una hora: nadie mira', { n: b1 + s1 })] };
+  if (b1 + s1 < 20) return { id: 'smarts', score: follow ? 0.1 : -0.3, notes: [...(follow ? [follow] : []), note('solo {n} operaciones en una hora: nadie mira', { n: b1 + s1 })] };
   const r5 = b5 + s5 ? b5 / (b5 + s5) : 0.5, r1 = b1 / (b1 + s1);
   const avg = v1 / (b1 + s1), accel = v1 > 0 ? (v5 * 12) / v1 : 0;
   let score = 0; const notes = [];
@@ -124,6 +126,7 @@ export function smartsAgent(pair) {
   else if (avg < 40) { score -= 0.2; notes.push(note('órdenes diminutas ({v} de media): huele a bots', { v: usdTxt(avg) })); }
   if (accel >= 1.5 && r5 > 0.5) { score += 0.3; notes.push(note('el volumen acelera (×{x} sobre la media de la hora)', { x: accel.toFixed(1) })); }
   else if (accel < 0.5) { score -= 0.3; notes.push(note('el volumen se apaga')); }
+  if (follow) { score += 0.4; notes.unshift(follow); }
   if (!notes.length) notes.push(note('flujo neutro'));
   return { id: 'smarts', score: clamp(score, -1, 1), notes, data: { r5, r1, avg, accel } };
 }
@@ -294,4 +297,40 @@ export function makeRecap(session, from, to) {
     worst: worst && { symbol: worst.symbol, pnlPct: worst.pnlPct }, exits, topSkips, scanned,
     balance: session.balance, open: Object.keys(session.positions).length,
   };
+}
+
+// ---------- Fase 5 · Copiloto con dinero real ----------
+// El bot no firma ni toca ninguna wallet: cuando decide comprar o vender en la simulación, te avisa con
+// tamaño, slippage y stop para que lo hagas tú en Padre (con una wallet aparte y poco saldo).
+// Se desbloquea solo cuando la simulación ha demostrado algo: suficientes operaciones y resultado positivo tras comisiones.
+export const COPILOT_UNLOCK = { trades: 20, netSol: 0 };
+export const COPILOT_DEFAULTS = { on: false, maxSol: 0.1, maxPerDay: 5, ttlMin: 3 };
+
+export function cleanCopilot(c = {}) {
+  const n = (v, d, a, b) => { const x = Number(v); return Number.isFinite(x) ? Math.min(b, Math.max(a, x)) : d; };
+  return {
+    on: c.on === true,
+    maxSol: n(c.maxSol, COPILOT_DEFAULTS.maxSol, 0.01, 5),
+    maxPerDay: Math.round(n(c.maxPerDay, COPILOT_DEFAULTS.maxPerDay, 1, 30)),
+    ttlMin: Math.round(n(c.ttlMin, COPILOT_DEFAULTS.ttlMin, 1, 15)),
+  };
+}
+
+// Todas las operaciones simuladas cerradas (sesión actual y anteriores guardadas).
+export function copilotGate(store) {
+  const s = store?.session;
+  let trades = (store?.past || []).reduce((a, p) => a + (p.trades || 0), 0);
+  let net = (store?.past || []).reduce((a, p) => a + ((p.balance ?? p.budgetSol) - p.budgetSol), 0);
+  if (s) {
+    trades += s.closed.length;
+    net += s.closed.reduce((a, c) => a + c.pnlSol, 0);
+  }
+  const ok = trades >= COPILOT_UNLOCK.trades && net > COPILOT_UNLOCK.netSol;
+  return { ok, trades, net, need: Math.max(0, COPILOT_UNLOCK.trades - trades) };
+}
+
+// Señales enviadas hoy (para el límite diario).
+export function signalsToday(signals, now = Date.now()) {
+  const d = new Date(now); d.setHours(0, 0, 0, 0);
+  return (signals || []).filter((x) => x.kind === 'buy' && x.at >= d.getTime()).length;
 }

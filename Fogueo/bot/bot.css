@@ -249,3 +249,22 @@ a.sym:hover { color: var(--fx-brand-hi); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Navegación entre Bot, Radar y Repetición */
+.pnav { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--fx-r); background: var(--fx-raise); }
+.pnav a { padding: 6px 12px; border-radius: var(--fx-r-sm); font-size: 13px; font-weight: 600; color: var(--fx-ink-3); text-decoration: none; transition: color var(--fx-fast) var(--fx-ease), background var(--fx-fast) var(--fx-ease); }
+.pnav a:hover { color: var(--fx-ink); }
+.pnav a[aria-current="page"] { background: var(--fx-raise-2); color: var(--fx-ink); }
+
+/* Copiloto con dinero real */
+.copilot { display: grid; gap: 10px; padding-top: 18px; border-top: 1px solid var(--fx-line-soft); }
+.copilot .sec-h h3 { margin: 0 auto 0 0; }
+.gate { display: grid; gap: 8px; padding: 12px 14px; border-radius: var(--fx-r-lg); background: var(--fx-raise); font-size: 13px; }
+.gate p { text-wrap: pretty; color: var(--fx-ink-2); }
+.gbar { height: 6px; border-radius: 3px; background: var(--fx-raise-2); overflow: hidden; }
+.gbar i { display: block; height: 100%; background: var(--fx-brand); border-radius: 3px; }
+.cop { display: grid; gap: 10px; }
+.cop .btn { justify-self: start; }
+.sm2 { font-size: 12px; text-wrap: pretty; }
+.sigs { display: grid; gap: 2px; }
+.sigs li { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; font-size: 12.5px; padding: 3px 0; }

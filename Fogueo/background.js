@@ -9,7 +9,9 @@ import { analyzeCopies, analyzeChart } from './lib/shield.js';
 import {
   BOT_KEY, BOT_DEFAULTS, RECAP_MS, EXIT_TEXT, cleanConfig, freshSession, filterPair, smartsAgent, trendsAgent, debateAgent,
   routerAgent, councilScore, decide, entrySize, exitReason, sessionEquity, lossHit, pushLog, makeRecap, metaWords,
+  cleanCopilot, copilotGate, signalsToday, COPILOT_DEFAULTS,
 } from './lib/bot.js';
+import { themes, snapshotOf, whaleTape, recentBuys, parseSwaps } from './lib/radar.js';
 import { RAW, cmpVer, installedVersion, readUpdate, patchUpdate } from './lib/update.js';
 import { PRO_KEY, LS_API, REVALIDATE_MS, isPro, proSelling, licenseMatches, PRO_CONFIG, maskKey, SUPPORT } from './lib/pro.js';
 import { buildSeries, tradeFacts, tradeFlags, tradeContext, candleWindow } from './lib/review.js';
@@ -117,13 +119,13 @@ let jupBackoffUntil = 0;
 // ---------- Clave opcional del usuario (Jupiter) ----------
 // Fuera del estado principal: el panel de Padre nunca las recibe.
 const KEYS_KEY = 'blankfireKeys';
-let userKeys = { jupiter: '' };
+let userKeys = { jupiter: '', helius: '' };
 chrome.storage.local.get(KEYS_KEY).then((g) => {
   const k = g[KEYS_KEY] || {};
-  userKeys = { jupiter: k.jupiter || '' };
-  if ('gemini' in k) chrome.storage.local.set({ [KEYS_KEY]: { jupiter: k.jupiter || '' } });   // ya no se usa: se borra
+  userKeys = { jupiter: k.jupiter || '', helius: k.helius || '' };
+  if ('gemini' in k) chrome.storage.local.set({ [KEYS_KEY]: { jupiter: k.jupiter || '', helius: k.helius || '' } });   // ya no se usa: se borra
 }).catch(() => {});
-chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch[KEYS_KEY]) userKeys = { jupiter: '', ...(ch[KEYS_KEY].newValue || {}) }; });
+chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch[KEYS_KEY]) userKeys = { jupiter: '', helius: '', ...(ch[KEYS_KEY].newValue || {}) }; });
 
 // Avisos de servicio que enseña la ventana (p. ej. «Jupiter ya pide clave»).
 const NOTICE_KEY = 'blankfireNotice';
@@ -958,8 +960,13 @@ const handlers = {
   async proActivate({ key }) { return proActivate(key); },
   async proDeactivate() { return proDeactivate(); },
   async proRecheck() { return proValidate(true); },
-  async saveKeys({ jupiter }) {
-    const cur = { jupiter: '', ...((await chrome.storage.local.get(KEYS_KEY))[KEYS_KEY] || {}) };
+  async saveKeys({ jupiter, helius }) {
+    const cur = { jupiter: '', helius: '', ...((await chrome.storage.local.get(KEYS_KEY))[KEYS_KEY] || {}) };
+    if (helius !== undefined) {
+      const hk = String(helius || '').trim();
+      if (hk && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(hk)) throw new Error(tr('Esa clave de Helius no tiene el formato de las suyas (8-4-4-4-12 letras y números).'));
+      cur.helius = hk;
+    }
     delete cur.gemini;   // desde 1.13.1 la IA va por el servidor de Blankfire: ya no se guarda clave de Gemini
     let check = null;
     if (jupiter !== undefined) {
@@ -974,12 +981,12 @@ const handlers = {
     await chrome.storage.local.set({ [KEYS_KEY]: cur });
     userKeys = cur;
     if (jupiter !== undefined) { jupBackoffUntil = 0; await setNotice({ jupiterKeyBad: false }); }
-    return { jupiter: !!cur.jupiter, check, checkedAt: cur.checkedAt || null };
+    return { jupiter: !!cur.jupiter, helius: !!cur.helius, check, checkedAt: cur.checkedAt || null };
   },
   async keysStatus() {
     const k = (await chrome.storage.local.get(KEYS_KEY))[KEYS_KEY] || {};
     const notice = (await chrome.storage.local.get(NOTICE_KEY))[NOTICE_KEY] || {};
-    return { jupiter: !!k.jupiter, checkedAt: k.checkedAt || null, notice, ai: await aiOn() };
+    return { jupiter: !!k.jupiter, helius: !!k.helius, checkedAt: k.checkedAt || null, notice, ai: await aiOn() };
   },
   async afterData({ id }) { return afterData(id); },
   async replayData(msg) { return replayData(msg); },
@@ -1490,6 +1497,7 @@ async function botScan(s, settings, sol, now) {
   const pairs = botBestPairs(raw);
   const meta = metaWords(pairs);
   const held = Object.fromEntries(Object.values(s.positions).map((p) => [p.addr, true]));
+  const tracked = await trackedBuys().catch(() => ({}));
   s.skipSeen ||= {};
   const keep = [];
   for (const pair of pairs) {
@@ -1505,7 +1513,7 @@ async function botScan(s, settings, sol, now) {
       }
       continue;
     }
-    const smarts = smartsAgent(pair), trends = trendsAgent(pair, { meta, boosted });
+    const smarts = smartsAgent(pair, { tracked: tracked[addr] }), trends = trendsAgent(pair, { meta, boosted });
     keep.push({ pair, smarts, trends, pre: councilScore({ smarts, trends }) ?? -1 });
   }
   const pruned = Object.entries(s.skipSeen).sort((a, b) => b[1] - a[1]).slice(0, 300);
@@ -1581,11 +1589,65 @@ async function botTick({ forceScan = false } = {}) {
     }
     // 2) Resumen cada 12 horas.
     if (now - s.lastRecapAt >= RECAP_MS) botRecap(s, now);
-    // 3) Buscar entradas cada 2 min, si queda hueco y saldo.
+    // 3) Buscar entradas cada 2 min, si queda hueco y saldo. Antes, lo último de las wallets que sigues (si hay clave de Helius).
     const free = s.status === 'running' && Object.keys(s.positions).length < s.config.maxOpen && s.balance >= 0.02;
-    if (free && (forceScan || now - s.lastScanAt >= BOT_SCAN_MS)) await botScan(s, settings, sol, now);
+    if (free && (forceScan || now - s.lastScanAt >= BOT_SCAN_MS)) {
+      if (userKeys.helius) {
+        const ws = await walletsStore();
+        const stale = ws.list.filter((w) => now - (ws.data[w.address]?.at || 0) > 110e3).slice(0, 10);
+        for (const w of stale) await walletsRefresh({ address: w.address }).catch(() => {});
+      }
+      await botScan(s, settings, sol, now);
+    }
+    copilotProcess(store, now);
   });
 }
+
+// ---------- Copiloto (fase 5): avisos para operar tú en Padre con dinero real ----------
+function copilotProcess(store, now = Date.now()) {
+  const s = store.session;
+  if (!s) return;
+  store.copilot = cleanCopilot(store.copilot || COPILOT_DEFAULTS);
+  store.signals ||= [];
+  const from = store.copilotSeenAt || s.startedAt;
+  const fresh = s.log.filter((l) => l.at > from && (l.kind === 'buy' || l.kind === 'sell'));
+  store.copilotSeenAt = Math.max(from, ...s.log.map((l) => l.at));
+  if (!store.copilot.on || !copilotGate(store).ok) return;
+  for (const l of fresh) {
+    const url = `https://trade.padre.gg/trade/solana/${l.addr}`;
+    if (l.kind === 'buy') {
+      if (signalsToday(store.signals, now) >= store.copilot.maxPerDay) {
+        pushLog(s, { kind: 'info', reason: { t: 'copiloto: límite de {n} avisos de compra por hoy', v: { n: store.copilot.maxPerDay } } }, now);
+        continue;
+      }
+      const pos = s.positions['solana:' + l.addr];
+      const sig = {
+        id: 'bfcop:' + l.at.toString(36) + l.addr.slice(0, 6), kind: 'buy', at: l.at, addr: l.addr, symbol: l.symbol, url,
+        sizeSol: Math.min(store.copilot.maxSol, l.sol || store.copilot.maxSol), slipPct: pos?.slipPct ?? null,
+        stopPct: s.config.stopPct, tpPct: s.config.tpPct, expires: l.at + store.copilot.ttlMin * 60e3, score: l.score,
+      };
+      store.signals.push(sig);
+      notifyCopilot(sig.id, tr('Copiloto · compraría ${s}', { s: l.symbol }), tr('{sol} SOL · slippage {sl} · stop −{st} %. Caduca en {m} min. Ábrelo y decide tú en Padre.', { sol: fmtSol(sig.sizeSol), sl: sig.slipPct ? sig.slipPct + ' %' : '—', st: sig.stopPct, m: store.copilot.ttlMin }));
+    } else {
+      const had = store.signals.some((x) => x.kind === 'buy' && x.addr === l.addr && x.at > now - 24 * 3600e3);
+      if (!had) continue;
+      const sig = { id: 'bfcop:' + l.at.toString(36) + 's' + l.addr.slice(0, 5), kind: 'sell', at: l.at, addr: l.addr, symbol: l.symbol, url, exit: l.exit, ch: l.ch };
+      store.signals.push(sig);
+      notifyCopilot(sig.id, tr('Copiloto · vendería ${s}', { s: l.symbol }), tr(EXIT_TEXT[l.exit] || EXIT_TEXT.manual, { v: l.ch != null ? fmtPct(l.ch, 1, { sign: true }) : '—', m: l.mins }) + ' · ' + tr('Si la compraste, véndela tú en Padre.'));
+    }
+  }
+  if (store.signals.length > 200) store.signals.splice(0, store.signals.length - 200);
+}
+function notifyCopilot(id, title, message) {
+  try { chrome.notifications.create(id, { type: 'basic', iconUrl: 'icons/icon128.png', title, message, priority: 2, requireInteraction: true }); } catch (e) { /* sin avisos */ }
+}
+chrome.notifications?.onClicked?.addListener(async (id) => {
+  if (!id.startsWith('bfcop:')) return;
+  const store = (await chrome.storage.local.get(BOT_KEY))[BOT_KEY];
+  const sig = store?.signals?.find((x) => x.id === id);
+  if (sig) chrome.tabs.create({ url: sig.url });
+  chrome.notifications.clear(id);
+});
 
 Object.assign(handlers, {
   async botState() { return botRun(async (store) => store); },
@@ -1640,6 +1702,7 @@ Object.assign(handlers, {
       const q = keys.length ? await refreshQuotes(keys, { force: true }).catch(() => ({})) : {};
       const now = Date.now();
       for (const k of keys) botClose(s, k, q[k], sol, st.settings, 'manual', now);
+      copilotProcess(store, now);
       s.status = 'stopped'; s.endedAt = now;
       pushLog(s, { kind: 'stop', reason: { t: 'sesión terminada' } }, now);
       botRecap(s, now, true);
@@ -1653,13 +1716,137 @@ Object.assign(handlers, {
     const q = await refreshQuotes([String(key)], { force: true }).catch(() => ({}));
     return botRun(async (store) => {
       const s = store.session;
-      if (s?.positions?.[key]) botClose(s, key, q[key], sol, st.settings, 'manual', Date.now());
+      if (s?.positions?.[key]) { botClose(s, key, q[key], sol, st.settings, 'manual', Date.now()); copilotProcess(store); }
       return store;
     });
   },
   async botScanNow() { await botTick({ forceScan: true }); return botRun(async (store) => store); },
+  async botCopilot({ copilot }) {
+    return botRun(async (store) => {
+      const next = cleanCopilot({ ...(store.copilot || COPILOT_DEFAULTS), ...(copilot || {}) });
+      if (next.on && !copilotGate(store).ok) throw new Error(tr('El copiloto se desbloquea con {n} operaciones simuladas y resultado positivo.', { n: 20 }));
+      store.copilot = next;
+      if (store.session) store.copilotSeenAt = Math.max(store.copilotSeenAt || 0, ...store.session.log.map((l) => l.at));   // no avisar de lo ya pasado
+      return store;
+    });
+  },
 });
 
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === BOT_ALARM) botTick().catch(() => {}); });
 // Si el navegador se reinició con una sesión en marcha, la alarma sigue; si se perdió, se recrea.
 chrome.storage.local.get(BOT_KEY).then((g) => { if (['running', 'paused'].includes(g[BOT_KEY]?.session?.status)) ensureAlarm(BOT_ALARM, 0.5); }).catch(() => {});
+
+
+// =====================================================================
+// Radar (fase 4): temas de moda, ballenas en directo y wallets que sigues.
+// =====================================================================
+const RADAR_KEY = 'blankfireRadar';
+const WALLETS_KEY = 'blankfireWallets';
+const HELIUS = 'https://mainnet.helius-rpc.com';
+let themesCache = null;
+
+async function latestPairs() {
+  const [boosts, top, profiles] = await Promise.all([
+    getJson(`${DS}/token-boosts/latest/v1`).catch(() => []),
+    getJson(`${DS}/token-boosts/top/v1`).catch(() => []),
+    getJson(`${DS}/token-profiles/latest/v1`).catch(() => []),
+  ]);
+  const all = [boosts, top, profiles].flatMap((x) => (Array.isArray(x) ? x : []));
+  const addrs = [...new Set(all.filter((x) => x?.chainId === 'solana' && x.tokenAddress).map((x) => x.tokenAddress))].slice(0, 90);
+  const raw = [];
+  for (let i = 0; i < addrs.length; i += 30) raw.push(...(await getJson(`${DS}/tokens/v1/solana/${addrs.slice(i, i + 30).join(',')}`).catch(() => [])));
+  return { pairs: botBestPairs(raw), boosted: new Set((Array.isArray(boosts) ? boosts : []).map((x) => x.tokenAddress)) };
+}
+
+async function radarThemes({ force } = {}) {
+  if (!force && themesCache && Date.now() - themesCache.at < 60e3) return themesCache;
+  const now = Date.now();
+  const { pairs } = await latestPairs();
+  const store = (await chrome.storage.local.get(RADAR_KEY))[RADAR_KEY] || { snaps: [] };
+  // Comparar con la foto de hace ~1 h (o la más antigua que haya).
+  const target = now - 3600e3;
+  const prev = store.snaps.filter((x) => x.at <= now - 20 * 60e3).sort((a, b) => Math.abs(a.at - target) - Math.abs(b.at - target))[0];
+  const list = themes(pairs, prev?.map || {});
+  if (!store.snaps.length || now - store.snaps.at(-1).at >= 10 * 60e3) {
+    store.snaps.push({ at: now, map: snapshotOf(themes(pairs, {}, { min: 2, max: 60 })) });
+    store.snaps = store.snaps.filter((x) => now - x.at <= 24 * 3600e3);
+    await chrome.storage.local.set({ [RADAR_KEY]: store });
+  }
+  themesCache = { at: now, themes: list, coins: pairs.length, prevAt: prev?.at || null };
+  return themesCache;
+}
+
+async function walletsStore() {
+  return (await chrome.storage.local.get(WALLETS_KEY))[WALLETS_KEY] || { list: [], data: {} };
+}
+const trackedMap = (ws) => Object.fromEntries(ws.list.map((w) => [w.address, w.name || w.address.slice(0, 4) + '…' + w.address.slice(-4)]));
+
+async function whaleData({ mint } = {}) {
+  const m = String(mint || '').trim();
+  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(m)) throw new Error(tr('Esa dirección no parece de Solana.'));
+  if (proSelling()) throw new Error(tr('Las ballenas en directo solo están en la beta gratis.'));
+  const pools = await gtJson(`/networks/solana/tokens/${m}/pools?page=1`);
+  const top = pools?.data?.[0]?.attributes;
+  if (!top?.address) throw new Error(tr('No encuentro operaciones de esa moneda.'));
+  const j = await gtJson(`/networks/solana/pools/${top.address}/trades`);
+  const ws = await walletsStore();
+  const tape = whaleTape(j?.data || [], { liqUsd: Number(top.reserve_in_usd) || 0, tracked: trackedMap(ws) });
+  return { ...tape, symbol: String(top.name || '').split(' / ')[0], mint: m, liqUsd: Number(top.reserve_in_usd) || 0, at: Date.now() };
+}
+
+async function heliusSwaps(address) {
+  const key = userKeys.helius;
+  if (!key) throw new Error(tr('Falta tu clave de Helius.'));
+  const okPerm = await chrome.permissions.contains({ origins: [`${HELIUS}/*`] }).catch(() => false);
+  if (!okPerm) throw new Error(tr('Falta darle permiso a Blankfire para usar Helius (botón «Conectar Helius»).'));
+  const r = await fetch(`${HELIUS}/v0/addresses/${address}/transactions?api-key=${encodeURIComponent(key)}&limit=100`);
+  if (r.status === 401 || r.status === 403) throw new Error(tr('Helius no acepta la clave: revisa que esté bien copiada.'));
+  if (r.status === 429) throw new Error(tr('Helius dice que vas muy rápido: espera un minuto.'));
+  if (!r.ok) throw new Error(tr('Helius no responde ({s}).', { s: r.status }));
+  return r.json();
+}
+
+async function walletsRefresh({ address } = {}) {
+  const ws = await walletsStore();
+  const list = address ? ws.list.filter((w) => w.address === address) : ws.list;
+  for (const w of list) {
+    try {
+      const txs = await heliusSwaps(w.address);
+      ws.data[w.address] = { at: Date.now(), txs: (Array.isArray(txs) ? txs : []).map((t) => ({ signature: t.signature, timestamp: t.timestamp, transactionError: t.transactionError || null, accountData: (t.accountData || []).filter((a) => a.account === w.address), tokenTransfers: (t.tokenTransfers || []).filter((x) => x.fromUserAccount === w.address || x.toUserAccount === w.address).map((x) => ({ mint: x.mint, tokenAmount: x.tokenAmount, fromUserAccount: x.fromUserAccount, toUserAccount: x.toUserAccount })) })), error: null };
+    } catch (e) {
+      ws.data[w.address] = { ...(ws.data[w.address] || {}), at: Date.now(), error: e.message };
+    }
+  }
+  await chrome.storage.local.set({ [WALLETS_KEY]: ws });
+  return { ...ws, solUsd: await solUsd().catch(() => null), helius: !!userKeys.helius };
+}
+
+// Para el bot: monedas que alguna wallet que sigues ha comprado en los últimos 30 min.
+async function trackedBuys() {
+  const ws = await walletsStore();
+  return recentBuys(ws.list.map((w) => ({ address: w.address, name: w.name, trades: parseSwaps(ws.data[w.address]?.txs || [], w.address) })));
+}
+
+Object.assign(handlers, {
+  async radarThemes({ force } = {}) { return radarThemes({ force }); },
+  async whaleTape({ mint }) { return whaleData({ mint }); },
+  async walletsState() { const ws = await walletsStore(); return { ...ws, solUsd: await solUsd().catch(() => null), helius: !!userKeys.helius, heliusPerm: await chrome.permissions.contains({ origins: [`${HELIUS}/*`] }).catch(() => false) }; },
+  async walletAdd({ address, name }) {
+    const a = String(address || '').trim();
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a)) throw new Error(tr('Esa dirección no parece de Solana.'));
+    const ws = await walletsStore();
+    if (ws.list.some((w) => w.address === a)) throw new Error(tr('Ya sigues esa wallet.'));
+    if (ws.list.length >= 25) throw new Error(tr('Como mucho 25 wallets.'));
+    ws.list.push({ address: a, name: String(name || '').trim().slice(0, 24), addedAt: Date.now() });
+    await chrome.storage.local.set({ [WALLETS_KEY]: ws });
+    return handlers.walletsState();
+  },
+  async walletRemove({ address }) {
+    const ws = await walletsStore();
+    ws.list = ws.list.filter((w) => w.address !== address);
+    delete ws.data[address];
+    await chrome.storage.local.set({ [WALLETS_KEY]: ws });
+    return handlers.walletsState();
+  },
+  async walletsRefresh({ address } = {}) { return walletsRefresh({ address }); },
+});

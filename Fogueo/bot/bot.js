@@ -1,7 +1,8 @@
 // Blankfire — ventana del bot de práctica. Todo se pinta desde el estado que guarda el service worker.
 import { tr, setLang, getLang, locale } from '../lib/i18n.js';
+import { pagesNav } from '../lib/pages-nav.js';
 import { fmtSol, fmtPct, fmtCompact, fmtDuration, fmtPrice, roundTripPct, DEFAULT_SETTINGS } from '../lib/core.js';
-import { BOT_KEY, BOT_DEFAULTS, STOP_MIN, STOP_MAX, RECAP_MS, EXIT_TEXT } from '../lib/bot.js';
+import { BOT_KEY, BOT_DEFAULTS, STOP_MIN, STOP_MAX, RECAP_MS, EXIT_TEXT, copilotGate, cleanCopilot, COPILOT_UNLOCK } from '../lib/bot.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -61,7 +62,7 @@ function header(s) {
       </div>
     </div>
     <div class="ctl">
-      <button class="lang" data-act="lang" aria-label="${getLang() === 'en' ? 'Cambiar a español' : 'Switch to English'}">${getLang() === 'en' ? 'ES' : 'EN'}</button>
+      ${pagesNav('bot')}<button class="lang" data-act="lang" aria-label="${getLang() === 'en' ? 'Cambiar a español' : 'Switch to English'}">${getLang() === 'en' ? 'ES' : 'EN'}</button>
       ${ctl}
     </div>
   </header>`;
@@ -187,6 +188,33 @@ function costBox(cfg) {
   </div>`;
 }
 
+// ---------- Copiloto con dinero real (fase 5) ----------
+function copilotBlock() {
+  const g = copilotGate(store), c = cleanCopilot(store.copilot || {});
+  const pct = Math.min(100, (g.trades / COPILOT_UNLOCK.trades) * 100);
+  const sigs = (store.signals || []).slice(-6).reverse();
+  const lock = !g.ok;
+  return `<section class="side-s copilot ${lock ? 'locked' : c.on ? 'on' : ''}">
+    <header class="sec-h"><h3>${tr('Copiloto con dinero real')}</h3><span class="status st-${c.on && !lock ? 'run' : 'idle'}"><i></i>${tr(lock ? 'Bloqueado' : c.on ? 'Activo' : 'Apagado')}</span></header>
+    <p class="hint">${tr('Cuando el bot compra o vende en la simulación, te avisa con tamaño, slippage y stop para que lo hagas tú en Padre con tu wallet aparte. Blankfire nunca firma ni toca tu wallet.')}</p>
+    ${lock ? `<div class="gate">
+        <p>${tr('Se desbloquea cuando la simulación demuestre algo: {n} operaciones cerradas y resultado positivo tras comisiones.', { n: COPILOT_UNLOCK.trades })}</p>
+        <div class="gbar" role="meter" aria-valuemin="0" aria-valuemax="${COPILOT_UNLOCK.trades}" aria-valuenow="${g.trades}" aria-label="${esc(tr('Operaciones simuladas'))}"><i style="width:${pct}%"></i></div>
+        <p class="num"><span>${tr('{t} de {n} operaciones', { t: g.trades, n: COPILOT_UNLOCK.trades })}</span> · <span class="${tone(g.net)}">${fmtSol(g.net, { sign: true })} SOL</span></p>
+      </div>` : `<form class="cop" data-form="copilot">
+        <label class="chk"><input type="checkbox" name="on" ${c.on ? 'checked' : ''}> ${tr('Avisarme de cada compra y venta del bot')}</label>
+        <div class="row2">
+          ${field('maxSol', 'Máximo por compra', c.maxSol, { min: 0.01, max: 5, step: 0.01, unit: 'SOL' })}
+          ${field('maxPerDay', 'Avisos de compra al día', c.maxPerDay, { min: 1, max: 30, unit: '' })}
+        </div>
+        ${field('ttlMin', 'El aviso caduca a los', c.ttlMin, { min: 1, max: 15, unit: 'min' })}
+        <p class="muted sm2">${tr('Empieza con poco: lo que la simulación aguanta no siempre lo aguanta tu cabeza con dinero real.')}</p>
+        <button class="btn small" type="submit">${tr('Guardar')}</button>
+      </form>`}
+    ${sigs.length ? `<ul class="sigs">${sigs.map((x) => `<li><span class="kind ${x.kind === 'buy' ? 'k-buy' : 'k-sell'}">${tr(x.kind === 'buy' ? 'Compra' : 'Venta')}</span><a class="sym" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.symbol)}</a><span class="num muted">${x.kind === 'buy' ? `${fmtSol(x.sizeSol)} SOL` : x.ch != null ? fmtPct(x.ch, 1, { sign: true }) : ''}</span><span class="muted">${time(x.at)}</span></li>`).join('')}</ul>` : ''}
+  </section>`;
+}
+
 // ---------- Límites y filtros ----------
 function field(name, label, value, { min, max, step = 1, unit = '', disabled = false, note = '' } = {}) {
   return `<label class="fld"><span class="fl">${tr(label)}</span>
@@ -264,14 +292,16 @@ function intro(cfg, past) {
 function render() {
   if (!store) return;
   const s = store.session, live = s && ['running', 'paused'].includes(s.status);
-  const cfg = (live ? s.config : store.config) || BOT_DEFAULTS;
+  // Configuración completa aunque lo guardado esté a medias (versiones viejas o datos tocados a mano).
+  const raw = (live ? s.config : store.config) || {};
+  const cfg = { ...BOT_DEFAULTS, ...raw, filters: { ...BOT_DEFAULTS.filters, ...(raw.filters || {}) } };
   const focus = document.activeElement?.name;
-  if (focus && $('#app').contains(document.activeElement) && document.activeElement.form?.dataset.form === 'cfg') return;   // no pisar lo que escribe
+  if (focus && $('#app').contains(document.activeElement) && ['cfg', 'copilot'].includes(document.activeElement.form?.dataset.form)) return;   // no pisar lo que escribe
   $('#app').innerHTML = `${header(s)}
     ${s ? ledger(s) : ''}
     <main class="grid">
-      <div class="main-col">${s ? stream(s) : intro(store.config || BOT_DEFAULTS, store.past)}${s && !live ? intro(store.config || BOT_DEFAULTS, store.past) : ''}</div>
-      <aside class="side">${s ? positions(s) : ''}${s ? recaps(s) : ''}${limits(cfg, live)}</aside>
+      <div class="main-col">${s ? stream(s) : intro(cfg, store.past)}${s && !live ? intro(cfg, store.past) : ''}</div>
+      <aside class="side">${s ? positions(s) : ''}${s ? recaps(s) : ''}${copilotBlock()}${limits(cfg, live)}</aside>
     </main>`;
   document.title = `Blankfire · ${tr('Bot de práctica')}`;
 }
@@ -325,6 +355,7 @@ document.addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target.dataset.form;
   if (f === 'cfg') { const r = await act('botConfig', { config: readCfg(e.target) }); if (r) toast(tr('Guardado.')); }
+  if (f === 'copilot') { const t = e.target; const r = await act('botCopilot', { copilot: { on: t.on.checked, maxSol: Number(t.maxSol.value), maxPerDay: Number(t.maxPerDay.value), ttlMin: Number(t.ttlMin.value) } }); if (r) toast(tr('Guardado.')); }
   if (f === 'start') {
     const budget = Number($('input[name="budgetSol"][form="startForm"]')?.value);
     const form = $('form[data-form="cfg"]');

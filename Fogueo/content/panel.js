@@ -181,7 +181,11 @@ class Panel {
     startScan({ badges: this.settings.screenBadges !== false, rigor: this.settings.screenRigor || 'normal' });
     this.host.hidden = !!this.st?.ui?.panel?.hidden;
 
+    // Copiloto (fase 5): señales del bot para operar con dinero real en esta moneda.
+    chrome.storage.local.get('blankfireBot').then((g) => { this.copSignals = g.blankfireBot?.signals || []; this.renderCopilot(); }).catch(() => {});
+    setInterval(() => this.renderCopilot(), 15e3);
     chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes.blankfireBot) { this.copSignals = changes.blankfireBot.newValue?.signals || []; this.renderCopilot(); }
       if (area === 'local' && changes[UPD_KEY]) { this.upd = changes[UPD_KEY].newValue || {}; this.renderUpdate(); }
       if (area !== 'local' || !changes.fogueo) return;
       // Datos dañados o a medio reparar: esperamos a que el motor los arregle.
@@ -303,6 +307,7 @@ class Panel {
               <textarea class="note" data-ref="buyNote" hidden placeholder="${tr('Ej.: rompe resistencia en 40K de MC con volumen, dev no ha vendido…')}"></textarea>
               <div class="quote" data-ref="buyQuote" aria-live="polite"></div>
               <div data-ref="padreSync"></div>
+              <div data-ref="copilotArea" aria-live="polite"></div>
               <div data-ref="guardArea" aria-live="polite"></div>
               <button class="go buy" data-act="buy"><span class="label" data-ref="buyLabel">${tr('Comprar')}</span><span class="spin"><i></i></span></button>
             </div>
@@ -573,6 +578,7 @@ class Panel {
     if (this.refs?.guardArea) this.refs.guardArea.innerHTML = '';
     this.status = 'ready';
     this.renderAll();
+    this.renderCopilot();
     // Ajustes recomendados automáticos al abrir un token nuevo.
     const preset = PRESETS[this.quote.stage];
     if (preset && this.settings.autoPreset && this.autoAppliedKey !== this.key && !this.tour) {
@@ -1693,6 +1699,24 @@ class Panel {
   }
 
   // Modo estricto: antes de gastar saldo de práctica en una moneda con señales de rug, se avisa y se pide confirmar.
+  // Aviso del copiloto: el bot compraría (o vendería) esta moneda. Lo ejecutas tú en Padre; esto solo informa.
+  renderCopilot() {
+    const area = this.refs?.copilotArea;
+    if (!area) return;
+    const addr = this.quote?.address, now = Date.now();
+    const list = (this.copSignals || []).filter((x) => x.addr === addr);
+    const buy = list.filter((x) => x.kind === 'buy' && x.expires > now).at(-1);
+    const sell = list.filter((x) => x.kind === 'sell' && now - x.at < 10 * 60e3).at(-1);
+    const sig = sell && (!buy || sell.at > buy.at) ? sell : buy;
+    const html = !sig ? '' : sig.kind === 'buy'
+      ? `<div class="cop-card buy" role="status"><b>${tr('Copiloto: el bot compraría aquí')}</b>
+          <p>${tr('{sol} SOL · slippage {sl} · stop −{st} % · objetivo +{tp} %', { sol: fmtSol(sig.sizeSol), sl: sig.slipPct ? sig.slipPct + ' %' : '—', st: sig.stopPct, tp: sig.tpPct })}</p>
+          <p class="cop-f">${tr('Caduca en {m} min. Si entras, hazlo tú en Padre con tu wallet aparte.', { m: Math.max(1, Math.ceil((sig.expires - now) / 60e3)) })}</p></div>`
+      : `<div class="cop-card sell" role="status"><b>${tr('Copiloto: el bot vendería aquí')}</b>
+          <p>${tr('Motivo: {r}. Si la compraste, véndela tú en Padre.', { r: tr({ stop: 'stop duro', tp: 'objetivo cumplido', trail: 'se dio la vuelta desde el máximo', time: 'no se movió', halt: 'freno de la sesión', manual: 'cerrada a mano' }[sig.exit] || sig.exit) })}</p></div>`;
+    if (area.innerHTML !== html) area.innerHTML = html;
+  }
+
   strictGuard(solIn) {
     const area = this.refs.guardArea;
     if (this.settings.strictShield === false || this.guardOk === this.key) { if (area) area.innerHTML = ''; return false; }
