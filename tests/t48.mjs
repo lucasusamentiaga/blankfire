@@ -1,0 +1,79 @@
+// App de escritorio: el motor de la extensión corre en Node con el shim (sin navegador),
+// guarda en disco de forma atómica, atiende a las ventanas y el bot compra con datos simulados.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+let fails = 0; const ok = (c, m) => { if (!c) fails++; console.log((c ? 'OK  ' : 'FAIL') + ' ' + m); };
+const ROOT = new URL('../Fogueo/', import.meta.url);
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bfdesk-'));
+const FROG = 'FRoGQ' + 'x'.repeat(35) + 'pump';
+const SOL = 'So11111111111111111111111111111111111111112';
+const NOW = Date.now();
+const pair = { chainId: 'solana', dexId: 'pumpswap', pairAddress: 'P' + FROG, pairCreatedAt: NOW - 3 * 3600e3, baseToken: { address: FROG, name: 'Moon Frog', symbol: 'FROG' }, quoteToken: { symbol: 'SOL' },
+  priceUsd: '0.0005', liquidity: { usd: 80000 }, marketCap: 500000, fdv: 500000, volume: { m5: 30000, h1: 200000 }, txns: { m5: { buys: 80, sells: 30 }, h1: { buys: 400, sells: 150 } },
+  priceChange: { m5: 4, h1: 40 }, info: { websites: [{ url: 'https://x' }], socials: [{ type: 'twitter', url: 'https://x' }] } };
+const calls = [];
+globalThis.fetch = async (url, opts) => {
+  const u = String(url); calls.push(u);
+  const json = (j, status = 200) => new Response(JSON.stringify(j), { status, headers: { 'content-type': 'application/json' } });
+  if (u.includes('/token-boosts/')) return json([{ chainId: 'solana', tokenAddress: FROG }]);
+  if (u.includes('/token-profiles/')) return json([]);
+  if (u.includes(SOL)) return json([{ chainId: 'solana', baseToken: { address: SOL }, quoteToken: { symbol: 'USDC' }, priceUsd: '180', liquidity: { usd: 9e6 }, priceChange: { h1: 0.5 } }]);
+  if (u.includes('/search')) return json({ pairs: [] });
+  if (u.includes('dexscreener')) return json(u.includes(FROG) ? [pair] : []);
+  if (u.includes('rugcheck')) return json({ risks: [], score_normalised: 1, lpLockedPct: 100 });
+  if (u.includes('jup.ag')) return json({ inAmount: '1', outAmount: '1000000', priceImpactPct: '0.004', routePlan: [] });
+  return json({}, 404);
+};
+const notes = [], sent = [];
+const { makeChrome } = await import(pathToFileURL(path.resolve('../desktop/shim.mjs')).href);
+const manifest = JSON.parse(fs.readFileSync(new URL('manifest.json', ROOT), 'utf8'));
+const eng = makeChrome({ dataDir: dir, baseUrl: 'blankfire://app/', manifest, notify: (id, o) => notes.push(o), broadcast: (c, p) => sent.push(c) });
+globalThis.chrome = eng.chrome;
+await import(new URL('background.js', ROOT).href);
+eng.startup();
+const page = (msg) => eng.dispatch(msg, { id: 'blankfire-desktop', url: 'blankfire://app/bot/bot.html' });
+const outsider = (msg) => eng.dispatch(msg, { id: 'otro', url: 'https://evil.example/' });
+const st = await page({ type: 'state' });
+ok(st?.ok && st.data, 'el motor arranca en Node y responde');
+ok(!(await outsider({ type: 'realState' })).ok, 'órdenes de dinero real desde fuera de las ventanas: rechazadas');
+ok((await page({ type: 'realState' })).ok, 'desde las ventanas de la app: aceptadas');
+await page({ type: 'saveSettings', settings: { lang: 'es' } });
+const start = await page({ type: 'botStart', config: { budgetSol: 10 } });
+ok(start?.ok && start.data.session?.status === 'running', 'arranca una sesión del bot');
+let bs;
+for (let i = 0; i < 40; i++) { bs = (await page({ type: 'botState' })).data; if (Object.keys(bs.session.positions).length) break; await new Promise((r) => setTimeout(r, 250)); }
+ok(Object.keys(bs.session.positions).length === 1, 'el bot compra FROG con datos simulados');
+const buy = bs.session.log.find((l) => l.kind === 'buy');
+ok(buy?.agents?.safety && buy.agents.ind && buy.agents.checks?.length >= 3, 'con seguridad, indicadores y repaso');
+ok(calls.some((u) => u.includes('rugcheck')), 'consulta RugCheck');
+await eng.flush();
+const disk = JSON.parse(fs.readFileSync(path.join(dir, 'storage.json'), 'utf8'));
+ok(disk.blankfireBot?.session?.status === 'running' && !fs.existsSync(path.join(dir, 'storage.json.tmp')), 'lo guarda en disco (escritura atómica, sin restos)');
+ok(sent.includes('storage-changed'), 'avisa a las ventanas de cada cambio');
+const al = await new Promise((r) => eng.chrome.alarms.get('blankfire-bot', r));
+ok(al && al.periodInMinutes === 0.5, 'la vigilancia cada 30 s está programada');
+const s2 = await eng.chrome.storage.session.get(null);
+ok(!Object.keys(s2).some((k) => k in disk), 'lo de la sesión (clave abierta) nunca va al disco');
+await page({ type: 'botStop' });
+ok((await page({ type: 'botState' })).data.session.status === 'stopped', 'se puede parar');
+// Llevar la wallet del bot a otro sitio y traerla: la clave viaja cifrada y nunca operan las dos.
+const { newKeypair } = await import(new URL('lib/solana.js', ROOT).href);
+const PW = 'fogueo-2026!';
+const cr = await page({ type: 'realCreate', password: PW, withdrawTo: newKeypair().address });
+ok(cr.ok, 'wallet del bot creada en la app');
+ok(!(await page({ type: 'realMoveOut', password: 'mala-clave-9' })).ok, 'llevarla con otra contraseña: no');
+const mv = await page({ type: 'realMoveOut', password: PW });
+ok(mv.ok && mv.data.bundle.vault && !JSON.stringify(mv.data.bundle).includes(cr.data.backup), 'el archivo lleva la clave cifrada, nunca en claro');
+let rs = (await page({ type: 'realState' })).data;
+ok(rs.movedAt && !rs.unlocked && rs.config.mode === 'off', 'aquí queda apagada y cerrada');
+ok(!(await page({ type: 'realConfig', config: { mode: 'auto' } })).ok, 'y no se puede encender mientras está fuera');
+const bad = { ...mv.data.bundle, address: newKeypair().address };
+ok(!(await page({ type: 'realMoveIn', bundle: JSON.stringify(bad), password: PW })).ok, 'un archivo manipulado (dirección cambiada) se rechaza');
+ok(!(await page({ type: 'realMoveIn', bundle: '{"kind":"otra"}', password: PW })).ok, 'un archivo que no es de Blankfire se rechaza');
+const back = await page({ type: 'realMoveIn', bundle: JSON.stringify(mv.data.bundle), password: PW });
+ok(back.ok && back.data.unlocked && !back.data.movedAt && back.data.config.mode === 'off', 'al traerla: abierta, con el modo real apagado hasta que lo enciendas');
+fs.rmSync(dir, { recursive: true, force: true });
+console.log(fails ? `${fails} fallos` : 'TODO OK');
+process.exit(fails ? 1 : 0);

@@ -20,3 +20,6 @@ tests/reco/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+desktop/node_modules/
+desktop/package-lock.json

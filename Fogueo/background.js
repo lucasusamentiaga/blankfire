@@ -11,6 +11,7 @@ import {
   routerAgent, councilScore, decide, entrySize, exitReason, sessionEquity, lossHit, pushLog, makeRecap, metaWords,
   cleanCopilot, copilotGate, signalsToday, COPILOT_DEFAULTS,
   safetyAgent, indicators, indicatorAgent, guardrails, checklist,
+  costSettings, paceTimes, applyPace,
 } from './lib/bot.js';
 import { themes, snapshotOf, whaleTape, recentBuys, parseSwaps } from './lib/radar.js';
 import { newKeypair, keypairFromSecret, signTransaction, transferTx, closeAccountTx, TOKEN_PROGRAMS, b58encode, b58decode, b64encode, b64decode, isAddress } from './lib/solana.js';
@@ -1439,7 +1440,8 @@ chrome.commands?.onCommand.addListener(async (command) => {
 // Saldo propio de sesión en SOL ficticios: no toca la cuenta del usuario ni ninguna wallet.
 // =====================================================================
 const BOT_ALARM = 'blankfire-bot';
-const BOT_SCAN_MS = 120e3;
+const DESKTOP = !!globalThis.BLANKFIRE_DESKTOP;   // dentro de la app de escritorio: vueltas más rápidas
+const botWatchMin = (cfg) => paceTimes(cfg, DESKTOP).watchMin;
 let botChain = Promise.resolve();
 // Todo lo que cambia el bot pasa por esta cola: un tick y un «Parar» nunca se pisan.
 function botRun(fn) {
@@ -1490,7 +1492,7 @@ function botOpen(s, pair, quote, router, verdict, agents, sol, settings, now) {
   };
   // Lo que valdría venderla ya: así la posición enseña desde el primer segundo lo que se han llevado las comisiones.
   const back = simulateSell({ qty: sim.qty, quote, solUsd: sol, settings: { ...settings, sellSlippagePct: 99 } });
-  if (Number.isFinite(back?.netSol)) s.positions[key].valueSol = Math.max(0, back.netSol);
+  if (Number.isFinite(back?.netSol)) { s.positions[key].valueSol = Math.max(0, back.netSol); s.positions[key].rtCostSol = Math.max(0, sim.totalDebit - back.netSol); }
   s.seen[pair.baseToken.address] = now;
   s.stats.buys++;
   pushLog(s, { kind: 'buy', symbol: pair.baseToken.symbol, addr: pair.baseToken.address, score: verdict.score, agents, reason: verdict.reason, sol: sim.totalDebit, price: sim.fillPrice }, now);
@@ -1508,7 +1510,7 @@ function botClose(s, key, quote, sol, settings, exit, now) {
   const ch = quote?.priceUsd > 0 ? (quote.priceUsd / p.entryPrice - 1) * 100 : null;
   s.balance += netSol;
   const pnlSol = netSol - p.costSol, pnlPct = (netSol / p.costSol - 1) * 100;
-  s.closed.push({ symbol: p.symbol, addr: p.addr, openedAt: p.openedAt, closedAt: now, costSol: p.costSol, netSol, pnlSol, pnlPct, exit, ch, score: p.score });
+  s.closed.push({ symbol: p.symbol, addr: p.addr, openedAt: p.openedAt, closedAt: now, costSol: p.costSol, netSol, pnlSol, pnlPct, exit, ch, score: p.score, feesSol: p.rtCostSol ?? null });
   if (s.closed.length > 500) s.closed.splice(0, s.closed.length - 500);
   delete s.positions[key];
   pushLog(s, { kind: 'sell', symbol: p.symbol, addr: p.addr, exit, ch, pnlSol, pnlPct, mins: Math.round((now - p.openedAt) / 60e3) }, now);
@@ -1582,7 +1584,7 @@ async function botScan(s, settings, sol, now, store = {}) {
     const agents = { smarts, trends, debate, router, safety: { score: safety.score, veto: safety.veto, notes: safety.notes }, ind: { score: ind.score, notes: ind.notes } };
     agents.checks = checklist({ pair, safety, ind, router, smarts, trends }, s.config);
     const verdict = decide(agents, s.config);
-    if (verdict.action === 'buy' && slots > 0 && s.balance >= 0.02) { if (botOpen(s, pair, quote, router, verdict, agents, sol, settings, now)) slots--; }
+    if (verdict.action === 'buy' && slots > 0 && s.balance >= 0.01) { if (botOpen(s, pair, quote, router, verdict, agents, sol, settings, now)) slots--; }
     else {
       s.stats.skipped++;
       s.skipSeen[addr] = now;
@@ -1607,7 +1609,8 @@ async function botTick({ forceScan = false } = {}) {
     const s = store.session;
     if (!s || !['running', 'paused'].includes(s.status)) { chrome.alarms.clear(BOT_ALARM); return; }
     const st = await load();
-    const settings = st.settings;
+    // Comisiones con las que se simula: las de la wallet del bot (por defecto) o las de tu Padre.
+    const settings = costSettings(st.settings, s.config);
     const sol = await solUsd().catch(() => null);
     const now = Date.now();
     if (!sol) { pushLog(s, { kind: 'info', reason: { t: 'sin precio de SOL: espera' } }, now); return; }
@@ -1650,8 +1653,8 @@ async function botTick({ forceScan = false } = {}) {
     // 2) Resumen cada 12 horas.
     if (now - s.lastRecapAt >= RECAP_MS) botRecap(s, now);
     // 3) Buscar entradas cada 2 min, si queda hueco y saldo. Antes, lo último de las wallets que sigues (si hay clave de Helius).
-    const free = s.status === 'running' && Object.keys(s.positions).length < s.config.maxOpen && s.balance >= 0.02;
-    if (free && (forceScan || now - s.lastScanAt >= BOT_SCAN_MS)) {
+    const free = s.status === 'running' && Object.keys(s.positions).length < s.config.maxOpen && s.balance >= 0.01;
+    if (free && (forceScan || now - s.lastScanAt >= paceTimes(s.config, DESKTOP).scanMs)) {
       if (userKeys.helius) {
         const ws = await walletsStore();
         const stale = ws.list.filter((w) => now - (ws.data[w.address]?.at || 0) > 110e3).sort((a, b) => (ws.data[a.address]?.at || 0) - (ws.data[b.address]?.at || 0)).slice(0, 3);
@@ -1715,12 +1718,15 @@ Object.assign(handlers, {
   async botState() { return botRun(async (store) => store); },
   async botConfig({ config }) {
     return botRun(async (store) => {
-      const next = cleanConfig({ ...store.config, ...(config || {}), filters: { ...store.config?.filters, ...(config?.filters || {}) } });
+      let next = cleanConfig({ ...store.config, ...(config || {}), filters: { ...store.config?.filters, ...(config?.filters || {}) } });
+      // Elegir un ritmo ajusta de golpe todos sus valores (luego se pueden retocar en Ajustes avanzados).
+      if (config?.usePace) next = cleanConfig(applyPace(next, config.pace));
       store.config = next;
       // El saldo de la sesión es fijo: los demás límites se aplican al momento, el saldo en la próxima sesión.
       if (store.session && ['running', 'paused'].includes(store.session.status)) {
         store.session.config = { ...next, budgetSol: store.session.config.budgetSol };
         pushLog(store.session, { kind: 'info', reason: { t: 'límites actualizados' } });
+        chrome.alarms.create(BOT_ALARM, { periodInMinutes: botWatchMin(store.session.config) });
       }
       return store;
     });
@@ -1734,11 +1740,12 @@ Object.assign(handlers, {
         store.pastClosed = [...(store.pastClosed || []), ...store.session.closed.map((c) => ({ openedAt: c.openedAt, closedAt: c.closedAt, pnlSol: c.pnlSol }))].slice(-1000);
       }
       store.config = cleanConfig({ ...store.config, ...(config || {}), filters: { ...store.config?.filters, ...(config?.filters || {}) } });
+      if (config?.usePace) store.config = cleanConfig(applyPace(store.config, config.pace));
       store.session = freshSession(store.config);
       pushLog(store.session, { kind: 'start', reason: { t: 'sesión iniciada con {b} SOL de práctica', v: { b: fmtSol(store.config.budgetSol) } } });
       return store;
     });
-    chrome.alarms.create(BOT_ALARM, { periodInMinutes: 0.5 });
+    chrome.alarms.create(BOT_ALARM, { periodInMinutes: botWatchMin(store.session?.config) });
     botTick({ forceScan: true }).catch(() => {});
     return store;
   },
@@ -1755,7 +1762,7 @@ Object.assign(handlers, {
       if (s?.status === 'paused') { s.status = 'running'; pushLog(s, { kind: 'info', reason: { t: 'reanudado' } }); }
       return store;
     });
-    chrome.alarms.create(BOT_ALARM, { periodInMinutes: 0.5 });
+    chrome.alarms.create(BOT_ALARM, { periodInMinutes: botWatchMin(store.session?.config) });
     return store;
   },
   async botStop() {
@@ -1800,7 +1807,7 @@ Object.assign(handlers, {
 
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === BOT_ALARM) botTick().catch(() => {}); });
 // Si el navegador se reinició con una sesión en marcha, la alarma sigue; si se perdió, se recrea.
-chrome.storage.local.get(BOT_KEY).then((g) => { if (['running', 'paused'].includes(g[BOT_KEY]?.session?.status)) ensureAlarm(BOT_ALARM, 0.5); }).catch(() => {});
+chrome.storage.local.get(BOT_KEY).then((g) => { if (['running', 'paused'].includes(g[BOT_KEY]?.session?.status)) ensureAlarm(BOT_ALARM, botWatchMin(g[BOT_KEY].session.config)); }).catch(() => {});
 
 
 // =====================================================================
@@ -1926,7 +1933,8 @@ Object.assign(handlers, {
 const REAL_KEY = 'blankfireReal';
 const REAL_SESSION = 'blankfireRealKey';
 const LAMPORTS = 1e9;
-const REAL_DEFAULTS = { mode: 'off', maxSol: 0.05, maxPerDay: 5, maxDailyLossSol: 0.15, maxOpen: 2, buySlipBps: 1500, sellSlipBps: 3000, maxImpactPct: 5, maxPrioLamports: 300000 };
+// Pensado para empezar con poco (20 € ≈ 0,13 SOL): entradas de 0,025 SOL, freno diario de 0,03 SOL.
+const REAL_DEFAULTS = { mode: 'off', maxSol: 0.025, maxPerDay: 20, maxDailyLossSol: 0.03, maxOpen: 2, buySlipBps: 1500, sellSlipBps: 3000, maxImpactPct: 5, maxPrioLamports: 300000 };
 chrome.storage.session?.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' }).catch?.(() => {});
 let realChain = Promise.resolve();
 const realRun = (fn) => { const r = realChain.then(fn); realChain = r.catch(() => {}); return r; };
@@ -1936,7 +1944,7 @@ function cleanReal(c = {}) {
   const d = REAL_DEFAULTS;
   return {
     mode: c.mode === 'auto' ? 'auto' : 'off',
-    maxSol: n(c.maxSol, d.maxSol, 0.01, 2), maxPerDay: Math.round(n(c.maxPerDay, d.maxPerDay, 1, 30)),
+    maxSol: n(c.maxSol, d.maxSol, 0.01, 2), maxPerDay: Math.round(n(c.maxPerDay, d.maxPerDay, 1, 100)),
     maxDailyLossSol: n(c.maxDailyLossSol, d.maxDailyLossSol, 0.01, 10), maxOpen: Math.round(n(c.maxOpen, d.maxOpen, 1, 5)),
     buySlipBps: Math.round(n(c.buySlipBps, d.buySlipBps, 50, 3000)), sellSlipBps: Math.round(n(c.sellSlipBps, d.sellSlipBps, 100, 5000)),
     maxImpactPct: n(c.maxImpactPct, d.maxImpactPct, 0.5, 15), maxPrioLamports: Math.round(n(c.maxPrioLamports, d.maxPrioLamports, 0, 5e6)),
@@ -2009,14 +2017,14 @@ async function jupPost(path, body) {
   if (!res.ok) throw new Error(tr('Jupiter respondió {s}', { s: res.status }));
   return res.json();
 }
-async function swap(kp, { inputMint, outputMint, amount, slippageBps, maxImpactPct, maxPrioLamports }) {
+async function swap(kp, { inputMint, outputMint, amount, slippageBps, maxImpactPct, maxPrioLamports, priorityLevel = 'high' }) {
   const q = await jupJson(`/swap/v1/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}&restrictIntermediateTokens=true`);
   if (!q?.outAmount) throw new Error(tr('Jupiter no encuentra ruta.'));
   const impact = Number(q.priceImpactPct) * 100;
   if (Number.isFinite(impact) && impact > maxImpactPct) throw new Error(tr('Impacto {v} % (máximo {m} %): no opero.', { v: impact.toFixed(1), m: maxImpactPct }));
   const sw = await jupPost('/swap/v1/swap', {
     quoteResponse: q, userPublicKey: kp.address, wrapAndUnwrapSol: true, dynamicComputeUnitLimit: true,
-    prioritizationFeeLamports: { priorityLevelWithMaxLamports: { maxLamports: maxPrioLamports, priorityLevel: 'high' } },
+    prioritizationFeeLamports: { priorityLevelWithMaxLamports: { maxLamports: maxPrioLamports, priorityLevel } },
   });
   if (!sw?.swapTransaction) throw new Error(tr('Jupiter no devolvió la operación.'));
   const { tx } = signTransaction(b64decode(sw.swapTransaction), kp);
@@ -2044,7 +2052,7 @@ async function realGuards(kp, lamportsIn) {
   const now = Date.now();
   let halted = false;
   const why = await realPatch((r) => {
-    if (r.config.mode !== 'auto') return tr('modo real apagado');
+    if (r.config.mode !== 'auto' || r.movedAt) return tr('modo real apagado');
     const openCost = Object.values(r.positions).reduce((a, p) => a + (p.lamportsIn || 0), 0);
     if (!r.day || !sameDay(r.day.date, now)) r.day = { date: now, start: bal + openCost, buys: 0 };
     const loss = (r.day.start - (bal + openCost)) / LAMPORTS;
@@ -2121,7 +2129,8 @@ async function realBuy({ addr, symbol, sol }) {
   const fresh = await realLoad();
   if (fresh.config.mode !== 'auto' || fresh.positions[addr]) return;
   try {
-    const { sig, quote } = await swap(kp, { inputMint: SOL_MINT, outputMint: addr, amount: lamportsIn, slippageBps: fresh.config.buySlipBps, maxImpactPct: fresh.config.maxImpactPct, maxPrioLamports: fresh.config.maxPrioLamports });
+    // Comprar no corre prisa (si no entra, no se pierde nada): priority fee baja. Vender sí: alta.
+    const { sig, quote } = await swap(kp, { inputMint: SOL_MINT, outputMint: addr, amount: lamportsIn, slippageBps: fresh.config.buySlipBps, maxImpactPct: fresh.config.maxImpactPct, maxPrioLamports: Math.min(fresh.config.maxPrioLamports, 100000), priorityLevel: 'medium' });
     const late = await realPatch((r) => {
       if (r.day) r.day.buys++;
       r.positions[addr] = { addr, symbol, lamportsIn, sig, at: Date.now(), outQuoted: quote.outAmount };
@@ -2166,7 +2175,7 @@ async function realSell({ addr, symbol, reason }) {
       }
       const before = await lamportsOf(kp.address);
       const cur = await realLoad();
-      const { sig } = await swap(kp, { inputMint: addr, outputMint: SOL_MINT, amount: raw.toString(), slippageBps: Math.min(5000, Math.round(cur.config.sellSlipBps * (1 + i * 0.5))), maxImpactPct: 99, maxPrioLamports: cur.config.maxPrioLamports * (i + 1) });
+      const { sig } = await swap(kp, { inputMint: addr, outputMint: SOL_MINT, amount: raw.toString(), slippageBps: Math.min(5000, Math.round(cur.config.sellSlipBps * (1 + i * 0.5))), maxImpactPct: 99, maxPrioLamports: cur.config.maxPrioLamports * (i + 1), priorityLevel: i ? 'veryHigh' : 'high' });
       const after = await lamportsOf(kp.address);
       const pnl = pos.lamportsIn ? (after - before - pos.lamportsIn) / LAMPORTS : null;
       await realPatch((r) => { delete r.positions[addr]; realLog(r, { kind: 'sell', symbol, addr, reason, sol: (after - before) / LAMPORTS, pnl, sig }); });
@@ -2225,7 +2234,39 @@ Object.assign(handlers, {
     let balance = null, balErr = null;
     if (r.address && userKeys.helius) { try { balance = (await lamportsOf(r.address)) / LAMPORTS; } catch (e) { balErr = e.message; } }
     const store = (await chrome.storage.local.get(BOT_KEY))[BOT_KEY] || {};
-    return { has: !!r.vault, address: r.address, withdrawTo: r.withdrawTo, unlocked: !!kp, config: r.config, positions: r.positions, log: r.log.slice(-60), day: r.day, balance, balErr, helius: !!userKeys.helius, gate: copilotGate(store) };
+    return { desktop: !!globalThis.BLANKFIRE_DESKTOP, movedAt: r.movedAt || null, has: !!r.vault, address: r.address, withdrawTo: r.withdrawTo, unlocked: !!kp, config: r.config, positions: r.positions, log: r.log.slice(-60), day: r.day, balance, balErr, helius: !!userKeys.helius, gate: copilotGate(store) };
+  },
+  // Llevar la wallet del bot a la app de escritorio (o traerla de vuelta). La clave viaja cifrada
+  // con tu contraseña; aquí se apaga el modo real para que nunca operen los dos a la vez.
+  async realMoveOut({ password }) {
+    const r = await realLoad();
+    if (!r.vault) throw new Error(tr('Aún no hay wallet del bot.'));
+    await openVault(r.vault, password).catch(() => { throw new Error(tr('Contraseña incorrecta.')); });
+    if (Object.keys(r.positions).length) throw new Error(tr('Tiene posiciones abiertas: véndelas antes de moverla.'));
+    const bundle = { kind: 'blankfire-bot-wallet', v: 1, address: r.address, withdrawTo: r.withdrawTo, createdAt: r.createdAt, vault: r.vault, config: { ...r.config, mode: 'off' }, at: Date.now() };
+    await realPatch((x) => { x.config.mode = 'off'; x.movedAt = Date.now(); realLog(x, { kind: 'info', t: 'wallet llevada a la app de escritorio: aquí queda apagada' }); });
+    await chrome.storage.session.remove(REAL_SESSION);
+    return { bundle };
+  },
+  async realMoveIn({ bundle, password }) {
+    const r = await realLoad();
+    if (r.vault && !r.movedAt) throw new Error(tr('Aquí ya hay una wallet del bot.'));
+    const b = typeof bundle === 'string' ? JSON.parse(bundle) : bundle;
+    if (b?.kind !== 'blankfire-bot-wallet' || !b.vault || !isAddress(b.address) || !isAddress(b.withdrawTo)) throw new Error(tr('Ese archivo no es una wallet del bot de Blankfire.'));
+    const secret = await openVault(b.vault, password).catch(() => { throw new Error(tr('Contraseña incorrecta.')); });
+    if (keypairFromSecret(secret).address !== b.address) throw new Error(tr('El archivo está dañado: la clave no corresponde a la dirección.'));
+    if (r.vault && r.address !== b.address) throw new Error(tr('Aquí ya hay otra wallet del bot distinta.'));
+    await realPatch((x) => {
+      Object.assign(x, { vault: b.vault, address: b.address, withdrawTo: b.withdrawTo, createdAt: b.createdAt || Date.now(), movedAt: null });
+      x.config = cleanReal({ ...x.config, ...(b.config || {}), mode: 'off' });
+      realLog(x, { kind: 'info', t: 'wallet del bot recibida: revisa los límites y enciéndela cuando quieras' });
+    });
+    await chrome.storage.session.set({ [REAL_SESSION]: b64encode(secret) });
+    return handlers.realState();
+  },
+  async realReclaim() {
+    await realPatch((x) => { x.movedAt = null; realLog(x, { kind: 'info', t: 'wallet usada de nuevo aquí: apaga el modo real en la app de escritorio' }); });
+    return handlers.realState();
   },
   async realCreate({ password, withdrawTo }) {
     const r = await realLoad();
@@ -2260,6 +2301,7 @@ Object.assign(handlers, {
     // Apagar nunca espera: se guarda al momento.
     if (next.mode === 'off' && r.config.mode === 'auto') { await realPatch((x) => { x.config = { ...cleanReal({ ...x.config, ...(config || {}) }), mode: 'off' }; realLog(x, { kind: 'info', t: 'modo real apagado' }); }); return handlers.realState(); }
     if (next.mode === 'auto') {
+      if (r.movedAt) throw new Error(tr('Esta wallet opera ahora desde la app de escritorio. Para usarla aquí, pulsa «Usarla aquí otra vez».'));
       const store = (await chrome.storage.local.get(BOT_KEY))[BOT_KEY] || {};
       if (!copilotGate(store).ok) throw new Error(tr('El modo real se desbloquea con {n} operaciones simuladas y resultado positivo.', { n: 20 }));
       if (!r.vault) throw new Error(tr('Primero crea la wallet del bot.'));

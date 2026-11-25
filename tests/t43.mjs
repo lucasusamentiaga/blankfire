@@ -89,7 +89,7 @@ await pg.screenshot({ path: TDIR + 't43-wallet-es.png', fullPage: true });
 // ---- Copiloto ----
 const bot = await ctx.newPage(); bot.on('pageerror', (e) => errs.push('bot: ' + e.message));
 await bot.goto(`chrome-extension://${id}/bot/bot.html`); await bot.waitForTimeout(800);
-ok(/Bloqueado/.test(await bot.locator('.copilot').innerText()) && await bot.locator('.copilot .gbar').count() === 1, 'copiloto bloqueado al principio, con su barra de progreso');
+ok(/Practicar/.test(await bot.locator('.copilot.locked .path li.now').innerText()) && await bot.locator('.copilot .gbar').count() === 1 && await bot.locator('form[data-form="copilot"]').count() === 0, 'al principio: camino al dinero real en el paso «Practicar», con su barra, y sin copiloto');
 const locked = await bot.evaluate(() => new Promise((r) => chrome.runtime.sendMessage({ type: 'botCopilot', copilot: { on: true } }, r)));
 ok(!locked.ok && /desbloquea/.test(locked.error), 'no se puede encender a la fuerza');
 // Simulación con 22 operaciones y beneficio → desbloqueado
@@ -101,6 +101,7 @@ await bot.fill('form[data-form="copilot"] input[name="maxSol"]', '0.05');
 await bot.click('form[data-form="copilot"] button[type="submit"]'); await bot.waitForTimeout(400);
 let store = await bot.evaluate(() => chrome.storage.local.get('blankfireBot').then((g) => g.blankfireBot));
 ok(store.copilot.on && store.copilot.maxSol === 0.05, 'encendido con 0,05 SOL por aviso');
+await bot.fill('input[name="budgetSol"][form="startForm"]', '10');
 await bot.click('form[data-form="start"] button'); 
 await bot.waitForFunction(() => document.querySelectorAll('.log .ev').length >= 2, null, { timeout: 25000 }).catch(() => {});
 await bot.waitForTimeout(800);

@@ -3,6 +3,33 @@
     "ai": false
   },
   "releases": {
+    "1.24.0": {
+      "date": "2026-11-26",
+      "es": [
+        "App de escritorio de Blankfire: el bot vigila sin Opera abierto, desde la bandeja de Windows, sin ventanas de consola. Mismas pantallas que la extensión",
+        "Empezar es ahora elegir dos cosas: con cuánto practicas y a qué ritmo (Prudente, Equilibrado o Rápido). Lo demás queda en Ajustes avanzados",
+        "Ritmo Rápido: muchas operaciones cortas. En la app de escritorio mira cada 20 s y vigila cada 5 s",
+        "La práctica usa por defecto las comisiones reales de la wallet del bot (sin el 1 % ni la propina de Padre), para que el resultado sea el que tendrías con dinero real",
+        "Pensado para empezar con 20 €: 0,15 SOL de práctica, entradas reales de 0,025 SOL y freno diario de 0,03 SOL",
+        "Las compras reales usan una priority fee baja; las ventas, alta (un stop tiene que entrar)",
+        "Nuevo «En comisiones»: cuánto se han llevado las comisiones en la sesión",
+        "«Camino al dinero real» en tres pasos: practicar, copiloto y automático",
+        "Llevar la wallet del bot entre la extensión y la app (cifrada con tu contraseña, nunca operan las dos a la vez)",
+        "Arreglado: la ventana podía dejar de actualizarse justo después de pulsar Arrancar"
+      ],
+      "en": [
+        "Blankfire desktop app: the bot watches without Opera open, from the Windows tray, with no console windows. Same screens as the extension",
+        "Starting is now two choices: how much you practice with and at what pace (Careful, Balanced or Fast). Everything else lives in Advanced settings",
+        "Fast pace: many short trades. In the desktop app it scans every 20 s and watches every 5 s",
+        "Practice now uses the bot wallet's real fees by default (no Padre 1% or tip), so results match what real money would get",
+        "Built to start with €20: 0.15 SOL practice, real entries of 0.025 SOL and a 0.03 SOL daily brake",
+        "Real buys use a low priority fee; sells a high one (a stop has to land)",
+        "New “In fees”: how much fees have taken this session",
+        "“Path to real money” in three steps: practice, copilot and automatic",
+        "Move the bot wallet between the extension and the app (encrypted with your password; both never trade at once)",
+        "Fixed: the window could stop updating right after pressing Start"
+      ]
+    },
     "1.23.0": {
       "date": "2026-11-25",
       "es": [

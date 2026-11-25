@@ -106,10 +106,13 @@ walletPk = b58decode(st0.address);
 ok(st0.unlocked && st0.withdrawTo === PHANTOM && Math.abs(st0.balance - 0.5) < 1e-9, 'wallet abierta, retirada fijada a tu Phantom, saldo 0,5 SOL');
 // Modo automático
 
+await send({ type: 'realConfig', config: { maxSol: 0.05 } });
+await bot.reload(); await bot.waitForTimeout(600);
 await bot.locator('[data-act="realMode"]').check(); await bot.waitForTimeout(500);
 ok((await send({ type: 'realState' })).data.config.mode === 'auto', 'modo automático con dinero real encendido');
 await bot.screenshot({ path: TDIR + 't45-real-on-es.png', fullPage: true });
 // El bot simulado compra → la wallet real compra (0,05 SOL)
+await bot.fill('input[name="budgetSol"][form="startForm"]', '10');
 await bot.click('form[data-form="start"] button');
 await bot.waitForFunction(() => document.querySelectorAll('.log .ev').length >= 2, null, { timeout: 25000 }).catch(() => {});
 let rs;

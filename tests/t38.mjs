@@ -17,7 +17,7 @@ const cfg = cleanConfig({});
 
 // Límites duros: lo que llegue de la ventana nunca los rompe.
 const wild = cleanConfig({ stopPct: 30, budgetSol: -5, sizePct: 90, maxOpen: 50, filters: { minLiqUsd: 'x' } });
-ok(wild.stopPct === 8 && cleanConfig({ stopPct: 1 }).stopPct === 6 && wild.budgetSol === 0.1 && wild.sizePct === 25 && wild.maxOpen === 6 && wild.filters.minLiqUsd === BOT_DEFAULTS.filters.minLiqUsd, 'stop siempre entre −6 % y −8 %, tamaño y saldo acotados');
+ok(wild.stopPct === 8 && cleanConfig({ stopPct: 1 }).stopPct === 6 && wild.budgetSol === 0.05 && wild.sizePct === 40 && wild.maxOpen === 6 && wild.filters.minLiqUsd === BOT_DEFAULTS.filters.minLiqUsd, 'stop siempre entre −6 % y −8 %, tamaño y saldo acotados');
 
 // Filtros.
 ok(filterPair(pair(), cfg, { now: NOW }).length === 0, 'una moneda sana pasa los filtros');
@@ -72,8 +72,8 @@ ok(exitReason(pos, 1.41, cfg, NOW)?.id === 'tp', 'objetivo al +40 %');
 ok(exitReason({ ...pos, peak: 1.3 }, 1.16, cfg, NOW)?.id === 'trail', 'tras subir +30 %, vende si cae un 10 % desde el máximo');
 ok(exitReason({ ...pos, openedAt: NOW - 50 * 60e3 }, 1.02, cfg, NOW)?.id === 'time', 'fuera si en 45 min no se mueve');
 const s = freshSession({ budgetSol: 2 }, NOW);
-ok(entrySize(s) === 0.2 && s.balance === 2, 'cada entrada es el 10 % del saldo fijo');
-ok(freshSession({}, NOW).config.budgetSol === 10 && entrySize(freshSession({}, NOW)) === 1, 'por defecto: 10 SOL de sesión y entradas de 1 SOL');
+ok(Math.abs(entrySize(s) - 0.4) < 1e-12 && s.balance === 2, 'cada entrada es el 20 % del saldo fijo');
+ok(freshSession({}, NOW).config.budgetSol === 0.15 && Math.abs(entrySize(freshSession({}, NOW)) - 0.03) < 1e-12, 'por defecto: 0,15 SOL de sesión (unos 20 €) y entradas de 0,03 SOL');
 s.balance = 1.4; s.positions.x = { costSol: 0.2, valueSol: 0.1 };
 ok(Math.abs(sessionEquity(s) - 1.5) < 1e-9 && lossHit(s, 1.5) && !lossHit(s, 1.6), 'freno: con −25 % la sesión se para');
 

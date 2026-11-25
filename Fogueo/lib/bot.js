@@ -11,16 +11,18 @@ export const RECAP_MS = 12 * 3600e3;
 export const LOG_MAX = 400;
 
 export const BOT_DEFAULTS = {
-  budgetSol: 10,         // saldo fijo de la sesión (no se puede rellenar a mitad)
-  sizePct: 10,           // cada entrada usa este % del saldo de la sesión
-  maxOpen: 3,            // posiciones abiertas a la vez
+  pace: 'balanced',      // ritmo: calm | balanced | fast
+  costModel: 'wallet',   // costes de la wallet del bot (Jupiter, sin comisión de Padre) o 'padre'
+  budgetSol: 0.15,       // saldo fijo de la sesión: lo mismo que piensas meter de verdad (20 € ≈ 0,13 SOL)
+  sizePct: 20,           // cada entrada usa este % del saldo de la sesión
+  maxOpen: 2,            // posiciones abiertas a la vez
   stopPct: 7,            // stop duro, siempre entre 6 % y 8 %
-  tpPct: 40,             // recoge todo al +40 %
-  trailArmPct: 15,       // a partir de +15 % activa el stop que sigue al precio…
-  trailPct: 10,          // …que vende si cae un 10 % desde el máximo
-  maxHoldMin: 45,        // si en 45 min no ha hecho nada (< +5 %), fuera
+  tpPct: 25,             // recoge todo al +25 %
+  trailArmPct: 10,       // a partir de +10 % activa el stop que sigue al precio…
+  trailPct: 8,           // …que vende si cae un 8 % desde el máximo
+  maxHoldMin: 20,        // si en 20 min no ha hecho nada (< +5 %), fuera
   maxLossPct: 25,        // si la sesión pierde un 25 %, el bot se para solo
-  cooldownMin: 60,       // no repite la misma moneda en 1 h
+  cooldownMin: 30,       // no repite la misma moneda en 30 min
   minScore: 0.3,         // nota mínima del consejo (de −1 a +1) para entrar
   maxImpactPct: 3,       // la ruta reduce el tamaño hasta mover el precio ≤ 3 %
   maxCostPct: 8,         // entrar y salir al momento no puede costar más de un 8 % (comisiones + impacto)
@@ -43,6 +45,18 @@ export const BOT_DEFAULTS = {
   },
 };
 
+// Ritmos: lo único que hace falta elegir. Cada uno ajusta a la vez la frecuencia y la forma de salir.
+// «Rápido» hace muchas más operaciones, pero cada una paga comisiones: solo compensa si acierta más.
+export const PACES = {
+  calm: { scanSec: 120, watchSec: 30, sizePct: 20, maxOpen: 2, tpPct: 40, trailArmPct: 15, trailPct: 10, maxHoldMin: 45, minScore: 0.35, cooldownMin: 60, stopPct: 7 },
+  balanced: { scanSec: 60, watchSec: 15, sizePct: 20, maxOpen: 2, tpPct: 25, trailArmPct: 10, trailPct: 8, maxHoldMin: 20, minScore: 0.3, cooldownMin: 30, stopPct: 7 },
+  fast: { scanSec: 20, watchSec: 5, sizePct: 20, maxOpen: 3, tpPct: 12, trailArmPct: 6, trailPct: 5, maxHoldMin: 8, minScore: 0.25, cooldownMin: 15, stopPct: 6 },
+};
+export function applyPace(cfg, pace) {
+  const p = PACES[pace] || PACES.balanced;
+  const { scanSec, watchSec, ...rest } = p;
+  return { ...cfg, ...rest, pace: PACES[pace] ? pace : 'balanced' };
+}
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : null);
 const note = (t, v) => (v ? { t, v } : { t });
@@ -57,8 +71,10 @@ export function cleanConfig(c = {}) {
   const d = BOT_DEFAULTS, f = { ...d.filters, ...(c.filters || {}) };
   const n = (v, def, a, b) => { const x = Number(v); return Number.isFinite(x) ? clamp(x, a, b) : def; };
   return {
-    budgetSol: n(c.budgetSol, d.budgetSol, 0.1, 1000),
-    sizePct: n(c.sizePct, d.sizePct, 2, 25),
+    pace: PACES[c.pace] ? c.pace : d.pace,
+    costModel: c.costModel === 'padre' ? 'padre' : 'wallet',
+    budgetSol: n(c.budgetSol, d.budgetSol, 0.05, 1000),
+    sizePct: n(c.sizePct, d.sizePct, 2, 40),
     maxOpen: Math.round(n(c.maxOpen, d.maxOpen, 1, 6)),
     stopPct: n(c.stopPct, d.stopPct, STOP_MIN, STOP_MAX),
     tpPct: n(c.tpPct, d.tpPct, 10, 300),
@@ -87,6 +103,19 @@ export function cleanConfig(c = {}) {
       minTxnsH1: Math.round(n(f.minTxnsH1, d.filters.minTxnsH1, 0, 100000)),
     },
   };
+}
+
+// Costes con los que se simula: los de la wallet del bot (lo que de verdad pagará con dinero real:
+// sin comisión de Padre ni propina de Jito, solo la comisión del pool y una priority fee pequeña)
+// o los de tu configuración de Padre (para practicar como en la terminal).
+export const WALLET_COSTS = { feePct: 0, tipSol: 0, priorityFee: 0.0002, mevSecure: false, poolFees: true, latencySlipPct: 0.3 };
+export function costSettings(settings, cfg) {
+  return cfg?.costModel === 'padre' ? settings : { ...settings, ...WALLET_COSTS };
+}
+export function paceTimes(cfg, desktop = false) {
+  const p = PACES[cfg?.pace] || PACES.balanced;
+  // En Opera el mínimo de Chrome es 30 s por vuelta; en la app de escritorio no hay ese límite.
+  return { scanMs: Math.max(desktop ? 15 : 30, p.scanSec) * 1e3, watchMin: (desktop ? p.watchSec : 30) / 60 };
 }
 
 export function freshSession(config, now = Date.now()) {
@@ -370,8 +399,8 @@ export function routerAgent({ quote, sizeSol, solUsd, settings, cfg, simulateBuy
   for (let i = 0; i < 8; i++) {
     sim = simulateBuy({ solIn: size, quote, solUsd, settings: { ...settings, maxSlippagePct: 99 } });
     if (!sim || !(sim.qty > 0)) break;
-    if (sim.impactPct <= cfg.maxImpactPct || size <= 0.02) break;
-    size = Math.max(0.02, size * 0.7);
+    if (sim.impactPct <= cfg.maxImpactPct || size <= 0.01) break;
+    size = Math.max(0.01, size * 0.7);
   }
   if (!sim || !(sim.qty > 0)) return { id: 'router', ok: false, score: null, notes: [note('sin precio para calcular la ruta')] };
   if (sim.impactPct > cfg.maxImpactPct) return { id: 'router', ok: false, score: -1, notes: [note('ni con la entrada mínima baja de {v} de impacto', { v: pctAbs(sim.impactPct, 1) })] };
@@ -413,7 +442,7 @@ export function decide({ smarts, trends, debate, router }, cfg) {
 // Tamaño de la siguiente entrada: % del saldo de la sesión, nunca más de lo que queda.
 export function entrySize(session) {
   const eq = session.config.budgetSol;
-  return Math.min(session.balance, Math.max(0.02, (eq * session.config.sizePct) / 100));
+  return Math.min(session.balance, Math.max(0.01, (eq * session.config.sizePct) / 100));
 }
 
 // ---------- Gestión de cada posición abierta ----------
@@ -427,7 +456,7 @@ export function exitReason(pos, price, cfg, now = Date.now()) {
   if (ch <= -cfg.stopPct + 1e-9) return { id: 'stop', ch };
   if (ch >= cfg.tpPct - 1e-9) return { id: 'tp', ch };
   if (peakCh >= cfg.trailArmPct && fromPeak <= -cfg.trailPct) return { id: 'trail', ch };
-  if (now - pos.openedAt > cfg.maxHoldMin * 60e3 && ch < 5) return { id: 'time', ch };
+  if (now - pos.openedAt > cfg.maxHoldMin * 60e3 && ch < Math.min(5, cfg.tpPct / 3)) return { id: 'time', ch };
   return null;
 }
 export const EXIT_TEXT = {

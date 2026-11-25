@@ -324,3 +324,62 @@ a.sym:hover { color: var(--fx-brand-hi); }
 .care li { position: relative; padding-left: 18px; color: var(--fx-ink-2); text-wrap: pretty; }
 .care li::before { content: ''; position: absolute; left: 2px; top: .6em; width: 6px; height: 6px; border-radius: 1px; background: var(--fx-warn, var(--fx-down)); transform: rotate(45deg); }
 .intro h3 { margin-top: 28px; }
+
+/* ================= 1.24 · Empezar en tres decisiones ================= */
+.chip { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--fx-ink-2); outline: 1px solid var(--fx-line); outline-offset: -1px; }
+.intro h2 { font-size: 30px; line-height: 1.1; }
+.lede { margin-top: 10px; max-width: 58ch; color: var(--fx-ink-2); font-size: 15px; text-wrap: pretty; }
+.start { display: grid; gap: 26px; margin-top: 26px; padding: 24px; border-radius: var(--fx-r-lg); background: var(--fx-raise); max-width: 760px; }
+.q { display: grid; gap: 6px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.ql { padding: 0; font-family: var(--fx-font-display); font-weight: 800; font-size: 17px; letter-spacing: -0.005em; color: var(--fx-ink); }
+.qh { color: var(--fx-ink-3); font-size: 13px; text-wrap: pretty; }
+.fi.big { max-width: 260px; margin-top: 4px; background: var(--fx-bg); }
+.fi.big input { padding: 10px 12px; font-size: 20px; font-weight: 600; }
+.fi.big em { font-size: 13px; padding-right: 12px; }
+
+/* Ritmos: filas elegibles (no tarjetas), la elegida con el ámbar de prácticas */
+.paces { display: grid; gap: 2px; margin-top: 6px; border-radius: var(--fx-r); overflow: hidden; }
+.pace { position: relative; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 13px 14px; background: var(--fx-bg); cursor: pointer; transition: background var(--fx-fast) var(--fx-ease); }
+.pace:hover { background: oklch(0.205 0.009 75); }
+.pace input { width: 16px; height: 16px; margin: 0; accent-color: var(--fx-brand); }
+.pace-t { display: grid; gap: 2px; min-width: 0; }
+.pace-t b { font-weight: 600; font-size: 14.5px; }
+.pace-t span { color: var(--fx-ink-3); font-size: 13px; text-wrap: pretty; }
+.pace-n { display: grid; justify-items: end; gap: 2px; font-size: 12.5px; color: var(--fx-ink-3); white-space: nowrap; }
+.pace.on { background: var(--fx-brand-wash); }
+.pace.on .pace-t b { color: var(--fx-brand-hi); }
+.pace.on .pace-n { color: var(--fx-ink-2); }
+.pace:has(input:focus-visible) { outline: 2px solid var(--fx-brand-ring); outline-offset: -2px; }
+.start .cost { background: var(--fx-bg); font-size: 13px; }
+.start .cost b.num { font-size: 15px; }
+.start .cost.warn { background: var(--fx-brand-wash); }
+.start .cost.bad { background: var(--fx-down-wash); }
+.btn.big { justify-self: start; min-height: 46px; padding: 0 26px; font-size: 15.5px; border-radius: var(--fx-r); }
+
+.how { margin-top: 26px; }
+.how summary { cursor: pointer; font-weight: 600; font-size: 14.5px; color: var(--fx-ink-2); padding: 6px 0; }
+.how summary:hover { color: var(--fx-ink); }
+.how .flow { margin-top: 8px; }
+
+/* Camino al dinero real: tres pasos */
+.path { display: grid; gap: 0; counter-reset: none; }
+.path li { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 12px; padding: 9px 0; position: relative; }
+.path li + li::before { content: ''; position: absolute; left: 12px; top: -9px; height: 18px; width: 2px; background: var(--fx-line-soft); }
+.path b { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; font-family: var(--fx-font-num); font-size: 13px; background: var(--fx-raise-2); color: var(--fx-ink-3); }
+.path li.now b { background: var(--fx-brand); color: var(--fx-brand-ink); }
+.path li.done b { background: var(--fx-up-wash); color: var(--fx-up); }
+.path li div { display: grid; gap: 1px; padding-top: 3px; }
+.path strong { font-weight: 600; font-size: 13.5px; }
+.path li:not(.now):not(.done) strong { color: var(--fx-ink-2); }
+.path span { font-size: 12.5px; color: var(--fx-ink-3); text-wrap: pretty; }
+.copilot.locked .gbar { margin-left: 38px; }
+
+/* Ajustes avanzados: plegados por defecto */
+.adv { padding-top: 16px; border-top: 1px solid var(--fx-line-soft); }
+.adv > summary { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; cursor: pointer; font-weight: 600; font-size: 14.5px; padding: 4px 0; list-style: none; }
+.adv > summary::-webkit-details-marker { display: none; }
+.adv > summary::after { content: '+'; font-family: var(--fx-font-num); color: var(--fx-ink-3); font-size: 16px; }
+.adv[open] > summary::after { content: '−'; }
+.adv > summary .muted { margin-left: auto; font-size: 12.5px; font-weight: 500; }
+.adv .limits { padding-top: 12px; border-top: 0; }
+@media (max-width: 700px) { .start { padding: 16px; } .pace { grid-template-columns: 20px minmax(0, 1fr); } .pace-n { grid-column: 2; justify-items: start; } }

@@ -2,14 +2,16 @@
 import { tr, setLang, getLang, locale } from '../lib/i18n.js';
 import { pagesNav } from '../lib/pages-nav.js';
 import { fmtSol, fmtPct, fmtCompact, fmtDuration, fmtPrice, roundTripPct, DEFAULT_SETTINGS } from '../lib/core.js';
-import { BOT_KEY, BOT_DEFAULTS, STOP_MIN, STOP_MAX, RECAP_MS, EXIT_TEXT, copilotGate, cleanCopilot, COPILOT_UNLOCK } from '../lib/bot.js';
+import { BOT_KEY, BOT_DEFAULTS, STOP_MIN, STOP_MAX, RECAP_MS, EXIT_TEXT, copilotGate, cleanCopilot, COPILOT_UNLOCK, PACES, applyPace, costSettings, paceTimes } from '../lib/bot.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const send = (msg) => new Promise((res) => chrome.runtime.sendMessage(msg, (r) => res(r || { ok: false, error: chrome.runtime.lastError?.message })));
 
-let store = null, filter = 'all', open = new Set(), busy = false, userSettings = DEFAULT_SETTINGS;
+let store = null, filter = 'all', open = new Set(), busy = false, userSettings = DEFAULT_SETTINGS, advOpen = false;
 let real = null, realBackup = null, realBusy = false;
+const DESKTOP = !!globalThis.blankfireDesktop;   // dentro de la app de escritorio (sin Opera)
+const closesWhen = () => tr(DESKTOP ? 'al salir de la app' : 'al cerrar Opera');
 
 const AGENTS = {
   smarts: { name: 'Dinero inteligente', what: 'Lee quién compra, cuánto y con qué prisa' },
@@ -61,7 +63,7 @@ function header(s) {
     <div class="id">
       <svg class="mark" viewBox="0 0 100 100" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M57 5C61 25 79 38 79 62A29 29 0 0 1 21 62C21 47 28 38 36 31C37 39 41 43 45 45C43 31 49 17 57 5ZM50 48.5A13.5 13.5 0 0 1 50 75.5A13.5 13.5 0 0 1 50 48.5Z"/></svg>
       <div class="id-t">
-        <div class="id-r"><h1>${tr('Bot de práctica')}</h1><span class="status st-${cls}"><i></i>${tr(label)}</span></div>
+        <div class="id-r"><h1>${tr('Bot de práctica')}</h1><span class="status st-${cls}"><i></i>${tr(label)}</span>${s && live ? `<span class="chip">${tr(PACE_TXT[s.config.pace]?.[0] || 'Equilibrado')}</span>` : ''}</div>
         <p class="paper">${tr('SOL de práctica con saldo propio: no toca tu cuenta de Blankfire ni ninguna wallet.')}</p>
       </div>
     </div>
@@ -80,11 +82,14 @@ function ledger(s) {
   const lossUsed = Math.max(0, Math.min(1, -resPct / c.maxLossPct));
   const next = s.lastRecapAt + RECAP_MS - Date.now();
   const nOpen = Object.keys(s.positions).length;
+  // Lo que se han llevado las comisiones (cerradas + lo que costaría salir de las abiertas).
+  const fees = s.closed.reduce((a, x) => a + (x.feesSol || 0), 0) + Object.values(s.positions).reduce((a, p) => a + (p.rtCostSol || 0), 0);
   return `<section class="ledger" aria-label="${esc(tr('Números de la sesión'))}">
     <dl>
       <div><dt>${tr('Valor de la sesión')}</dt><dd class="num big">${fmtSol(eq)} <small>/ ${fmtSol(c.budgetSol)} SOL</small></dd></div>
       <div><dt>${tr('Resultado')}</dt><dd class="num ${tone(res)}">${fmtSol(res, { sign: true })} SOL <small>${fmtPct(resPct, 1, { sign: true })}</small></dd></div>
       <div><dt>${tr('Operaciones')}</dt><dd class="num">${s.closed.length} <small>${s.closed.length ? tr('{w} ganadas', { w: wins }) : ''}</small></dd></div>
+      <div><dt>${tr('En comisiones')}</dt><dd class="num">${fmtSol(fees)} <small>SOL</small></dd></div>
       <div><dt>${tr('Abiertas')}</dt><dd class="num">${nOpen} <small>/ ${c.maxOpen}</small></dd></div>
       <div><dt>${tr('Próximo resumen')}</dt><dd class="num">${['running', 'paused'].includes(s.status) ? tr('en {t}', { t: fmtDuration(Math.max(0, next)) }) : '—'}</dd></div>
     </dl>
@@ -196,16 +201,38 @@ function recaps(s) {
   return `<section class="side-s"><h3>${tr('Resúmenes cada 12 h')}</h3>${list.length ? `<ul class="rlist">${list.slice(0, 6).map(recapCard).join('')}</ul>` : `<p class="empty sm">${tr('El primero llega a las 12 h de arrancar (o al terminar la sesión).')}</p>`}</section>`;
 }
 
+// Lo que se lleva cada operación solo por entrar y salir, con los costes con los que simula el bot.
 function costBox(cfg) {
   const size = (cfg.budgetSol * cfg.sizePct) / 100;
-  const rt = roundTripPct(size, userSettings);
+  const cs = costSettings(userSettings, cfg);
+  const rt = roundTripPct(size, cs);
   if (rt == null) return '';
-  const tip = Number(userSettings.tipSol) || 0, prio = Number(userSettings.priorityFee) || 0;
   const bad = rt > cfg.maxCostPct;
+  const how = cfg.costModel === 'padre'
+    ? tr('Padre {f} + {t} SOL por orden', { f: fmtPct(cs.feePct ?? 1, 1), t: fmtSol((Number(cs.tipSol) || 0) + (Number(cs.priorityFee) || 0)) })
+    : tr('wallet del bot: comisión del pool + ~{t} SOL de red por orden', { t: fmtSol(cs.priorityFee) });
   return `<div class="cost ${bad ? 'bad' : rt > cfg.stopPct / 2 ? 'warn' : 'ok'}" data-ref="cost">
-    <p>${tr('Cada entrada de {s} SOL pierde un {c} solo en entrar y salir (Padre {f} + {t} SOL por orden). Un stop del {st} te costaría en total un {tot}.', { s: fmtSol(size), c: fmtPct(rt, 1), f: fmtPct(userSettings.feePct ?? 1, 1), t: fmtSol(tip + prio), st: fmtPct(-cfg.stopPct, 1), tot: fmtPct(-(cfg.stopPct + rt), 1) })}</p>
-    ${bad ? `<p><b>${tr('El bot no comprará con este tamaño: sube el saldo o el % por entrada, o baja la propina de Jito en Ajustes.')}</b></p>` : ''}
+    <p><b class="num">${fmtPct(rt, 1)}</b> ${tr('se va en comisiones en cada entrada de {s} SOL, solo por entrar y salir ({h}).', { s: fmtSol(size), h: how })}</p>
+    <p class="muted">${tr('Para no perder, cada operación tiene que ganar de media más que eso. Un stop del {st} te cuesta en total un {tot}.', { st: fmtPct(-cfg.stopPct, 1), tot: fmtPct(-(cfg.stopPct + rt), 1) })}</p>
+    ${bad ? `<p><b>${tr('Con este tamaño no comprará (máximo {m}): sube el saldo o el % por entrada.', { m: fmtPct(cfg.maxCostPct, 0) })}</b></p>` : ''}
   </div>`;
+}
+
+// Camino al dinero real: tres pasos, siempre a la vista, para que se entienda qué falta.
+function moneyPath() {
+  const g = copilotGate(store);
+  const pct = Math.min(100, (g.trades / COPILOT_UNLOCK.trades) * 100);
+  const step = !g.ok ? 1 : real?.config?.mode === 'auto' ? 3 : 2;
+  const li = (n, t, d) => `<li class="${step > n ? 'done' : step === n ? 'now' : ''}"><b>${n}</b><div><strong>${tr(t)}</strong><span>${d}</span></div></li>`;
+  return `<section class="side-s copilot ${g.ok ? '' : 'locked'}">
+    <h3>${tr('Camino al dinero real')}</h3>
+    <ol class="path">
+      ${li(1, 'Practicar', !g.ok ? `${tr('{t} de {n} operaciones cerradas, y en positivo tras comisiones', { t: g.trades, n: COPILOT_UNLOCK.trades })} · <span class="num ${tone(g.net)}">${fmtSol(g.net, { sign: true })} SOL</span>` : tr('Hecho: la práctica va en positivo.'))}
+      ${li(2, 'Copiloto', tr('Te avisa de cada compra y venta para que la hagas tú.'))}
+      ${li(3, 'Automático', tr('Opera solo con una wallet propia y tus límites.'))}
+    </ol>
+    ${!g.ok ? `<div class="gbar" role="meter" aria-valuemin="0" aria-valuemax="${COPILOT_UNLOCK.trades}" aria-valuenow="${g.trades}" aria-label="${esc(tr('Operaciones simuladas'))}"><i style="width:${pct}%"></i></div>` : ''}
+  </section>`;
 }
 
 // ---------- Copiloto con dinero real (fase 5) ----------
@@ -264,12 +291,21 @@ function realBlock() {
         <label class="fld"><span class="fl">${tr('Tu dirección de Phantom (para retirar)')}</span><span class="fi"><input name="to" spellcheck="false" autocomplete="off"></span><small>${tr('Solo se podrá retirar a esta dirección. No se puede cambiar después.')}</small></label>
         <label class="chk"><input type="checkbox" name="risk"> ${tr('Entiendo que el bot puede perder lo que le meta')}</label>
         <button class="btn small primary" type="submit" ${realBusy ? 'disabled' : ''}>${tr(realBusy ? 'Creando…' : 'Crear wallet del bot')}</button>
-      </form></section>`;
+      </form>
+      ${moveInForm()}</section>`;
+  }
+  if (real.movedAt) {
+    return `<section class="side-s realb">${head}
+      <p class="sm2">${tr('Wallet del bot')}: <code class="addr">${esc(shortA(real.address))}</code></p>
+      <p class="hint">${tr(DESKTOP ? 'Esta wallet opera ahora desde la extensión de Opera. Aquí queda apagada para que nunca operen las dos a la vez.' : 'Esta wallet opera ahora desde la app de escritorio. Aquí queda apagada para que nunca operen las dos a la vez.')}</p>
+      <button class="btn small" data-act="realReclaim">${tr('Usarla aquí otra vez')}</button>
+      <p class="muted sm2">${tr('Antes, apaga el modo real en el otro sitio.')}</p>
+    </section>`;
   }
   if (!real.unlocked) {
     return `<section class="side-s realb">${head}
       <p class="sm2">${tr('Wallet del bot')}: <code class="addr">${esc(shortA(real.address))}</code></p>
-      <p class="hint">${tr('Está cerrada (se cierra sola al cerrar Opera). Mientras esté cerrada, el bot no compra ni vende con dinero real.')}</p>
+      <p class="hint">${tr('Está cerrada (se cierra sola {w}). Mientras esté cerrada, el bot no compra ni vende con dinero real.', { w: closesWhen() })}</p>
       <form class="cop" data-form="realUnlock"><label class="fld"><span class="fl">${tr('Contraseña')}</span><span class="fi"><input type="password" name="pw" autocomplete="current-password"></span></label>
       <button class="btn small primary" type="submit" ${realBusy ? 'disabled' : ''}>${tr(realBusy ? 'Abriendo…' : 'Abrir')}</button></form>
       ${Object.keys(real.positions).length ? `<p class="warnp">${tr('Tiene {n} posiciones abiertas con dinero real sin vigilar. Ábrela para que el bot pueda venderlas.', { n: Object.keys(real.positions).length })}</p>` : ''}
@@ -317,9 +353,24 @@ function realBlock() {
         <label class="fld"><span class="fl">${tr('Contraseña (para ver la copia o borrar)')}</span><span class="fi"><input type="password" name="pw" autocomplete="current-password"></span></label>
         <div class="rbtns"><button class="btn small ghost" type="submit" value="export">${tr('Ver copia de seguridad')}</button><button class="btn small ghost danger" type="submit" value="delete">${tr('Borrar wallet vacía')}</button></div>
       </form>
+      <form class="cop" data-form="realMove">
+        <p class="sm2"><b>${tr(DESKTOP ? 'Llevarla a la extensión de Opera' : 'Llevarla a la app de escritorio')}</b></p>
+        <p class="muted sm2">${tr('Se guarda un archivo con la clave cifrada con tu contraseña. Aquí se apaga para que nunca operen las dos a la vez. Necesita no tener posiciones abiertas.')}</p>
+        <label class="fld"><span class="fl">${tr('Contraseña')}</span><span class="fi"><input type="password" name="pw" autocomplete="current-password"></span></label>
+        <button class="btn small" type="submit" ${realBusy ? 'disabled' : ''}>${tr('Guardar archivo y apagar aquí')}</button>
+      </form>
     </details>
     <p class="muted sm2">${tr('Con Opera cerrado no vigila nada. Si dejas posiciones abiertas y cierras, al volver tendrás que abrir la wallet para que el bot pueda venderlas.')}</p>
   </section>`;
+}
+
+function moveInForm() {
+  return `<details class="rmore"><summary>${tr(DESKTOP ? '¿Ya la tenías en la extensión? Tráela' : '¿La tenías en la app de escritorio? Tráela')}</summary>
+    <form class="cop" data-form="realMoveIn">
+      <label class="fld"><span class="fl">${tr('Archivo de la wallet del bot')}</span><span class="fi"><input type="file" name="file" accept=".json,application/json"></span></label>
+      <label class="fld"><span class="fl">${tr('Contraseña de esa wallet')}</span><span class="fi"><input type="password" name="pw" autocomplete="current-password"></span></label>
+      <button class="btn small" type="submit" ${realBusy ? 'disabled' : ''}>${tr('Traer wallet')}</button>
+    </form></details>`;
 }
 
 // ---------- Límites y filtros ----------
@@ -330,15 +381,16 @@ function field(name, label, value, { min, max, step = 1, unit = '', disabled = f
 }
 function limits(cfg, live) {
   const f = cfg.filters;
-  return `<form class="side-s limits" data-form="cfg" novalidate>
-    <h3>${tr('Límites duros')}</h3>
+  return `<details class="side-s adv" ${advOpen ? 'open' : ''}><summary>${tr('Ajustes avanzados')}<span class="muted">${tr(PACE_TXT[cfg.pace]?.[0] || 'Equilibrado')}</span></summary><form class="limits" data-form="cfg" novalidate>
+    <p class="hint">${tr('Elegir un ritmo ya los ajusta todos. Toca esto solo si sabes lo que cambias.')}</p>
+    <label class="chk"><input type="checkbox" name="padreCosts" ${cfg.costModel === 'padre' ? 'checked' : ''}> ${tr('Simular con las comisiones de mi Padre (en vez de las de la wallet del bot)')}</label>
     ${live ? field('budgetSol', 'Saldo de la sesión', cfg.budgetSol, { min: 0.1, max: 1000, step: 0.1, unit: 'SOL', disabled: true, note: 'Fijo hasta que termine la sesión.' }) : ''}
     <label class="fld"><span class="fl">${tr('Stop duro')}</span>
       <span class="fr"><span class="ends" aria-hidden="true">−6</span><input type="range" name="stopPct" min="${STOP_MIN}" max="${STOP_MAX}" step="0.5" value="${cfg.stopPct}" style="--p:${((cfg.stopPct - STOP_MIN) / (STOP_MAX - STOP_MIN)) * 100}%" aria-valuetext="${fmtPct(-cfg.stopPct, 1)}"><span class="ends" aria-hidden="true">−8</span><output class="num">${fmtPct(-cfg.stopPct, 1)}</output></span>
       <small>${tr('Siempre entre −6 % y −8 %. Se revisa cada 30 s: en una caída brusca puede salir algo peor.')}</small></label>
-    ${costBox(cfg)}
+    ${live ? costBox(cfg) : ''}
     <div class="row2">
-      ${field('sizePct', 'Cada entrada', cfg.sizePct, { min: 2, max: 25, unit: '% del saldo' })}
+      ${field('sizePct', 'Cada entrada', cfg.sizePct, { min: 2, max: 40, unit: '% del saldo' })}
       ${field('maxOpen', 'A la vez', cfg.maxOpen, { min: 1, max: 6, unit: 'posiciones' })}
     </div>
     <div class="row2">
@@ -386,10 +438,23 @@ function limits(cfg, live) {
       <p class="muted">${tr('Siempre veta: autoridad de emisión o de congelar activa, impuestos ocultos, creador con rugs, una wallet con más del 25 %, liquidez ridícula, copias de monedas famosas y gráficos con dibujo de rug.')}</p>
     </details>
     <button class="btn small" type="submit">${tr(live ? 'Aplicar a esta sesión' : 'Guardar')}</button>
-  </form>`;
+  </form></details>`;
 }
 
-// ---------- Sin sesión: cómo decide ----------
+// ---------- Sin sesión: empezar en tres decisiones ----------
+const PACE_TXT = {
+  calm: ['Prudente', 'Pocas operaciones, muy elegidas. Aguanta hasta 45 min.'],
+  balanced: ['Equilibrado', 'Lo recomendado para empezar. Sale antes y mira cada minuto.'],
+  fast: ['Rápido', 'Muchas operaciones cortas. Cada una paga comisiones: solo compensa si acierta más.'],
+};
+function paceRow(k, cfg) {
+  const p = PACES[k], on = cfg.pace === k, t = paceTimes({ pace: k }, DESKTOP);
+  return `<label class="pace ${on ? 'on' : ''}">
+    <input type="radio" name="pace" value="${k}" ${on ? 'checked' : ''}>
+    <span class="pace-t"><b>${tr(PACE_TXT[k][0])}</b><span>${tr(PACE_TXT[k][1])}</span></span>
+    <span class="pace-n num"><span>${tr('mira cada {s}', { s: fmtDuration(t.scanMs) })}</span><span>${fmtPct(p.tpPct, 0, { sign: true })} / ${fmtPct(-p.stopPct, 0)}</span></span>
+  </label>`;
+}
 function intro(cfg, past) {
   const steps = [
     ['Restricciones', 'No mira nada tras una racha de pérdidas, con SOL cayendo o en tus horas malas.'],
@@ -399,23 +464,34 @@ function intro(cfg, past) {
   ];
   const care = [
     'Ningún filtro ve el futuro: un rug puede llegar después de comprar. El stop es lo único que te protege.',
-    'En caídas bruscas el stop sale peor de lo marcado: se revisa cada 30 s y el precio llega con segundos de retraso.',
-    'RugCheck puede equivocarse o no responder. Sin su informe, el bot no compra (puedes cambiarlo en Filtros).',
-    'Las comisiones de Padre se comen las entradas pequeñas: mira el recuadro de coste antes de arrancar.',
+    'En caídas bruscas el stop sale peor de lo marcado: el precio llega con segundos de retraso.',
+    'Más operaciones no es más ganancia: cada una paga comisiones. Los bots de los vídeos enseñan las rachas buenas, no la cuenta del mes.',
+    'RugCheck puede equivocarse o no responder. Sin su informe, el bot no compra (puedes cambiarlo en Ajustes avanzados).',
     'Una racha buena en práctica no garantiza nada con dinero real: empieza con muy poco y súbelo despacio.',
-    'Con Opera cerrado no vigila nada. Antes de apagar el PC, pulsa «Terminar y cerrar todo» o vende tú.',
+    DESKTOP ? 'Con el PC apagado o la app cerrada (Salir en la bandeja) no vigila nada. Antes de apagar, pulsa «Terminar y cerrar todo» o vende tú.' : 'Con Opera cerrado no vigila nada. Antes de apagar el PC, pulsa «Terminar y cerrar todo» o vende tú. La app de escritorio lo vigila sin Opera.',
   ];
   return `<section class="intro">
-    <h2>${tr('Así decide')}</h2>
-    <ol class="flow">${steps.map(([n, w]) => `<li><b>${tr(n)}</b><span>${tr(w)}</span></li>`).join('')}</ol>
-    <p class="hint">${tr('Mira el mercado cada 2 minutos y vigila las abiertas cada 30 segundos, aunque cierres esta pestaña (Opera tiene que seguir abierto).')}</p>
+    <h2>${tr('Pon a prueba el bot')}</h2>
+    <p class="lede">${tr('Practica con SOL de mentira y las mismas comisiones que pagaría de verdad. Cuando la práctica vaya en positivo, se desbloquea el dinero real.')}</p>
+    <form id="startForm" data-form="start" class="start">
+      <div class="q">
+        <label class="ql" for="budgetSol">${tr('¿Con cuánto practicas?')}</label>
+        <p class="qh">${tr('Pon lo mismo que piensas meter de verdad. 20 € son unos 0,13 SOL.')}</p>
+        <span class="fi big"><input id="budgetSol" type="number" name="budgetSol" form="startForm" value="${cfg.budgetSol}" min="0.05" max="1000" step="0.01" inputmode="decimal"><em>SOL</em></span>
+      </div>
+      <fieldset class="q">
+        <legend class="ql">${tr('¿A qué ritmo?')}</legend>
+        ${!DESKTOP ? `<p class="qh">${tr('En Opera mira como mucho cada 30 s. En la app de escritorio, «Rápido» va de verdad rápido.')}</p>` : ''}
+        <div class="paces">${['calm', 'balanced', 'fast'].map((k) => paceRow(k, cfg)).join('')}</div>
+      </fieldset>
+      ${costBox(cfg)}
+      <button class="btn primary big" type="submit">${tr('Arrancar práctica')}</button>
+    </form>
     <h3>${tr('Ten cuidado con')}</h3>
     <ul class="care">${care.map((c) => `<li>${tr(c)}</li>`).join('')}</ul>
-    <div class="go">
-      <label class="fld"><span class="fl">${tr('Saldo de la sesión')}</span><small>${tr('Fijo: no se puede rellenar a mitad de sesión.')}</small><span class="fi"><input type="number" name="budgetSol" form="startForm" value="${cfg.budgetSol}" min="0.1" max="1000" step="0.1"><em>SOL</em></span></label>
-      <form id="startForm" data-form="start"><button class="btn primary" type="submit">${tr('Arrancar sesión')}</button></form>
-    </div>
-    <p class="real">${tr('Dinero real: cuando la simulación vaya en positivo, se desbloquean el copiloto y el modo automático (columna derecha). Blankfire nunca te pedirá la frase de recuperación de tu Phantom.')}</p>
+    <details class="how"><summary>${tr('Cómo decide, paso a paso')}</summary>
+      <ol class="flow">${steps.map(([n, w]) => `<li><b>${tr(n)}</b><span>${tr(w)}</span></li>`).join('')}</ol>
+    </details>
     ${past?.length ? `<h3>${tr('Sesiones anteriores')}</h3><ul class="past">${past.slice(0, 6).map((p) => `<li><span>${day(p.startedAt)}</span><span class="num">${fmtSol(p.budgetSol)} → ${fmtSol(p.balance)} SOL</span><span class="num ${tone(p.balance - p.budgetSol)}">${fmtPct((p.balance / p.budgetSol - 1) * 100, 1, { sign: true })}</span><span>${tr(p.trades === 1 ? '1 operación' : '{n} operaciones', { n: p.trades })}</span></li>`).join('')}</ul>` : ''}
   </section>`;
 }
@@ -429,12 +505,12 @@ function render() {
   const cfg = { ...BOT_DEFAULTS, ...raw, filters: { ...BOT_DEFAULTS.filters, ...(raw.filters || {}) } };
   // No repintar mientras escribes en un formulario (se perdería lo escrito).
   const ae = document.activeElement;
-  if (ae && $('#app').contains(ae) && ae.form && ['cfg', 'copilot', 'realCreate', 'realUnlock', 'realCfg', 'realWithdraw', 'realKey'].includes(ae.form.dataset.form)) return;   // no pisar lo que escribe
+  if (ae && $('#app').contains(ae) && ae.form && ['cfg', 'start', 'copilot', 'realCreate', 'realUnlock', 'realCfg', 'realWithdraw', 'realKey', 'realMove', 'realMoveIn'].includes(ae.form.dataset.form) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && !['radio', 'checkbox', 'submit', 'button', 'file'].includes(ae.type)) return;   // no pisar lo que escribe
   $('#app').innerHTML = `${header(s)}
     ${s ? ledger(s) : ''}
     <main class="grid">
       <div class="main-col">${s ? stream(s) : intro(cfg, store.past)}${s && !live ? intro(cfg, store.past) : ''}</div>
-      <aside class="side">${s ? positions(s) : ''}${s ? recaps(s) : ''}${copilotBlock()}${realBlock()}${limits(cfg, live)}</aside>
+      <aside class="side">${s ? positions(s) : ''}${moneyPath()}${copilotGate(store).ok ? copilotBlock() + realBlock() : ''}${s ? recaps(s) : ''}${limits(cfg, live)}</aside>
     </main>`;
   document.title = `Blankfire · ${tr('Bot de práctica')}`;
 }
@@ -450,7 +526,9 @@ function readCfg(form) {
   for (const el of form.querySelectorAll('input[name]')) {
     if (el.disabled) continue;
     if (el.type !== 'checkbox' && (el.value.trim() === '' || !Number.isFinite(Number(el.value)))) continue;   // vacío: se queda como estaba
+    if (el.type === 'radio') { if (el.checked) out[el.name] = el.value; continue; }
     const v = el.type === 'checkbox' ? el.checked : Number(el.value);
+    if (el.name === 'padreCosts') { out.costModel = v ? 'padre' : 'wallet'; continue; }
     if (el.name.startsWith('f.')) out.filters[el.name.slice(2)] = v; else out[el.name] = v;
   }
   return out;
@@ -491,11 +569,15 @@ document.addEventListener('click', async (e) => {
     realBusy = true; render(); await realAct('realPanic'); realBusy = false; toast(tr('Modo real apagado. Vendiendo lo abierto.')); return;
   }
   if (a === 'realLock') { await realAct('realLock'); return; }
+  if (a === 'realReclaim') { await realAct('realReclaim'); return; }
   if (a === 'realSellOne') { b.disabled = true; b.textContent = tr('Vendiendo…'); await realAct('realSellOne', { addr: b.dataset.addr }); return; }
 
   if (a === 'scan') { busy = true; render(); await act('botScanNow'); busy = false; render(); }
 });
 
+// Campos numéricos: vacío o inválido = se queda como estaba (nunca se guarda un cero sin querer).
+const numIn = (el) => (el && el.value.trim() !== '' && Number.isFinite(Number(el.value)) ? Number(el.value) : undefined);
+const defined = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 document.addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target.dataset.form;
@@ -518,13 +600,34 @@ document.addEventListener('submit', async (e) => {
     else { const r = await realAct('realDelete', { password: pw }); if (r) toast(tr('Wallet del bot borrada.')); }
     return;
   }
-  if (f === 'realUnlock') { const btn = e.target.querySelector('button'); btn.disabled = true; const r = await realAct('realUnlock', { password: e.target.pw.value }); btn.disabled = false; if (r) toast(tr('Wallet abierta hasta que cierres Opera.')); return; }
-  if (f === 'realCfg') { const t = e.target; const r = await realAct('realConfig', { config: { maxSol: Number(t.maxSol.value), maxPerDay: Number(t.maxPerDay.value), maxDailyLossSol: Number(t.maxDailyLossSol.value), maxOpen: Number(t.maxOpen.value) } }); if (r) toast(tr('Guardado.')); return; }
+  if (f === 'realMove') {
+    const t = e.target, pw = t.pw.value;
+    if (!pw) { toast(tr('Escribe la contraseña.'), true); return; }
+    const r = await send({ type: 'realMoveOut', password: pw });
+    if (!r.ok) { toast(r.error, true); return; }
+    const blob = new Blob([JSON.stringify(r.data.bundle, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = `blankfire-wallet-bot-${r.data.bundle.address.slice(0, 6)}.json`;
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    t.reset(); toast(tr('Archivo guardado. Ábrelo en el otro sitio con «Traer wallet».')); await loadReal(); return;
+  }
+  if (f === 'realMoveIn') {
+    const t = e.target, file = t.file.files?.[0];
+    if (!file) { toast(tr('Elige el archivo de la wallet del bot.'), true); return; }
+    if (file.size > 20000) { toast(tr('Ese archivo no es una wallet del bot de Blankfire.'), true); return; }
+    const text = await file.text();
+    const r = await realAct('realMoveIn', { bundle: text, password: t.pw.value });
+    if (r) toast(tr('Wallet traída y abierta. El modo real sigue apagado hasta que lo enciendas.'));
+    return;
+  }
+  if (f === 'realUnlock') { const btn = e.target.querySelector('button'); btn.disabled = true; const r = await realAct('realUnlock', { password: e.target.pw.value }); btn.disabled = false; if (r) toast(tr(DESKTOP ? 'Wallet abierta hasta que salgas de la app.' : 'Wallet abierta hasta que cierres Opera.')); return; }
+  if (f === 'realCfg') { const t = e.target; const r = await realAct('realConfig', { config: defined({ maxSol: numIn(t.maxSol), maxPerDay: numIn(t.maxPerDay), maxDailyLossSol: numIn(t.maxDailyLossSol), maxOpen: numIn(t.maxOpen) }) }); if (r) toast(tr('Guardado.')); return; }
   if (f === 'realWithdraw') { const t = e.target, btn = t.querySelector('button[type="submit"]'); btn.disabled = true; const r = await realAct('realWithdraw', { sol: Number(t.sol.value), all: t.all.checked, password: t.pw.value }); btn.disabled = false; if (r) toast(tr('Retirado a tu Phantom.')); return; }
-  if (f === 'copilot') { const t = e.target; const r = await act('botCopilot', { copilot: { on: t.on.checked, maxSol: Number(t.maxSol.value), maxPerDay: Number(t.maxPerDay.value), ttlMin: Number(t.ttlMin.value) } }); if (r) toast(tr('Guardado.')); }
+  if (f === 'copilot') { const t = e.target; const r = await act('botCopilot', { copilot: defined({ on: t.on.checked, maxSol: numIn(t.maxSol), maxPerDay: numIn(t.maxPerDay), ttlMin: numIn(t.ttlMin) }) }); if (r) toast(tr('Guardado.')); }
   if (f === 'start') {
     const budget = Number($('input[name="budgetSol"][form="startForm"]')?.value);
     const form = $('form[data-form="cfg"]');
+    document.activeElement?.blur?.();
     await act('botStart', { config: { ...(form ? readCfg(form) : {}), budgetSol: budget } });
   }
 });
@@ -546,6 +649,13 @@ document.addEventListener('input', (e) => {
     box.outerHTML = costBox(next);
   }
 });
+// Elegir ritmo: se guarda al momento y ajusta todos los valores (se ven en Ajustes avanzados).
+document.addEventListener('change', async (e) => {
+  if (e.target.name !== 'pace' || e.target.type !== 'radio') return;
+  const budget = Number($('input[name="budgetSol"][form="startForm"]')?.value);
+  await act('botConfig', { config: { pace: e.target.value, usePace: true, ...(budget > 0 ? { budgetSol: budget } : {}) } });
+});
+document.addEventListener('toggle', (e) => { if (e.target.classList?.contains('adv')) advOpen = e.target.open; }, true);
 document.addEventListener('focusout', () => setTimeout(() => { if (!$('#app').contains(document.activeElement) || !document.activeElement?.form) render(); }, 0));
 
 async function realAct(type, extra = {}) {

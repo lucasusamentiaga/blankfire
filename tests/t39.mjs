@@ -55,12 +55,20 @@ await pg.evaluate(() => new Promise((res) => chrome.runtime.sendMessage({ type: 
 await pg.reload(); await pg.waitForTimeout(900);
 const store = () => sw.evaluate(() => chrome.storage.local.get('blankfireBot').then((g) => g.blankfireBot));
 
-ok(/Así decide/.test(await pg.innerText('body')) && (await pg.locator('.flow li').count()) === 9 && (await pg.locator('.care li').count()) >= 5, 'sin sesión explica los 9 pasos (restricciones, filtros, 6 agentes, ejecutor) y de qué tener cuidado');
+ok(/Pon a prueba el bot/.test(await pg.innerText('body')) && (await pg.locator('.flow li').count()) === 9 && (await pg.locator('.care li').count()) >= 5, 'sin sesión explica los 9 pasos (restricciones, filtros, 6 agentes, ejecutor) y de qué tener cuidado');
 await pg.screenshot({ path: TDIR + 't39-intro-es.png', fullPage: true });
-// Con 3 SOL (entradas de 0,3) las comisiones se comen el stop: la ventana lo avisa antes de arrancar.
-await pg.fill('input[name="budgetSol"][form="startForm"]', '3');
+// Con 20 € (0,13 SOL) la ventana dice cuánto se va en comisiones y lo que hay que ganar para no perder.
+await pg.fill('input[name="budgetSol"][form="startForm"]', '0.13');
 await pg.waitForTimeout(150);
-ok(/no comprará con este tamaño/.test(await pg.locator('[data-ref="cost"]').innerText()), 'avisa de que con entradas de 0,3 SOL las comisiones no compensan');
+const costTxt = await pg.locator('[data-ref="cost"]').innerText();
+ok(/comisiones/.test(costTxt) && /Para no perder/.test(costTxt) && /wallet del bot/.test(costTxt), 'con 0,13 SOL explica el coste de cada entrada (con las comisiones de la wallet del bot)');
+await pg.locator('.pace input[value="fast"]').check();
+await pg.waitForTimeout(500);
+const cfgFast = (await store()).config;
+ok(cfgFast.pace === 'fast' && cfgFast.tpPct === 12 && cfgFast.maxHoldMin === 8, 'elegir «Rápido» ajusta de golpe objetivo, tiempo y demás');
+ok((await pg.locator('.pace.on').innerText()).includes('Rápido') && Number(await pg.inputValue('input[name="budgetSol"][form="startForm"]')) === 0.13, 'se marca el ritmo elegido y no se pierde el saldo escrito');
+await pg.locator('.pace input[value="balanced"]').check();
+await pg.waitForTimeout(400);
 await pg.screenshot({ path: TDIR + 't39-cost-es.png' });
 await pg.fill('input[name="budgetSol"][form="startForm"]', '10');
 await pg.waitForTimeout(150);
@@ -79,7 +87,7 @@ const rug = s.log.find((l) => l.symbol === 'RUGME');
 ok(rug?.kind === 'skip' && rug.agents?.debate?.veto, 'veta la moneda con vela de rug aunque el flujo sea bueno');
 ok(s.log.some((l) => l.symbol === 'LATE' && l.stage === 'filter' && /llega tarde/.test(l.reason.t)) && s.log.some((l) => l.symbol === 'TINY' && l.stage === 'filter'), 'filtros: salta la que llega tarde y la diminuta');
 const p = Object.values(s.positions)[0];
-ok(Math.abs(s.balance + p.costSol - 10) < 1e-9 && p.costSol <= 1.03, 'gasta ≤ 10 % del saldo y nada fuera de él');
+ok(Math.abs(s.balance + p.costSol - 10) < 1e-9 && p.costSol <= 2.05, 'gasta ≤ 20 % del saldo (ritmo Equilibrado) y nada fuera de él');
 
 // Abrir los detalles de la compra.
 await pg.locator('.ev.k-buy .ev-row').first().click();
