@@ -1,5 +1,5 @@
 // Dinero real (lógica): base58, claves, firma de transacciones, retirada y caja fuerte cifrada.
-import { b58encode, b58decode, isAddress, newKeypair, keypairFromSecret, signTransaction, transferTx, verifySigned, b64encode, b64decode } from '../Fogueo/lib/solana.js';
+import { b58encode, b58decode, isAddress, newKeypair, keypairFromSecret, signTransaction, transferTx, closeAccountTx, TOKEN_PROGRAMS, verifySigned, b64encode, b64decode } from '../Fogueo/lib/solana.js';
 import { seal, open, passwordProblem } from '../Fogueo/lib/vault.js';
 let fails = 0; const ok = (c, m) => { if (!c) fails++; console.log((c ? 'OK  ' : 'FAIL') + ' ' + m); };
 const SOL = 'So11111111111111111111111111111111111111112';
@@ -26,6 +26,13 @@ ok(msg[0] === 1 && msg[1] === 0 && msg[2] === 1 && msg[3] === 3 && b58encode(msg
 const dv = new DataView(signed.buffer, signed.byteOffset); const dataAt = 65 + 4 + 96 + 32 + 1 + 1 + 1 + 2 + 1;
 ok(dv.getUint32(dataAt, true) === 2 && dv.getBigUint64(dataAt + 4, true) === 123456789n && verifySigned(signed, kp.publicKey), 'instrucción de transferencia (2) con la cantidad exacta, firmada');
 ok(b64encode(b64decode(b64encode(signed))) === b64encode(signed), 'base64 ida y vuelta');
+// Cerrar cuenta de token vacía (recuperar la renta en la propia wallet)
+const acc = newKeypair().address;
+const ct = signTransaction(closeAccountTx({ owner: kp.address, account: acc, program: TOKEN_PROGRAMS[0], blockhash: b58encode(new Uint8Array(32).fill(4)) }), kp).tx;
+const cm = ct.subarray(65);
+const ix = cm.subarray(4 + 96 + 32);
+ok(b58encode(cm.subarray(4, 36)) === kp.address && b58encode(cm.subarray(36, 68)) === acc && b58encode(cm.subarray(68, 100)) === TOKEN_PROGRAMS[0] && ix[0] === 1 && ix[1] === 2 && ix[2] === 3 && ix[3] === 1 && ix[4] === 0 && ix[5] === 0 && ix[6] === 1 && ix[7] === 9 && verifySigned(ct, kp.publicKey), 'cerrar cuenta vacía: instrucción 9, la renta vuelve a la wallet del bot');
+
 // Caja fuerte
 ok(passwordProblem('corta') && passwordProblem('aaaaaaaaaaaa') && passwordProblem('soloLetrasLargas') && !passwordProblem('fogueo-2026!'), 'contraseña: mínimo 10, no obvia, letras y números o símbolos');
 const box = await seal(kp.secret, 'fogueo-2026!', { iter: 2000 });

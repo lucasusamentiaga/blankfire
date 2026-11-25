@@ -1582,4 +1582,5 @@ export const EN = {
  "freno diario": "daily brake",
  "Abrir": "Unlock",
  "Abriendo…": "Unlocking…",
+ "recuperada la renta de la cuenta: {v} SOL": "recovered the account rent: {v} SOL",
 };

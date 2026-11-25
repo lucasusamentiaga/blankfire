@@ -11,6 +11,7 @@
         "Retiradas solo a la dirección de tu Phantom que fijas al crearla; copia de seguridad que se enseña una vez",
         "Límites que el bot no puede saltarse: máximo por compra, compras al día, abiertas a la vez y pérdida máxima diaria (se apaga solo), y botón de pánico que vende todo",
         "Los stops con dinero real reintentan hasta 3 veces subiendo el slippage para salir sí o sí",
+        "Tras cada venta cierra la cuenta de token vacía y recupera los ~0,002 SOL de renta que Solana cobra por cada moneda",
         "Seguridad: las órdenes de wallet, bot y claves solo se aceptan desde las ventanas de Blankfire, y las páginas de la extensión tienen política de seguridad estricta"
       ],
       "en": [
@@ -19,6 +20,7 @@
         "Withdrawals only to the Phantom address you set when creating it; a backup shown once",
         "Limits the bot can't override: max per buy, buys per day, open at once and max daily loss (turns itself off), plus a panic button that sells everything",
         "Real-money stops retry up to 3 times with rising slippage so they get out no matter what",
+        "After each sale it closes the empty token account and recovers the ~0.002 SOL rent Solana charges per coin",
         "Security: wallet, bot and key commands are only accepted from Blankfire's own windows, and extension pages have a strict security policy"
       ]
     },

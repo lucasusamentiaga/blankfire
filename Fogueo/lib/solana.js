@@ -95,3 +95,19 @@ export function verifySigned(txBytes, publicKey) {
   const [nSig, sz] = readShortVec(txBytes, 0);
   return ed25519.verify(txBytes.subarray(sz, sz + 64), txBytes.subarray(sz + nSig * 64), publicKey);
 }
+
+// Cerrar una cuenta de token vacía y recuperar su renta (~0,002 SOL) en la propia wallet.
+// Instrucción CloseAccount (9) del programa de tokens (SPL Token o Token-2022, el que sea dueño de la cuenta).
+export function closeAccountTx({ owner, account, program, blockhash }) {
+  const ownerPk = b58decode(owner), accPk = b58decode(account), progPk = b58decode(program), bh = b58decode(blockhash);
+  const msg = new Uint8Array([
+    1, 0, 1,
+    ...shortVec(3), ...ownerPk, ...accPk, ...progPk,
+    ...bh,
+    ...shortVec(1), 2, ...shortVec(3), 1, 0, 0, ...shortVec(1), 9,
+  ]);
+  const tx = new Uint8Array(1 + 64 + msg.length);
+  tx[0] = 1; tx.set(msg, 65);
+  return tx;
+}
+export const TOKEN_PROGRAMS = ['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'];

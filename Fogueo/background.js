@@ -12,7 +12,7 @@ import {
   cleanCopilot, copilotGate, signalsToday, COPILOT_DEFAULTS,
 } from './lib/bot.js';
 import { themes, snapshotOf, whaleTape, recentBuys, parseSwaps } from './lib/radar.js';
-import { newKeypair, keypairFromSecret, signTransaction, transferTx, b58encode, b58decode, b64encode, b64decode, isAddress } from './lib/solana.js';
+import { newKeypair, keypairFromSecret, signTransaction, transferTx, closeAccountTx, TOKEN_PROGRAMS, b58encode, b58decode, b64encode, b64decode, isAddress } from './lib/solana.js';
 import { seal, open as openVault, passwordProblem } from './lib/vault.js';
 import { RAW, cmpVer, installedVersion, readUpdate, patchUpdate } from './lib/update.js';
 import { PRO_KEY, LS_API, REVALIDATE_MS, isPro, proSelling, licenseMatches, PRO_CONFIG, maskKey, SUPPORT } from './lib/pro.js';
@@ -1916,6 +1916,19 @@ async function tokenRaw(owner, mint) {
   for (const a of res?.value || []) { const t = a.account?.data?.parsed?.info?.tokenAmount; if (t) { raw += BigInt(t.amount); decimals = t.decimals; } }
   return { raw, decimals };
 }
+async function closeEmpty(kp, mint) {
+  const res = await rpc('getTokenAccountsByOwner', [kp.address, { mint }, { encoding: 'jsonParsed', commitment: 'confirmed' }]);
+  let recovered = 0;
+  for (const a of res?.value || []) {
+    const info = a.account?.data?.parsed?.info;
+    if (!a.pubkey || !TOKEN_PROGRAMS.includes(a.account?.owner) || info?.tokenAmount?.amount !== '0') continue;
+    const { blockhash } = (await rpc('getLatestBlockhash', [{ commitment: 'finalized' }])).value;
+    const { tx } = signTransaction(closeAccountTx({ owner: kp.address, account: a.pubkey, program: a.account.owner, blockhash }), kp);
+    await sendAndConfirm(tx);
+    recovered += Number(a.account?.lamports) || 2039280;
+  }
+  return recovered;
+}
 async function sendAndConfirm(txBytes) {
   const sig = await rpc('sendTransaction', [b64encode(txBytes), { encoding: 'base64', skipPreflight: false, maxRetries: 3, preflightCommitment: 'confirmed' }]);
   for (let i = 0; i < 30; i++) {
@@ -2009,6 +2022,9 @@ async function realSell({ addr, symbol, reason }) {
       const pnl = (after - before - pos.lamportsIn) / LAMPORTS;
       delete r.positions[addr];
       realLog(r, { kind: 'sell', symbol, addr, reason, sol: (after - before) / LAMPORTS, pnl, sig });
+      // Cada moneda deja una cuenta de token con ~0,002 SOL de renta: se cierra para recuperarla.
+      const back = await closeEmpty(kp, addr).catch(() => 0);
+      if (back > 0) realLog(r, { kind: 'info', symbol, t: 'recuperada la renta de la cuenta: {v} SOL', v: { v: (back / LAMPORTS).toFixed(4) } });
       notify(tr('Blankfire · venta real ${s}', { s: symbol }), tr('Resultado {v} SOL ({r}).', { v: fmtSol(pnl, { sign: true }), r: tr(reason || '') }));
       break;
     } catch (e) {

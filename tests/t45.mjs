@@ -46,20 +46,26 @@ await ctx.route('https://lite-api.jup.ag/**', async (r) => {
   return r.fulfill({ json: {} });
 });
 // Helius RPC: saldo, tokens, envío (verificando la firma) y confirmación
-let lamports = 0.5e9, tokenRaw = 0n; const sent = []; let walletPk = null;
+let lamports = 0.5e9, tokenRaw = 0n, accOpen = false; const sent = []; let walletPk = null;
+const TOKACC = newKeypair().address;
 await ctx.route('https://mainnet.helius-rpc.com/**', async (r) => {
   const { method, params } = JSON.parse(r.request().postData());
   const res = (result) => r.fulfill({ json: { jsonrpc: '2.0', id: 1, result } });
   if (method === 'getBalance') return res({ value: lamports });
-  if (method === 'getTokenAccountsByOwner') return res({ value: tokenRaw ? [{ account: { data: { parsed: { info: { tokenAmount: { amount: tokenRaw.toString(), decimals: 6 } } } } } }] : [] });
+  if (method === 'getTokenAccountsByOwner') return res({ value: [{ pubkey: TOKACC, account: { owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', lamports: 2039280, data: { parsed: { info: { tokenAmount: { amount: tokenRaw.toString(), decimals: 6 } } } } } }].filter(() => tokenRaw > 0n || accOpen) });
   if (method === 'getLatestBlockhash') return res({ value: { blockhash: b58encode(new Uint8Array(32).fill(3)), lastValidBlockHeight: 1 } });
   if (method === 'sendTransaction') {
     const tx = b64decode(params[0]);
     const valid = walletPk && verifySigned(tx, walletPk);
     const msg = tx.subarray(65);
     const legacy = (msg[0] & 0x80) === 0;
-    sent.push({ valid, legacy, to: legacy ? b58encode(msg.subarray(36, 68)) : null });
-    if (!legacy && swaps.length % 2 === 1) { lamports -= 0.05e9; tokenRaw = 1000000000n; } else if (!legacy) { lamports += 0.046e9; tokenRaw = 0n; } else lamports = 0;
+    const prog = legacy ? b58encode(msg.subarray(68, 100)) : null;
+    const close = legacy && prog.startsWith('Tokenkeg');
+    sent.push({ valid, legacy, close, to: legacy ? b58encode(msg.subarray(36, 68)) : null });
+    if (!legacy && swaps.length % 2 === 1) { lamports -= 0.05e9; tokenRaw = 1000000000n; accOpen = true; }
+    else if (!legacy) { lamports += 0.046e9; tokenRaw = 0n; }
+    else if (close) { lamports += 2039280; accOpen = false; }
+    else lamports = 0;
     return res(b58encode(tx.subarray(1, 65)));
   }
   if (method === 'getSignatureStatuses') return res({ value: [{ confirmationStatus: 'confirmed', err: null }] });
@@ -113,9 +119,12 @@ ok(rs.positions[FROG]?.lamportsIn === 0.05e9 && rs.log.some((l) => l.kind === 'b
 px *= 0.9;
 await send({ type: 'botScanNow' });
 for (let i = 0; i < 40; i++) { rs = (await send({ type: 'realState' })).data; if (rs.log.some((l) => l.kind === 'sell')) break; await bot.waitForTimeout(500); }
-ok(sent.length === 2 && sent[1].valid && !rs.positions[FROG], 'stop: vende con dinero real, firmado');
+ok(sent.filter((x) => !x.legacy).length === 2 && sent[1].valid && !rs.positions[FROG], 'stop: vende con dinero real, firmado');
 const sellLog = rs.log.find((l) => l.kind === 'sell');
 ok(sellLog && Math.abs(sellLog.pnl + 0.004) < 1e-9 && sellLog.reason === 'stop', 'apunta el resultado real (−0,004 SOL) y el motivo (stop)');
+for (let i = 0; i < 20 && !sent.some((x) => x.close); i++) await bot.waitForTimeout(500);
+rs = (await send({ type: 'realState' })).data;
+ok(sent.some((x) => x.close && x.valid && x.to === TOKACC) && rs.log.some((l) => /renta/.test(l.t || '')), 'después de vender cierra la cuenta vacía y recupera ~0,002 SOL de renta');
 // Cerrar y abrir
 await send({ type: 'realLock' });
 rs = (await send({ type: 'realState' })).data;
@@ -132,7 +141,7 @@ ok((await send({ type: 'realState' })).data.config.mode === 'off', 'pánico (dos
 // Retirada: siempre a tu Phantom
 ok(!(await send({ type: 'realWithdraw', all: true, password: 'mala-clave-9' })).ok, 'retirar con otra contraseña, no');
 const wd = await send({ type: 'realWithdraw', all: true, password: PW });
-ok(wd.ok && sent.at(-1).legacy && sent.at(-1).valid && sent.at(-1).to === PHANTOM, 'retirada firmada y enviada a tu Phantom');
+ok(wd.ok && sent.at(-1).legacy && !sent.at(-1).close && sent.at(-1).valid && sent.at(-1).to === PHANTOM, 'retirada firmada y enviada a tu Phantom');
 // Copia de seguridad con contraseña y borrado (vacía)
 const ex = await send({ type: 'realExport', password: PW });
 ok(ex.ok && ex.data.backup === secret, 'la copia de seguridad se puede volver a ver con la contraseña');
