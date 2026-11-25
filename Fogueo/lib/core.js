@@ -214,6 +214,15 @@ export function simulateSell({ qty, quote, solUsd, settings }) {
 
 // ---------- Posiciones ----------
 
+// Lo que se pierde solo por entrar y salir al momento (comisiones, coste por orden e impacto), en %.
+// Por defecto, una moneda típica: $80K de liquidez en PumpSwap.
+export function roundTripPct(sizeSol, settings, quote = { priceUsd: 0.0005, liquidityUsd: 80000, marketCapUsd: 500000, stage: 'graduated', dex: 'pumpswap' }, solUsd = 180) {
+  const b = simulateBuy({ solIn: sizeSol, quote, solUsd, settings: { ...settings, maxSlippagePct: 99 } });
+  if (!b.ok) return null;
+  const s = simulateSell({ qty: b.qty, quote, solUsd, settings: { ...settings, sellSlippagePct: 99 } });
+  return (1 - s.netSol / b.totalDebit) * 100;
+}
+
 export function positionValueSol(pos, quote, solUsd) {
   if (!pos || !quote?.priceUsd || !solUsd) return null;
   return (pos.qty * quote.priceUsd) / solUsd;

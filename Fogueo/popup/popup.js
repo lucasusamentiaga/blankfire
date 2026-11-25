@@ -8,6 +8,7 @@ import { UPD_KEY, updateView, updateCard, readUpdate, onUpdateAction, installedV
 import { afterSection, proSettings, jupiterBanner } from './pro-ui.js';
 import { screenSettings } from './screen-ui.js';
 import { phantomGuide } from './wallet-ui.js';
+import { diagnose } from '../lib/diag.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -258,6 +259,7 @@ function roundDetail(r, opening) {
       <div><span>Duración</span><b>${fmtDuration(r.closedAt - r.openedAt)}</b></div>
     </div>
     <div class="fills">${fills}</div>
+    <button class="replay-btn" data-act="replay" data-id="${esc(r.id)}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7.5-4.5z" fill="currentColor"/></svg><span>Repetir esta operación sin ver el futuro</span></button>
     ${afterBox(r)}
     <div class="rv">
       <div class="rv-q"><span>¿Seguiste tu plan?</span><span class="yn">
@@ -378,6 +380,29 @@ function planBlock(s) {
     ${tags.length ? `<div class="tagstats">${tags.map(([, g]) => `<div><span class="tag-chip static">${esc(g.label)}</span><span class="muted">${g.count}×</span><b class="num ${tone(g.net)}">${fmtSol(g.net, { sign: true })}</b></div>`).join('')}</div>` : ''}`;
 }
 
+// «Dónde pierdes»: conclusiones con pruebas y las tres tablas que las respaldan.
+function diagBlock(rounds) {
+  const d = diagnose(rounds);
+  if (d.all.n < 5) return `<h2>${tr('Dónde pierdes')}</h2><p class="hint">${tr('Con 5 operaciones cerradas te digo en qué market cap, a qué horas y con qué hábitos pierdes más.')}</p>`;
+  const fv = (f) => Object.fromEntries(Object.entries(f.v).map(([k, v]) => [k, k === 'net' ? fmtSol(v, { sign: true }) : k.startsWith('wr') ? (v == null ? '—' : fmtPct(v, 0)) : k === 'band' ? tr(v) : v]));
+  const finds = d.findings.map((f) => `<li class="df ${f.sev}"><span class="df-i" aria-hidden="true">${f.sev === 'good' ? '+' : '−'}</span><p>${esc(tr(f.t, fv(f)))}</p></li>`).join('');
+  const max = Math.max(1e-9, ...[...d.byMc, ...d.byHour, ...d.byHold].filter((g) => g.n).map((g) => Math.abs(g.net)));
+  const rows = (list, label) => list.filter((g) => g.n).map((g) => {
+    const w = (Math.abs(g.net) / max) * 50;
+    return `<div class="dr"><span>${esc(label(g))}</span><span class="dbar" aria-hidden="true"><i class="${g.net >= 0 ? 'pos' : 'neg'}" style="${g.net >= 0 ? 'left:50%' : `left:${50 - w}%`};width:${w}%"></i></span><b class="num ${tone(g.net)}">${fmtSol(g.net, { sign: true })}</b><small>${g.n} · ${g.winRate == null ? '—' : fmtPct(g.winRate, 0)}</small></div>`;
+  }).join('');
+  const hh = (n) => String(n).padStart(2, '0');
+  return `<h2>${tr('Dónde pierdes')}</h2>
+    ${finds ? `<ul class="dfs">${finds}</ul>` : `<p class="hint">${tr('No veo ningún patrón claro todavía: cada grupo necesita al menos 3 operaciones.')}</p>`}
+    <details class="dtables"><summary>${tr('Ver los números')}</summary>
+      <p class="dt-h">${tr('Market cap al entrar')}</p>${rows(d.byMc, (g) => tr(g.label))}
+      <p class="dt-h">${tr('Hora a la que entras')}</p>${rows(d.byHour, (g) => `${hh(g.from)}:00–${hh(g.to)}:00`)}
+      <p class="dt-h">${tr('Cuánto aguantas')}</p>${rows(d.byHold, (g) => tr(g.label))}
+      <p class="dt-h">${tr('Repetir moneda en menos de 2 h')}</p>${rows([{ ...d.reentry.first, k: 'f' }, { ...d.reentry.re, k: 'r' }], (g) => (g.k === 'f' ? tr('Primera entrada') : tr('Repetida')))}
+      <p class="hint">${tr('Cada fila: resultado, nº de operaciones y % de acierto.')}</p>
+    </details>`;
+}
+
 function renderStats() {
   const v = $('[data-view="stats"]');
   const s = computeStats(st.account.rounds, { since: periodStart(statsPeriod) });
@@ -409,8 +434,10 @@ function renderStats() {
         <div><dt>Costes pagados</dt><dd>${fmtSol(s.feesSol)}</dd></div>
         <div class="wide"><dt>Cierres por TP / SL / SL din. / a mano</dt><dd>${s.byReason.tp || 0} / ${s.byReason.sl || 0} / ${s.byReason.trail || 0} / ${(s.byReason.manual || 0) + (s.byReason.initials || 0)}</dd></div>
       </dl>
-      ${planBlock(s)}` : `<div class="blank" style="padding-top:18px">${ICON.target}<strong>Sin trades en este periodo</strong>Las estadísticas se calculan sobre posiciones cerradas.</div>`}
-    ${tip ? `<div class="tip">${ICON.bulb}<p>${esc(tip)}</p></div>` : ''}`;
+      ${planBlock(s)}
+      ${diagBlock(st.account.rounds.filter((r) => r.closedAt >= periodStart(statsPeriod)))}` : `<div class="blank" style="padding-top:18px">${ICON.target}<strong>Sin trades en este periodo</strong>Las estadísticas se calculan sobre posiciones cerradas.</div>`}
+    ${tip ? `<div class="tip">${ICON.bulb}<p>${esc(tip)}</p></div>` : ''}
+    <button class="replay-btn" data-act="replay"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7.5-4.5z" fill="currentColor"/></svg><span>Repetir operaciones vela a vela</span></button>`;
   translateDom(v);
 }
 
@@ -629,6 +656,7 @@ document.addEventListener('click', async (e) => {
   if (await proAction(act, t.closest('[data-act]'))) return;
   if (act === 'csv') exportCsv();
   if (act === 'lang') { await switchLang(); return; }
+  if (act === 'replay') { chrome.tabs.create({ url: chrome.runtime.getURL('replay/replay.html') + (t.closest('[data-act]').dataset.id ? `?id=${encodeURIComponent(t.closest('[data-act]').dataset.id)}` : '') }); window.close(); return; }
   if (act === 'openBot') { chrome.tabs.create({ url: chrome.runtime.getURL('bot/bot.html') }); window.close(); return; }
   if (act === 'tour') { startTour(); return; }
   if (act === 'panelTour') {

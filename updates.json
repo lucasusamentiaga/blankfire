@@ -3,6 +3,23 @@
     "ai": false
   },
   "releases": {
+    "1.19.0": {
+      "date": "2026-11-25",
+      "es": [
+        "Estadísticas → «Dónde pierdes»: te dice en qué market cap, a qué horas, con cuánto tiempo aguantando y al repetir moneda es donde pierdes (y dónde mejor te va), con los números detrás",
+        "Repetición: vuelve a jugar cualquier operación vela a vela con el futuro tapado, a 1x, 2x o 5x; compra y vende cuando lo harías ahora y compárate con lo que hiciste",
+        "Al terminar, pulsa cualquier vela para «probar entrada aquí» con tu stop y tu objetivo (con comisiones), y mira en colores dónde habría ganado o perdido entrar",
+        "La ventana del bot se ve bien en Opera GX: deslizador del stop propio, sin flechas grises en los números, mejor reparto del espacio",
+        "Las posiciones del bot enseñan desde el primer segundo lo que se llevan las comisiones"
+      ],
+      "en": [
+        "Stats → “Where you lose”: tells you at which market cap, what times, how long you hold and when re-entering a coin you lose (and where you do best), with the numbers behind it",
+        "Replay: play any trade again candle by candle with the future covered, at 1x, 2x or 5x; buy and sell when you would now and compare with what you did",
+        "At the end, click any candle to “test entry here” with your stop and target (fees included), and see in colors where entering would have won or lost",
+        "The bot window looks right in Opera GX: custom stop slider, no grey number arrows, better use of space",
+        "Bot positions show what fees take from the very first second"
+      ]
+    },
     "1.18.0": {
       "date": "2026-11-25",
       "es": [

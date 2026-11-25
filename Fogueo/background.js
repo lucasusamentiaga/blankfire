@@ -761,6 +761,8 @@ async function shieldFor({ mint, name, symbol, createdAt, mcUsd }) {
     return analyzeCopies(self, lists.flat());
   })();
   const chartP = (async () => {
+    // Las velas de GeckoTerminal solo en la beta gratis (su API sin clave no incluye uso comercial).
+    if (proSelling()) return null;
     const pools = await fetch(`${GT}/networks/solana/tokens/${mint}/pools?page=1`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(7000) }).then((r) => (r.ok ? r.json() : null));
     const pool = pools?.data?.[0]?.attributes?.address;
     if (!pool) return null;
@@ -980,6 +982,8 @@ const handlers = {
     return { jupiter: !!k.jupiter, checkedAt: k.checkedAt || null, notice, ai: await aiOn() };
   },
   async afterData({ id }) { return afterData(id); },
+  async replayData(msg) { return replayData(msg); },
+  async replayList() { const st = await load(); return { rounds: st.account.rounds.slice(-40).reverse().map((r) => ({ id: r.id, symbol: r.symbol, openedAt: r.openedAt, closedAt: r.closedAt, pnlSol: r.pnlSol, entryMcUsd: r.entryMcUsd })), beta: !proSelling() }; },
   async supportStatus({ force } = {}) { return supportStatus(force); },
   async aiReview({ id }) { return aiReview(id); },
 
@@ -1095,6 +1099,59 @@ async function afterData(id) {
   const ctx = tradeContext(round, st.account);
   const flags = tradeFlags(round, facts, ctx);
   return { series: series.map((x) => [x.t, x.p]), facts, flags, ctx, source, gtError };
+}
+
+// =====================================================================
+// Repetición: velas de una operación tuya (o de cualquier moneda) para jugarla sin ver el futuro.
+// =====================================================================
+function samplesToCandles(samples) {
+  return samples.filter((x) => x?.[0] > 0 && x?.[1] > 0).map(([t, p]) => [Math.floor(t / 1000), p, p, p, p, 0]);
+}
+async function replayData({ id, mint } = {}) {
+  const st = await load();
+  const out = { candles: [], source: null, round: null, symbol: null, address: null };
+  if (id) {
+    const r = st.account.rounds.find((x) => x.id === id);
+    if (!r) throw new Error(tr('No encuentro esa operación.'));
+    out.symbol = r.symbol; out.address = r.address;
+    out.round = {
+      id: r.id, symbol: r.symbol, openedAt: r.openedAt, closedAt: r.closedAt, pnlSol: r.pnlSol, investedSol: r.investedSol,
+      entryMcUsd: r.entryMcUsd, exitMcUsd: r.exitMcUsd,
+      fills: (r.fills || []).map((f) => ({ t: f.t, side: f.side, price: f.price, sol: f.sol })),
+    };
+    if (!proSelling() && r.address && (r.chain === 'solana' || r.key?.startsWith('solana:'))) {
+      try {
+        const pool = await gtPoolFor(r);
+        if (pool) {
+          const from = r.openedAt - 30 * 60e3, to = Math.min(r.closedAt + 60 * 60e3, Date.now());
+          const span = (to - from) / 60e3, agg = span <= 950 ? 1 : 5;
+          const j = await gtJson(`/networks/solana/pools/${pool}/ohlcv/minute?aggregate=${agg}&before_timestamp=${Math.ceil(to / 1000)}&limit=${Math.min(1000, Math.ceil(span / agg) + 2)}&currency=usd&token=base`);
+          out.candles = (j?.data?.attributes?.ohlcv_list || []).filter((c) => c[0] * 1000 >= from);
+          out.source = 'geckoterminal'; out.aggregate = agg;
+        }
+      } catch (e) { out.gtError = e.message; }
+    }
+    if (!out.candles.length) {
+      const samples = (await afterStore())[id]?.samples || [];
+      out.candles = samplesToCandles(samples);
+      out.source = out.candles.length ? 'blankfire' : null;
+    }
+  } else if (mint) {
+    const m = String(mint).trim();
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(m)) throw new Error(tr('Esa dirección no parece de Solana.'));
+    if (proSelling()) throw new Error(tr('La repetición de cualquier moneda solo está en la beta gratis.'));
+    const pools = await gtJson(`/networks/solana/tokens/${m}/pools?page=1`);
+    const top = pools?.data?.[0]?.attributes;
+    if (!top?.address) throw new Error(tr('No encuentro velas de esa moneda.'));
+    const j = await gtJson(`/networks/solana/pools/${top.address}/ohlcv/minute?aggregate=1&limit=360&currency=usd&token=base`);
+    out.candles = j?.data?.attributes?.ohlcv_list || [];
+    out.source = 'geckoterminal'; out.aggregate = 1; out.address = m;
+    out.symbol = String(top.name || '').split(' / ')[0] || m.slice(0, 4);
+  }
+  out.candles = out.candles.map((c) => c.slice(0, 6).map(Number)).filter((c) => c[0] > 0 && c[4] > 0).sort((a, b) => a[0] - b[0]);
+  out.settings = { feePct: st.settings.feePct, priorityFee: st.settings.priorityFee, tipSol: st.settings.tipSol, poolFees: st.settings.poolFees, defaultSlPct: st.settings.defaultSlPct, defaultTpPct: st.settings.defaultTpPct, quickBuys: st.settings.quickBuys };
+  out.rounds = st.account.rounds.slice(-40).reverse().map((r) => ({ id: r.id, symbol: r.symbol, openedAt: r.openedAt, closedAt: r.closedAt, pnlSol: r.pnlSol, entryMcUsd: r.entryMcUsd }));
+  return out;
 }
 
 // =====================================================================
@@ -1392,6 +1449,9 @@ function botOpen(s, pair, quote, router, verdict, agents, sol, settings, now) {
     openedAt: now, score: verdict.score, slipPct: router.slipPct, impactPct: sim.impactPct, route: router.route,
     stopPrice: sim.fillPrice * (1 - s.config.stopPct / 100), url: `https://trade.padre.gg/trade/solana/${pair.baseToken.address}`,
   };
+  // Lo que valdría venderla ya: así la posición enseña desde el primer segundo lo que se han llevado las comisiones.
+  const back = simulateSell({ qty: sim.qty, quote, solUsd: sol, settings: { ...settings, sellSlippagePct: 99 } });
+  if (Number.isFinite(back?.netSol)) s.positions[key].valueSol = Math.max(0, back.netSol);
   s.seen[pair.baseToken.address] = now;
   s.stats.buys++;
   pushLog(s, { kind: 'buy', symbol: pair.baseToken.symbol, addr: pair.baseToken.address, score: verdict.score, agents, reason: verdict.reason, sol: sim.totalDebit, price: sim.fillPrice }, now);

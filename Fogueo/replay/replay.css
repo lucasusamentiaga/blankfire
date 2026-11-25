@@ -1,0 +1,79 @@
+/* Repetición: hereda la base de la ventana del bot (barra, botones, campos). */
+.stage { display: grid; gap: 14px; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--fx-ink-2); }
+.meta .num:first-child { color: var(--fx-ink); font-weight: 600; }
+.chart-w { border-radius: var(--fx-r-lg); background: var(--fx-raise); padding: 6px 4px 2px; }
+.chart { display: block; width: 100%; height: auto; cursor: default; }
+.chart .grid-l { stroke: var(--fx-line-soft); stroke-width: 1; }
+.chart .ax { fill: var(--fx-ink-3); font: 11px var(--fx-font-num); }
+.chart .ax.t { text-anchor: middle; }
+.chart .cd line { stroke-width: 1; }
+.chart .cd.u line, .chart .cd.u rect { stroke: var(--fx-up); fill: var(--fx-up); }
+.chart .cd.d line, .chart .cd.d rect { stroke: var(--fx-down); fill: var(--fx-down); }
+.chart .fog { fill: var(--fx-bg); opacity: 0.72; }
+.chart .fog-t { fill: var(--fx-ink-3); font: 600 13px var(--fx-font); text-anchor: middle; }
+.chart .now { stroke: var(--fx-brand); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.chart .real circle { fill: none; stroke-width: 2; }
+.chart .real.buy circle { stroke: var(--fx-info); } .chart .real.sell circle { stroke: var(--fx-brand); }
+.chart .real text { fill: var(--fx-ink-2); font: 600 11px var(--fx-font); text-anchor: middle; }
+.chart .mine.buy path { fill: var(--fx-up); } .chart .mine.sell path { fill: var(--fx-down); }
+.chart .zone.win { fill: var(--fx-up); opacity: 0.08; } .chart .zone.loss { fill: var(--fx-down); opacity: 0.08; }
+.chart .lvl { stroke-width: 1.2; stroke-dasharray: 5 4; }
+.chart .lvl.stop { stroke: var(--fx-down); } .chart .lvl.tp { stroke: var(--fx-up); } .chart .lvl.en { stroke: var(--fx-ink-2); }
+.chart .t-in { fill: var(--fx-ink); } .chart .t-out.up { fill: var(--fx-up); } .chart .t-out.down, .chart .t-out.flat { fill: var(--fx-down); }
+.chart .hs.w { fill: var(--fx-up); } .chart .hs.l { fill: var(--fx-down); }
+.chart .hover { stroke: var(--fx-ink-3); stroke-width: 1; }
+.chart-w:has(.hs) .chart { cursor: crosshair; }
+.legend { display: flex; gap: 18px; font-size: 12px; color: var(--fx-ink-3); margin-top: -6px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.lg { width: 14px; height: 8px; border-radius: 2px; }
+.lg.w { background: var(--fx-up); } .lg.l { background: var(--fx-down); }
+
+.ctlbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ctlbar .grow { flex: 1; }
+.btn svg { width: 14px; height: 14px; fill: currentColor; }
+.btn.play { min-width: 128px; }
+.btn.buy { background: var(--fx-up-strong, var(--fx-up)); color: var(--fx-up-ink, #04130b); }
+.btn.buy:hover { filter: brightness(1.08); background: var(--fx-up-strong, var(--fx-up)); }
+.btn.sell { background: var(--fx-down-strong); color: var(--fx-down-ink); }
+.btn.sell:hover { filter: brightness(1.08); background: var(--fx-down-strong); }
+.btn.ghost { background: none; color: var(--fx-ink-2); }
+.btn.ghost:hover { background: var(--fx-raise); }
+.seg[role=radiogroup] button { font-family: var(--fx-font-num); }
+.seg button[aria-checked="true"] { background: var(--fx-raise-2); color: var(--fx-ink); }
+.study-h { flex: 1; color: var(--fx-ink-2); font-size: 13.5px; }
+
+.live { display: flex; align-items: baseline; gap: 12px; padding: 10px 14px; border-radius: var(--fx-r); background: var(--fx-raise); }
+.live span { font-size: 13px; color: var(--fx-ink-2); }
+.live b { font-size: 20px; font-weight: 600; }
+.live small { color: var(--fx-ink-3); font-size: 12px; }
+.live.up b { color: var(--fx-up); } .live.down b { color: var(--fx-down); }
+
+.cmp { display: flex; flex-wrap: wrap; gap: 10px 36px; padding-top: 4px; }
+.cmp div { display: grid; gap: 2px; }
+.cmp span { font-size: 12.5px; color: var(--fx-ink-3); }
+.cmp b { font-size: 20px; font-weight: 600; }
+.cmp .link { justify-self: start; }
+.test { display: grid; gap: 4px; padding: 14px 16px; border-radius: var(--fx-r-lg); background: var(--fx-raise); max-width: 70ch; }
+.test.up { background: var(--fx-up-wash); } .test.down { background: var(--fx-down-wash); }
+.test p { font-size: 13.5px; text-wrap: pretty; }
+.test .big { font-size: 26px; font-weight: 600; letter-spacing: -0.01em; }
+.test.up .big { color: var(--fx-up); } .test.down .big { color: var(--fx-down); }
+.test .big small { font: 500 12.5px var(--fx-font); color: var(--fx-ink-2); letter-spacing: 0; }
+
+.picks { display: grid; gap: 2px; max-height: 340px; overflow: auto; }
+.pick { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: baseline; width: 100%; padding: 8px 10px; border-radius: var(--fx-r-sm); text-align: left; }
+.pick:hover { background: var(--fx-raise); }
+.pick.on { background: var(--fx-raise-2); }
+.pick .when { font-size: 12px; color: var(--fx-ink-3); font-family: var(--fx-font-num); }
+.pick b { font-size: 13px; }
+.mintf { display: grid; gap: 10px; padding-top: 18px; border-top: 1px solid var(--fx-line-soft); }
+.mintf h3 { margin-bottom: 0; }
+.mintf .fi input { font-family: var(--fx-font-num); font-size: 12.5px; }
+.mintf .btn { justify-self: start; }
+.keys { font-size: 12px; color: var(--fx-ink-3); }
+.big-e { margin-top: 60px; display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.big-e.err { color: var(--fx-down); }
+.spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--fx-raise-2); border-top-color: var(--fx-brand); animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }

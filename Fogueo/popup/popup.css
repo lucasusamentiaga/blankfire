@@ -872,3 +872,27 @@ a.upd-link { font-weight: 600; }
 .bot-btn svg { width: 14px; height: 14px; }
 .bot-btn:hover { background: var(--fx-raise); color: var(--fx-brand-hi); }
 .bot-btn:focus-visible { outline: 2px solid var(--fx-brand); outline-offset: 1px; }
+
+/* «Dónde pierdes» */
+.dfs { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 8px; }
+.df { display: grid; grid-template-columns: 20px 1fr; gap: 8px; align-items: start; font-size: 12.5px; line-height: 1.45; text-wrap: pretty; }
+.df p { margin: 0; color: var(--fx-ink); }
+.df-i { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font: 700 13px/1 var(--fx-font-num); }
+.df.bad .df-i { background: var(--fx-down-wash); color: var(--fx-down); }
+.df.good .df-i { background: var(--fx-up-wash); color: var(--fx-up); }
+.dtables { margin-top: 10px; }
+.dtables summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--fx-brand-hi); padding: 4px 0; }
+.dt-h { margin: 10px 0 2px; font-size: 11.5px; color: var(--fx-ink-3); font-weight: 600; }
+.dr { display: grid; grid-template-columns: 96px 1fr 70px 52px; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; border-bottom: 1px solid var(--fx-line-soft); }
+.dr span:first-child { color: var(--fx-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dr b { text-align: right; font-size: 12px; }
+.dr small { text-align: right; color: var(--fx-ink-3); font-family: var(--fx-font-num); font-size: 11px; }
+.dbar { position: relative; height: 6px; border-radius: 3px; background: var(--fx-raise-2); }
+.dbar::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--fx-line); }
+.dbar i { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+.dbar i.pos { background: var(--fx-up); } .dbar i.neg { background: var(--fx-down); }
+
+.replay-btn { display: flex; align-items: center; gap: 8px; width: 100%; margin: 10px 0 4px; padding: 9px 12px; border-radius: var(--fx-r); background: var(--fx-raise); color: var(--fx-ink); font-size: 12.5px; font-weight: 600; text-align: left; transition: background var(--fx-fast) var(--fx-ease); }
+.replay-btn svg { width: 14px; height: 14px; color: var(--fx-brand); flex: none; }
+.replay-btn:hover { background: var(--fx-raise-2); }
+.replay-btn:focus-visible { outline: 2px solid var(--fx-brand); outline-offset: 1px; }

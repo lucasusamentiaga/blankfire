@@ -1,6 +1,6 @@
 // Blankfire — ventana del bot de práctica. Todo se pinta desde el estado que guarda el service worker.
 import { tr, setLang, getLang, locale } from '../lib/i18n.js';
-import { fmtSol, fmtPct, fmtCompact, fmtDuration, fmtPrice, simulateBuy, simulateSell, DEFAULT_SETTINGS } from '../lib/core.js';
+import { fmtSol, fmtPct, fmtCompact, fmtDuration, fmtPrice, roundTripPct, DEFAULT_SETTINGS } from '../lib/core.js';
 import { BOT_KEY, BOT_DEFAULTS, STOP_MIN, STOP_MAX, RECAP_MS, EXIT_TEXT } from '../lib/bot.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -55,10 +55,11 @@ function header(s) {
   return `<header class="bar">
     <div class="id">
       <svg class="mark" viewBox="0 0 100 100" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M57 5C61 25 79 38 79 62A29 29 0 0 1 21 62C21 47 28 38 36 31C37 39 41 43 45 45C43 31 49 17 57 5ZM50 48.5A13.5 13.5 0 0 1 50 75.5A13.5 13.5 0 0 1 50 48.5Z"/></svg>
-      <h1>${tr('Bot de práctica')}</h1>
-      <span class="status st-${cls}"><i></i>${tr(label)}</span>
+      <div class="id-t">
+        <div class="id-r"><h1>${tr('Bot de práctica')}</h1><span class="status st-${cls}"><i></i>${tr(label)}</span></div>
+        <p class="paper">${tr('SOL de práctica con saldo propio: no toca tu cuenta de Blankfire ni ninguna wallet.')}</p>
+      </div>
     </div>
-    <p class="paper">${tr('SOL de práctica con saldo propio: no toca tu cuenta de Blankfire ni ninguna wallet.')}</p>
     <div class="ctl">
       <button class="lang" data-act="lang" aria-label="${getLang() === 'en' ? 'Cambiar a español' : 'Switch to English'}">${getLang() === 'en' ? 'ES' : 'EN'}</button>
       ${ctl}
@@ -174,14 +175,6 @@ function recaps(s) {
   return `<section class="side-s"><h3>${tr('Resúmenes cada 12 h')}</h3>${list.length ? `<ul class="rlist">${list.slice(0, 6).map(recapCard).join('')}</ul>` : `<p class="empty sm">${tr('El primero llega a las 12 h de arrancar (o al terminar la sesión).')}</p>`}</section>`;
 }
 
-// Lo que cuesta entrar y salir al momento con los ajustes de comisiones del usuario (moneda típica: $80K de liquidez en PumpSwap).
-export function roundTripPct(sizeSol, settings) {
-  const quote = { priceUsd: 0.0005, liquidityUsd: 80000, marketCapUsd: 500000, stage: 'graduated', dex: 'pumpswap' };
-  const b = simulateBuy({ solIn: sizeSol, quote, solUsd: 180, settings: { ...settings, maxSlippagePct: 99 } });
-  if (!b.ok) return null;
-  const s = simulateSell({ qty: b.qty, quote, solUsd: 180, settings: { ...settings, sellSlippagePct: 99 } });
-  return (1 - s.netSol / b.totalDebit) * 100;
-}
 function costBox(cfg) {
   const size = (cfg.budgetSol * cfg.sizePct) / 100;
   const rt = roundTripPct(size, userSettings);
@@ -206,7 +199,7 @@ function limits(cfg, live) {
     <h3>${tr('Límites duros')}</h3>
     ${live ? field('budgetSol', 'Saldo de la sesión', cfg.budgetSol, { min: 0.1, max: 1000, step: 0.1, unit: 'SOL', disabled: true, note: 'Fijo hasta que termine la sesión.' }) : ''}
     <label class="fld"><span class="fl">${tr('Stop duro')}</span>
-      <span class="fr"><input type="range" name="stopPct" min="${STOP_MIN}" max="${STOP_MAX}" step="0.5" value="${cfg.stopPct}" aria-valuetext="${fmtPct(-cfg.stopPct, 1)}"><output class="num">${fmtPct(-cfg.stopPct, 1)}</output></span>
+      <span class="fr"><span class="ends" aria-hidden="true">−6</span><input type="range" name="stopPct" min="${STOP_MIN}" max="${STOP_MAX}" step="0.5" value="${cfg.stopPct}" style="--p:${((cfg.stopPct - STOP_MIN) / (STOP_MAX - STOP_MIN)) * 100}%" aria-valuetext="${fmtPct(-cfg.stopPct, 1)}"><span class="ends" aria-hidden="true">−8</span><output class="num">${fmtPct(-cfg.stopPct, 1)}</output></span>
       <small>${tr('Siempre entre −6 % y −8 %. Se revisa cada 30 s: en una caída brusca puede salir algo peor.')}</small></label>
     ${costBox(cfg)}
     <div class="row2">
@@ -339,7 +332,12 @@ document.addEventListener('submit', async (e) => {
   }
 });
 document.addEventListener('input', (e) => {
-  if (e.target.name === 'stopPct') { const o = e.target.parentElement.querySelector('output'); if (o) o.textContent = fmtPct(-Number(e.target.value), 1); }
+  if (e.target.name === 'stopPct') {
+    const v = Number(e.target.value), o = e.target.parentElement.querySelector('output');
+    if (o) o.textContent = fmtPct(-v, 1);
+    e.target.style.setProperty('--p', `${((v - STOP_MIN) / (STOP_MAX - STOP_MIN)) * 100}%`);
+    e.target.setAttribute('aria-valuetext', fmtPct(-v, 1));
+  }
   if (['budgetSol', 'sizePct', 'stopPct', 'maxCostPct'].includes(e.target.name)) {
     const form = $('form[data-form="cfg"]'), box = $('[data-ref="cost"]');
     if (!form || !box) return;
