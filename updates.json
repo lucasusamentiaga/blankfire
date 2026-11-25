@@ -3,6 +3,29 @@
     "ai": false
   },
   "releases": {
+    "1.23.0": {
+      "date": "2026-11-25",
+      "es": [
+        "Nuevo agente de Seguridad con el informe de RugCheck: veta si pueden fabricar o congelar tokens, si cobra impuestos ocultos, si el creador ya hizo rug, si una wallet tiene más del 25 % o si la liquidez es ridícula",
+        "Nuevo agente de Indicadores con las velas de 1 min: RSI, medias de 9 y 21, picos de volumen con velas verdes o rojas y distancia al máximo",
+        "Restricciones: descansa tras 3 pérdidas seguidas, no compra si SOL cae más de un 3 % en una hora ni en las horas en que el bot pierde de forma clara (todo ajustable)",
+        "Nuevos filtros: operaciones mínimas en la última hora y exigir informe de seguridad",
+        "Cada decisión trae un repaso de sí / no y enlaces para comprobarlo tú (RugCheck, Solscan, DexScreener, Padre)",
+        "«Ten cuidado con»: lo que ningún filtro puede evitar, explicado antes de arrancar",
+        "Si una posición se queda sin precio 3 min, te avisa: el stop no puede actuar sin precio",
+        "Los campos vacíos de Límites ya no se guardan como cero"
+      ],
+      "en": [
+        "New Safety agent using RugCheck's report: vetoes if tokens can be minted or frozen, hidden taxes, a creator with past rugs, one wallet over 25% or tiny liquidity",
+        "New Indicators agent on 1-min candles: RSI, 9/21 moving averages, volume spikes with green or red candles and distance from the high",
+        "Restrictions: rests after 3 losses in a row, doesn't buy if SOL drops over 3% in an hour or during hours when the bot clearly loses (all adjustable)",
+        "New filters: minimum trades in the last hour and requiring a safety report",
+        "Every decision includes a yes/no checklist and links to verify it yourself (RugCheck, Solscan, DexScreener, Padre)",
+        "“Watch out for”: what no filter can prevent, explained before you start",
+        "If a position has no price for 3 min you get a warning: the stop can't act without a price",
+        "Empty Limits fields are no longer saved as zero"
+      ]
+    },
     "1.22.0": {
       "date": "2026-11-25",
       "es": [

@@ -32,6 +32,8 @@ await ctx.route('https://api.dexscreener.com/**', (route) => {
   if (u.includes(SOL)) return route.fulfill({ json: [{ chainId: 'solana', baseToken: { address: SOL, symbol: 'SOL' }, quoteToken: { symbol: 'USDC' }, priceUsd: '180', liquidity: { usd: 9e6 } }] });
   return route.fulfill({ json: Object.keys(T).filter((k) => u.includes(ADDR[k])).map(pairOf) });
 });
+await ctx.route('https://api.rugcheck.xyz/**', (r) => r.fulfill({ json: { risks: [], score: 1, score_normalised: 1, lpLockedPct: 100 } }));
+// (la seguridad con riesgos se prueba en t47; aquí todas salen limpias)
 await ctx.route('https://api.geckoterminal.com/**', (route) => {
   const u = route.request().url();
   const k = Object.keys(T).find((x) => u.includes(ADDR[x]));
@@ -53,7 +55,7 @@ await pg.evaluate(() => new Promise((res) => chrome.runtime.sendMessage({ type: 
 await pg.reload(); await pg.waitForTimeout(900);
 const store = () => sw.evaluate(() => chrome.storage.local.get('blankfireBot').then((g) => g.blankfireBot));
 
-ok(/Así decide/.test(await pg.innerText('body')) && (await pg.locator('.flow li').count()) === 6, 'sin sesión explica los 6 pasos (filtros, 4 agentes, ejecutor)');
+ok(/Así decide/.test(await pg.innerText('body')) && (await pg.locator('.flow li').count()) === 9 && (await pg.locator('.care li').count()) >= 5, 'sin sesión explica los 9 pasos (restricciones, filtros, 6 agentes, ejecutor) y de qué tener cuidado');
 await pg.screenshot({ path: TDIR + 't39-intro-es.png', fullPage: true });
 // Con 3 SOL (entradas de 0,3) las comisiones se comen el stop: la ventana lo avisa antes de arrancar.
 await pg.fill('input[name="budgetSol"][form="startForm"]', '3');
@@ -82,7 +84,7 @@ ok(Math.abs(s.balance + p.costSol - 10) < 1e-9 && p.costSol <= 1.03, 'gasta ≤ 
 // Abrir los detalles de la compra.
 await pg.locator('.ev.k-buy .ev-row').first().click();
 await pg.waitForTimeout(300);
-ok((await pg.locator('.ev.k-buy .agent').count()) === 4 && /A favor/.test(await pg.locator('.ev.k-buy .agents').innerText()), 'al pulsar la compra se ven los cuatro agentes y el debate');
+ok((await pg.locator('.ev.k-buy .agent').count()) === 7 && /A favor/.test(await pg.locator('.ev.k-buy .agents').innerText()) && (await pg.locator('.ev.k-buy .ck.ok').count()) >= 3 && (await pg.locator('.ev.k-buy .verify a').count()) === 4, 'al pulsar la compra se ven los seis agentes, el debate, el repaso de sí / no y los enlaces para comprobarlo');
 await pg.screenshot({ path: TDIR + 't39-live-es.png', fullPage: true });
 
 // Stop duro: el precio cae un 9 %.

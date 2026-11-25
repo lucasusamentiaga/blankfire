@@ -24,6 +24,11 @@ export const BOT_DEFAULTS = {
   minScore: 0.3,         // nota mínima del consejo (de −1 a +1) para entrar
   maxImpactPct: 3,       // la ruta reduce el tamaño hasta mover el precio ≤ 3 %
   maxCostPct: 8,         // entrar y salir al momento no puede costar más de un 8 % (comisiones + impacto)
+  // Restricciones: momentos en los que el bot no compra aunque vea algo bueno.
+  maxLossStreak: 3,      // tras 3 pérdidas seguidas descansa…
+  streakPauseMin: 30,    // …30 min (0 = sin descanso)
+  solDropPct: 3,         // si SOL cae un 3 % en una hora, no compra (0 = no mirar)
+  avoidBadHours: true,   // no compra en las horas en que el propio bot pierde de forma clara
   filters: {
     minLiqUsd: 15000,
     minMcUsd: 25000,
@@ -33,6 +38,8 @@ export const BOT_DEFAULTS = {
     minVolH1Usd: 5000,
     maxH1Pct: 300,       // ya subió más de ×4 en la última hora: llegas tarde
     needSocials: true,
+    needSafety: true,    // sin informe de seguridad (RugCheck) no compra
+    minTxnsH1: 40,       // operaciones mínimas en la última hora
   },
 };
 
@@ -63,6 +70,10 @@ export function cleanConfig(c = {}) {
     minScore: n(c.minScore, d.minScore, 0, 0.9),
     maxImpactPct: n(c.maxImpactPct, d.maxImpactPct, 0.5, 10),
     maxCostPct: n(c.maxCostPct, d.maxCostPct, 2, 15),
+    maxLossStreak: Math.round(n(c.maxLossStreak, d.maxLossStreak, 0, 10)),
+    streakPauseMin: Math.round(n(c.streakPauseMin, d.streakPauseMin, 0, 240)),
+    solDropPct: n(c.solDropPct, d.solDropPct, 0, 20),
+    avoidBadHours: c.avoidBadHours !== false,
     filters: {
       minLiqUsd: n(f.minLiqUsd, d.filters.minLiqUsd, 0, 1e8),
       minMcUsd: n(f.minMcUsd, d.filters.minMcUsd, 0, 1e10),
@@ -72,6 +83,8 @@ export function cleanConfig(c = {}) {
       minVolH1Usd: n(f.minVolH1Usd, d.filters.minVolH1Usd, 0, 1e9),
       maxH1Pct: n(f.maxH1Pct, d.filters.maxH1Pct, 20, 10000),
       needSocials: f.needSocials !== false,
+      needSafety: f.needSafety !== false,
+      minTxnsH1: Math.round(n(f.minTxnsH1, d.filters.minTxnsH1, 0, 100000)),
     },
   };
 }
@@ -101,6 +114,9 @@ export function filterPair(pair, cfg, { now = Date.now(), held = {}, recent = {}
   if (ageMin != null && ageMin < f.minAgeMin) why.push(note('tiene {m} min: demasiado nueva', { m: Math.max(0, Math.round(ageMin)) }));
   if (ageMin != null && ageMin > f.maxAgeH * 60) why.push(note('tiene más de {h} h', { h: f.maxAgeH }));
   if (volH1 < f.minVolH1Usd) why.push(note('volumen de la última hora {v}', { v: usdTxt(volH1) }));
+  const tx1 = (+pair.txns?.h1?.buys || 0) + (+pair.txns?.h1?.sells || 0);
+  if (pair.txns?.h1 && tx1 < f.minTxnsH1) why.push(note('solo {n} operaciones en una hora (mínimo {m})', { n: tx1, m: f.minTxnsH1 }));
+  if (!(num(pair.priceUsd) > 0)) why.push(note('sin precio'));
   if (h1 != null && h1 > f.maxH1Pct) why.push(note('ya subió {v} en una hora: llega tarde', { v: pctTxt(h1) }));
   const info = pair.info || {};
   if (f.needSocials && !(info.socials?.length || info.websites?.length)) why.push(note('sin web ni redes'));
@@ -161,8 +177,10 @@ export function trendsAgent(pair, ctx = {}) {
 }
 
 // ---------- Agente 3 · Debate (toro contra oso, con derecho a veto) ----------
-export function debateAgent(pair, { smarts, trends, shield } = {}) {
+export function debateAgent(pair, { smarts, trends, shield, safety, ind } = {}) {
   const bull = [], bear = []; let veto = null;
+  // Lo que dicen Seguridad e Indicadores también entra en la discusión (y su veto manda).
+  for (const a of [safety, ind]) { if (!a) continue; bull.push(...(a.bullW || [])); bear.push(...(a.bearW || [])); veto = veto || a.veto || null; }
   const liq = num(pair?.liquidity?.usd) || 0, mc = num(pair?.marketCap ?? pair?.fdv) || 0;
   const ratio = mc ? liq / mc : 0;
   if (ratio >= 0.12) bull.push([0.2, note('liquidez sana para su tamaño ({p} del market cap)', { p: pctAbs(ratio * 100) })]);
@@ -183,6 +201,166 @@ export function debateAgent(pair, { smarts, trends, shield } = {}) {
   const sum = (a) => a.reduce((s, [w]) => s + w, 0);
   const score = clamp(sum(bull) - sum(bear), -1, 1);
   return { id: 'debate', score: veto ? -1 : score, veto, bull: bull.map(([, n]) => n), bear: bear.map(([, n]) => n), notes: veto ? [veto] : [] };
+}
+
+// ---------- Agente 5 · Seguridad (informe de RugCheck) ----------
+// rep: respuesta de /v1/tokens/{mint}/report/summary → { risks:[{name,value,level}], score_normalised, lpLockedPct }.
+// Lo que puede vaciarte la cartera de golpe veta; lo demás pesa en contra.
+const RISK_RULES = [
+  [/mint authority/i, 'veto', 'pueden fabricar más tokens (autoridad de emisión activa)'],
+  [/freeze authority/i, 'veto', 'pueden congelar tus tokens (autoridad de congelar activa)'],
+  [/permanent delegate/i, 'veto', 'alguien puede mover tus tokens (delegado permanente)'],
+  [/transfer fee|transfer tax/i, 'veto', 'cobra un impuesto oculto en cada transferencia'],
+  [/rugged|history of rugged/i, 'veto', 'el creador ya ha hecho rug con otras monedas'],
+  [/low liquidity/i, 'danger', 'liquidez muy baja según RugCheck'],
+  [/single holder/i, 'holder', 'una sola wallet tiene {v} del suministro'],
+  [/top 10|holder concentration|high ownership/i, 'bear', 'pocas wallets tienen casi todo el suministro'],
+  [/lp unlocked|lp providers/i, 'bear', 'la liquidez no está bloqueada: la pueden retirar'],
+  [/insider|bundle|sniper/i, 'bear', 'compras de gente de dentro al lanzar'],
+  [/copycat/i, 'bear', 'RugCheck la marca como copia'],
+  [/mutable metadata/i, 'soft', 'el creador puede cambiar nombre e imagen'],
+];
+export function safetyAgent(rep, { need = true } = {}) {
+  const bullW = [], bearW = [], checks = []; let veto = null;
+  if (!rep || !Array.isArray(rep.risks)) {
+    const n = note('sin informe de seguridad (RugCheck no responde)');
+    checks.push({ ok: null, n });
+    if (need) veto = note('sin informe de seguridad: no compro a ciegas');
+    return { id: 'safety', score: need ? -1 : null, veto, bullW, bearW, checks, notes: [veto || n] };
+  }
+  const seen = new Set();
+  for (const r of rep.risks) {
+    const rule = RISK_RULES.find(([re]) => re.test(r?.name || ''));
+    const level = String(r?.level || '').toLowerCase();
+    if (!rule) {
+      const n = note('RugCheck avisa: «{r}»', { r: String(r?.name || '?').slice(0, 60) });
+      if (level === 'danger') bearW.push([0.3, n]); else if (level === 'warn') bearW.push([0.1, n]);
+      checks.push({ ok: false, n }); continue;
+    }
+    const [, kind, t] = rule;
+    if (seen.has(t)) continue; seen.add(t);
+    const pct = parseFloat(String(r.value || '').replace(',', '.'));
+    const n = note(t, Number.isFinite(pct) ? { v: pctAbs(pct, 0) } : undefined);
+    checks.push({ ok: false, n });
+    if (kind === 'veto') veto = veto || n;
+    else if (kind === 'danger') { if (level === 'danger') veto = veto || n; else bearW.push([0.3, n]); }
+    else if (kind === 'holder') { if (pct >= 25 || level === 'danger') veto = veto || n; else bearW.push([0.25, n]); }
+    else if (kind === 'bear') bearW.push([level === 'danger' ? 0.35 : 0.2, n]);
+    else bearW.push([0.05, n]);
+  }
+  const sc = num(rep.score_normalised);
+  if (sc != null) {
+    if (sc >= 70) veto = veto || note('RugCheck la puntúa {s}/100 de riesgo', { s: Math.round(sc) });
+    else if (sc >= 40) bearW.push([0.25, note('RugCheck la puntúa {s}/100 de riesgo', { s: Math.round(sc) })]);
+  }
+  const lp = num(rep.lpLockedPct);
+  if (lp != null) {
+    if (lp >= 90) { bullW.push([0.1, note('liquidez bloqueada o quemada ({p})', { p: pctAbs(lp) })]); checks.push({ ok: true, n: note('liquidez bloqueada o quemada ({p})', { p: pctAbs(lp) }) }); }
+    else if (lp < 50 && !seen.has('la liquidez no está bloqueada: la pueden retirar')) { const n = note('solo {p} de la liquidez está bloqueada', { p: pctAbs(lp) }); bearW.push([0.3, n]); checks.push({ ok: false, n }); }
+  }
+  if (!rep.risks.some((r) => /mint authority/i.test(r?.name || ''))) checks.unshift({ ok: true, n: note('nadie puede fabricar más tokens') });
+  if (!rep.risks.some((r) => /freeze authority/i.test(r?.name || ''))) checks.unshift({ ok: true, n: note('nadie puede congelar tus tokens') });
+  if (!rep.risks.length) bullW.push([0.2, note('RugCheck no ve ningún riesgo')]);
+  const score = veto ? -1 : clamp(bullW.reduce((a, [w]) => a + w, 0) - bearW.reduce((a, [w]) => a + w, 0), -1, 1);
+  // Lo que se ve en su recuadro: los datos, no la discusión (esa está en el Debate).
+  const facts = [];
+  if (sc != null) facts.push(note('riesgo según RugCheck: {s}/100', { s: Math.round(sc) }));
+  facts.push(note(rep.risks.length ? (rep.risks.length === 1 ? '1 aviso' : '{n} avisos') : 'sin avisos', { n: rep.risks.length }));
+  if (lp != null) facts.push(note('liquidez bloqueada: {p}', { p: pctAbs(lp) }));
+  return { id: 'safety', score, veto, bullW, bearW, checks, notes: facts };
+}
+
+// ---------- Agente 6 · Indicadores del gráfico (velas de 1 min) ----------
+// ohlcv: filas [ts, open, high, low, close, volume] en cualquier orden.
+export function rsi(closes, n = 14) {
+  if (closes.length <= n) return null;
+  let g = 0, l = 0;
+  for (let i = 1; i <= n; i++) { const d = closes[i] - closes[i - 1]; if (d > 0) g += d; else l -= d; }
+  g /= n; l /= n;
+  for (let i = n + 1; i < closes.length; i++) { const d = closes[i] - closes[i - 1]; g = (g * (n - 1) + Math.max(0, d)) / n; l = (l * (n - 1) + Math.max(0, -d)) / n; }
+  if (l === 0) return g === 0 ? 50 : 100;
+  return 100 - 100 / (1 + g / l);
+}
+export function ema(xs, n) { if (!xs.length) return null; const k = 2 / (n + 1); let e = xs[0]; for (let i = 1; i < xs.length; i++) e = xs[i] * k + e * (1 - k); return e; }
+export function indicators(ohlcv) {
+  const rows = (ohlcv || []).filter((r) => Array.isArray(r) && r.length >= 6 && [1, 2, 3, 4, 5].every((i) => Number.isFinite(Number(r[i])))).map((r) => r.map(Number)).sort((a, b) => a[0] - b[0]);
+  if (rows.length < 25) return null;
+  const closes = rows.map((r) => r[4]), vols = rows.map((r) => r[5]);
+  const last = closes.at(-1), high = Math.max(...rows.map((r) => r[2]));
+  const recent = vols.slice(-5).reduce((a, b) => a + b, 0) / 5;
+  const prior = vols.slice(-35, -5).slice().sort((a, b) => a - b);
+  const med = prior.length ? prior[Math.floor(prior.length / 2)] : 0;
+  const green = rows.slice(-5).filter((r) => r[4] >= r[1]).length;
+  return { n: rows.length, rsi: rsi(closes), ema9: ema(closes.slice(-40), 9), ema21: ema(closes.slice(-60), 21), last, fromHigh: high > 0 ? (last / high - 1) * 100 : 0, volSpike: med > 0 ? recent / med : recent > 0 ? 3 : 0, green };
+}
+export function indicatorAgent(ind) {
+  const bullW = [], bearW = [], checks = []; let veto = null;
+  if (!ind) return { id: 'ind', score: null, veto, bullW, bearW, checks: [{ ok: null, n: note('sin velas suficientes para calcular indicadores') }], notes: [note('sin velas suficientes para calcular indicadores')] };
+  const r = ind.rsi;
+  if (r != null) {
+    const n = note('RSI {v}', { v: Math.round(r) });
+    if (r >= 85) { bearW.push([0.35, note('RSI {v}: sobrecomprada, suele corregir', { v: Math.round(r) })]); checks.push({ ok: false, n }); }
+    else if (r >= 75) { bearW.push([0.15, note('RSI {v}: caliente', { v: Math.round(r) })]); checks.push({ ok: false, n }); }
+    else if (r <= 25) { bearW.push([0.25, note('RSI {v}: cae sin freno (no cojas el cuchillo)', { v: Math.round(r) })]); checks.push({ ok: false, n }); }
+    else if (r >= 50) { bullW.push([0.1, note('RSI {v}: fuerza sin pasarse', { v: Math.round(r) })]); checks.push({ ok: true, n }); }
+    else checks.push({ ok: null, n });
+  }
+  if (ind.ema9 != null && ind.ema21 != null) {
+    if (ind.ema9 > ind.ema21 && ind.last >= ind.ema21) { const n = note('media rápida sobre la lenta: tendencia de subida'); bullW.push([0.15, n]); checks.push({ ok: true, n }); }
+    else if (ind.ema9 < ind.ema21 && ind.last < ind.ema21) { const n = note('media rápida bajo la lenta: tendencia de bajada'); bearW.push([0.2, n]); checks.push({ ok: false, n }); }
+  }
+  if (ind.volSpike >= 3 && ind.green >= 3) { const n = note('volumen ×{x} sobre lo normal con velas verdes', { x: ind.volSpike.toFixed(1) }); bullW.push([0.2, n]); checks.push({ ok: true, n }); }
+  else if (ind.volSpike >= 3 && ind.green <= 1) { const n = note('volumen ×{x} con velas rojas: están vendiendo', { x: ind.volSpike.toFixed(1) }); bearW.push([0.3, n]); checks.push({ ok: false, n }); }
+  else if (ind.volSpike < 0.4) { const n = note('el volumen se ha secado'); bearW.push([0.15, n]); checks.push({ ok: false, n }); }
+  if (ind.fromHigh <= -50) { const n = note('está un {p} por debajo de su máximo reciente', { p: pctAbs(-ind.fromHigh) }); bearW.push([0.3, n]); checks.push({ ok: false, n }); }
+  else if (ind.fromHigh >= -8 && (r == null || r < 85)) { const n = note('cerca de su máximo reciente'); bullW.push([0.05, n]); checks.push({ ok: true, n }); }
+  const score = clamp(bullW.reduce((a, [w]) => a + w, 0) - bearW.reduce((a, [w]) => a + w, 0), -1, 1);
+  const facts = [];
+  if (r != null) facts.push(note('RSI (14): {v}', { v: Math.round(r) }));
+  if (ind.ema9 != null && ind.ema21 != null) facts.push(note(ind.ema9 >= ind.ema21 ? 'medias 9/21: subiendo' : 'medias 9/21: bajando'));
+  facts.push(note('volumen reciente: ×{x} lo normal', { x: ind.volSpike.toFixed(1) }));
+  facts.push(note('distancia al máximo: {p}', { p: pctTxt(ind.fromHigh, Math.abs(ind.fromHigh) < 10 ? 1 : 0) }));
+  return { id: 'ind', score, veto, bullW, bearW, checks, notes: facts };
+}
+
+// ---------- Restricciones: cuándo no se compra aunque haya algo bueno ----------
+// Horas en las que el propio bot pierde de forma clara (al menos 4 operaciones, saldo negativo y < 35 % de aciertos).
+export function badHours(closed, tzOffsetMin = 0) {
+  const by = new Map();
+  for (const c of closed || []) {
+    if (!Number.isFinite(c?.closedAt) || !Number.isFinite(c?.pnlSol)) continue;
+    const h = new Date((c.openedAt || c.closedAt) - tzOffsetMin * 60e3).getUTCHours();
+    const b = by.get(h) || { n: 0, w: 0, pnl: 0 }; b.n++; if (c.pnlSol > 0) b.w++; b.pnl += c.pnlSol; by.set(h, b);
+  }
+  return [...by].filter(([, b]) => b.n >= 4 && b.pnl < 0 && b.w / b.n < 0.35).map(([h]) => h).sort((a, b) => a - b);
+}
+export function guardrails(session, { now = Date.now(), solH1 = null, tzOffsetMin = 0, pastClosed = [] } = {}) {
+  const c = session.config;
+  if (c.maxLossStreak > 0 && c.streakPauseMin > 0) {
+    let streak = 0, lastAt = 0;
+    for (let i = session.closed.length - 1; i >= 0 && session.closed[i].pnlSol < 0; i--) { streak++; lastAt = Math.max(lastAt, session.closed[i].closedAt); }
+    if (streak >= c.maxLossStreak && now - lastAt < c.streakPauseMin * 60e3) return note('{n} pérdidas seguidas: descansa {m} min antes de volver a comprar', { n: streak, m: Math.ceil((c.streakPauseMin * 60e3 - (now - lastAt)) / 60e3) });
+  }
+  if (c.solDropPct > 0 && Number.isFinite(solH1) && solH1 <= -c.solDropPct) return note('SOL cae {v} en una hora: con el mercado en contra no compra', { v: pctTxt(solH1, 1) });
+  if (c.avoidBadHours) {
+    const hours = badHours([...pastClosed, ...session.closed], tzOffsetMin);
+    const h = new Date(now - tzOffsetMin * 60e3).getUTCHours();
+    if (hours.includes(h)) return note('a esta hora ({h}:00) el bot pierde de forma clara: no compra', { h });
+  }
+  return null;
+}
+
+// Repaso final antes de comprar: todo lo que se ha mirado, en una lista de sí / no.
+export function checklist({ pair, safety, ind, router, smarts, trends }, cfg) {
+  const out = [];
+  const liq = num(pair?.liquidity?.usd) || 0, mc = num(pair?.marketCap ?? pair?.fdv) || 0;
+  out.push({ ok: true, n: note('pasa los filtros (liquidez {l}, market cap {m})', { l: usdTxt(liq), m: usdTxt(mc) }) });
+  for (const c of safety?.checks || []) out.push(c);
+  for (const c of ind?.checks || []) out.push(c);
+  if (smarts?.score != null) out.push({ ok: smarts.score > 0 ? true : smarts.score < 0 ? false : null, n: note('flujo de órdenes') });
+  if (trends?.score != null) out.push({ ok: trends.score > 0 ? true : trends.score < 0 ? false : null, n: note('tendencia') });
+  if (router) out.push({ ok: !!router.ok, n: router.ok && router.costPct != null ? note('ida y vuelta {v} (máximo {m})', { v: pctAbs(router.costPct, 1), m: pctAbs(cfg.maxCostPct) }) : router.notes?.[0] || note('ruta') });
+  return out;
 }
 
 // ---------- Agente 4 · Ruta y slippage ----------

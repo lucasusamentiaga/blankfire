@@ -16,7 +16,10 @@ const AGENTS = {
   trends: { name: 'Tendencias', what: 'Momento del precio, temas de moda y promoción' },
   debate: { name: 'Debate', what: 'Un toro y un oso discuten; el oso puede vetar' },
   router: { name: 'Ruta y slippage', what: 'Tamaño, impacto en el precio y margen de la orden' },
+  safety: { name: 'Seguridad', what: 'Informe de RugCheck: autoridades, holders, liquidez bloqueada, historial del creador' },
+  ind: { name: 'Indicadores', what: 'Velas de 1 min: RSI, medias, picos de volumen y distancia al máximo' },
 };
+const AGENT_ORDER = ['safety', 'smarts', 'trends', 'ind', 'debate', 'router'];
 
 // Números marcados por lib/bot.js («%+:12.5», «%:3», «$:15000») → texto en el idioma actual.
 function fmtVar(v) {
@@ -106,10 +109,26 @@ function agentBlock(id, a) {
     const li = (list) => (list?.length ? list.map((n) => `<li>${say(n)}</li>`).join('') : `<li class="muted">${tr('nada')}</li>`);
     body = a.veto ? `<p class="veto">${tr('Veto')}: ${say(a.veto)}</p>` : '';
     body += `<div class="pros"><b>${tr('A favor')}</b><ul>${li(a.bull)}</ul></div><div class="cons"><b>${tr('En contra')}</b><ul>${li(a.bear)}</ul></div>`;
-  } else body = `<ul>${(a.notes || []).map((n) => `<li>${say(n)}</li>`).join('')}</ul>`;
+  } else {
+    body = a.veto && id !== 'debate' ? `<p class="veto">${tr('Veto')}: ${say(a.veto)}</p>` : '';
+    const notes = (a.notes || []).filter((n) => !a.veto || n.t !== a.veto.t);
+    body += notes.length ? `<ul>${notes.map((n) => `<li>${say(n)}</li>`).join('')}</ul>` : '';
+  }
   return `<section class="agent ag-${id}">
     <header><h4>${tr(def.name)}</h4>${id === 'router' ? `<span class="tag ${a.ok ? 'ok' : 'no'}">${tr(a.ok ? 'ruta lista' : 'sin ruta')}</span>` : scoreBar(a.score)}</header>
     ${body}
+  </section>`;
+}
+// Repaso de sí / no de la decisión y enlaces para comprobarlo tú.
+function checksBlock(l) {
+  const list = l.agents?.checks || [];
+  const mark = (ok) => (ok === true ? ['ok', '✓', 'sí'] : ok === false ? ['no', '✕', 'no'] : ['na', '–', 'sin datos']);
+  const items = list.map((c) => { const [cls, ic, sr] = mark(c.ok); return `<li class="ck ${cls}"><i aria-hidden="true">${ic}</i><span class="sr">${tr(sr)}: </span>${say(c.n)}</li>`; }).join('');
+  const a = esc(l.addr || '');
+  return `<section class="agent ag-checks">
+    <header><h4>${tr('Repaso')}</h4></header>
+    ${items ? `<ul class="cklist">${items}</ul>` : ''}
+    ${a ? `<p class="verify">${tr('Compruébalo tú')}: <a href="https://rugcheck.xyz/tokens/${a}" target="_blank" rel="noopener">RugCheck</a> · <a href="https://solscan.io/token/${a}" target="_blank" rel="noopener">Solscan</a> · <a href="https://dexscreener.com/solana/${a}" target="_blank" rel="noopener">DexScreener</a> · <a href="https://trade.padre.gg/trade/solana/${a}" target="_blank" rel="noopener">Padre</a></p>` : ''}
   </section>`;
 }
 function logRow(l, i) {
@@ -127,7 +146,7 @@ function logRow(l, i) {
   const isOpen = open.has(id);
   return `<li class="ev ${cls}">
     <button class="ev-row" data-act="toggle" data-id="${id}" aria-expanded="${isOpen}">${head}</button>
-    <div class="agents" ${isOpen ? '' : 'hidden'}>${['smarts', 'trends', 'debate', 'router'].map((k) => agentBlock(k, l.agents[k])).join('')}</div>
+    <div class="agents" ${isOpen ? '' : 'hidden'}>${AGENT_ORDER.map((k) => agentBlock(k, l.agents[k])).join('')}${checksBlock(l)}</div>
   </li>`;
 }
 function stream(s) {
@@ -335,6 +354,16 @@ function limits(cfg, live) {
       ${field('maxImpactPct', 'Impacto máximo', cfg.maxImpactPct, { min: 0.5, max: 10, step: 0.5, unit: '%' })}
     </div>
     <details class="filters">
+      <summary>${tr('Restricciones: cuándo no compra')}</summary>
+      <div class="row2">
+        ${field('maxLossStreak', 'Pérdidas seguidas', cfg.maxLossStreak, { min: 0, max: 10, unit: 'y descansa', note: '0 = nunca descansa' })}
+        ${field('streakPauseMin', 'Descanso', cfg.streakPauseMin, { min: 0, max: 240, unit: 'min' })}
+      </div>
+      ${field('solDropPct', 'No comprar si SOL cae en 1 h más de', cfg.solDropPct, { min: 0, max: 20, step: 0.5, unit: '%', note: '0 = no mirar el mercado' })}
+      <label class="chk"><input type="checkbox" name="avoidBadHours" ${cfg.avoidBadHours ? 'checked' : ''}> ${tr('No comprar en las horas en que el bot pierde de forma clara')}</label>
+      <p class="muted">${tr('Una hora cuenta como mala con al menos 4 operaciones, saldo negativo y menos de un 35 % de aciertos (sumando sesiones anteriores).')}</p>
+    </details>
+    <details class="filters">
       <summary>${tr('Filtros para saltarse monedas')}</summary>
       <div class="row2">
         ${field('f.minLiqUsd', 'Liquidez mínima', f.minLiqUsd, { min: 0, max: 1e8, step: 1000, unit: 'USD' })}
@@ -348,9 +377,13 @@ function limits(cfg, live) {
         ${field('f.minAgeMin', 'Edad mínima', f.minAgeMin, { min: 0, max: 1440, unit: 'min' })}
         ${field('f.maxAgeH', 'Edad máxima', f.maxAgeH, { min: 1, max: 8760, unit: 'h' })}
       </div>
-      ${field('f.maxH1Pct', 'Saltar si ya subió en 1 h más de', f.maxH1Pct, { min: 20, max: 10000, step: 10, unit: '%' })}
+      <div class="row2">
+        ${field('f.maxH1Pct', 'Saltar si ya subió en 1 h más de', f.maxH1Pct, { min: 20, max: 10000, step: 10, unit: '%' })}
+        ${field('f.minTxnsH1', 'Operaciones 1 h mínimas', f.minTxnsH1, { min: 0, max: 100000, step: 10, unit: 'órdenes' })}
+      </div>
       <label class="chk"><input type="checkbox" name="f.needSocials" ${f.needSocials ? 'checked' : ''}> ${tr('Saltar monedas sin web ni redes')}</label>
-      <p class="muted">${tr('Además, el escudo anti-rug veta las copias de monedas famosas y los gráficos con dibujo de rug.')}</p>
+      <label class="chk"><input type="checkbox" name="f.needSafety" ${f.needSafety ? 'checked' : ''}> ${tr('Saltar monedas sin informe de seguridad (RugCheck)')}</label>
+      <p class="muted">${tr('Siempre veta: autoridad de emisión o de congelar activa, impuestos ocultos, creador con rugs, una wallet con más del 25 %, liquidez ridícula, copias de monedas famosas y gráficos con dibujo de rug.')}</p>
     </details>
     <button class="btn small" type="submit">${tr(live ? 'Aplicar a esta sesión' : 'Guardar')}</button>
   </form>`;
@@ -359,14 +392,25 @@ function limits(cfg, live) {
 // ---------- Sin sesión: cómo decide ----------
 function intro(cfg, past) {
   const steps = [
-    ['Filtros', 'Descarta lo que no cumple tus mínimos: liquidez, market cap, edad, volumen, redes.'],
-    ...Object.values(AGENTS).map((a) => [a.name, a.what]),
-    ['Ejecutor', 'Junta las notas (35 % dinero, 25 % tendencias, 40 % debate) y solo compra si pasa el mínimo y hay ruta.'],
+    ['Restricciones', 'No mira nada tras una racha de pérdidas, con SOL cayendo o en tus horas malas.'],
+    ['Filtros', 'Descarta lo que no cumple tus mínimos: liquidez, market cap, edad, volumen, operaciones, redes.'],
+    ...AGENT_ORDER.map((k) => [AGENTS[k].name, AGENTS[k].what]),
+    ['Ejecutor', 'Junta las notas (35 % dinero, 25 % tendencias, 40 % debate, que ya incluye seguridad e indicadores) y solo compra si pasa el mínimo, nadie veta y hay ruta.'],
+  ];
+  const care = [
+    'Ningún filtro ve el futuro: un rug puede llegar después de comprar. El stop es lo único que te protege.',
+    'En caídas bruscas el stop sale peor de lo marcado: se revisa cada 30 s y el precio llega con segundos de retraso.',
+    'RugCheck puede equivocarse o no responder. Sin su informe, el bot no compra (puedes cambiarlo en Filtros).',
+    'Las comisiones de Padre se comen las entradas pequeñas: mira el recuadro de coste antes de arrancar.',
+    'Una racha buena en práctica no garantiza nada con dinero real: empieza con muy poco y súbelo despacio.',
+    'Con Opera cerrado no vigila nada. Antes de apagar el PC, pulsa «Terminar y cerrar todo» o vende tú.',
   ];
   return `<section class="intro">
     <h2>${tr('Así decide')}</h2>
     <ol class="flow">${steps.map(([n, w]) => `<li><b>${tr(n)}</b><span>${tr(w)}</span></li>`).join('')}</ol>
     <p class="hint">${tr('Mira el mercado cada 2 minutos y vigila las abiertas cada 30 segundos, aunque cierres esta pestaña (Opera tiene que seguir abierto).')}</p>
+    <h3>${tr('Ten cuidado con')}</h3>
+    <ul class="care">${care.map((c) => `<li>${tr(c)}</li>`).join('')}</ul>
     <div class="go">
       <label class="fld"><span class="fl">${tr('Saldo de la sesión')}</span><small>${tr('Fijo: no se puede rellenar a mitad de sesión.')}</small><span class="fi"><input type="number" name="budgetSol" form="startForm" value="${cfg.budgetSol}" min="0.1" max="1000" step="0.1"><em>SOL</em></span></label>
       <form id="startForm" data-form="start"><button class="btn primary" type="submit">${tr('Arrancar sesión')}</button></form>
@@ -405,6 +449,7 @@ function readCfg(form) {
   const out = { filters: {} };
   for (const el of form.querySelectorAll('input[name]')) {
     if (el.disabled) continue;
+    if (el.type !== 'checkbox' && (el.value.trim() === '' || !Number.isFinite(Number(el.value)))) continue;   // vacío: se queda como estaba
     const v = el.type === 'checkbox' ? el.checked : Number(el.value);
     if (el.name.startsWith('f.')) out.filters[el.name.slice(2)] = v; else out[el.name] = v;
   }

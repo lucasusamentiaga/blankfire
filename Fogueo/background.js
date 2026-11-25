@@ -10,6 +10,7 @@ import {
   BOT_KEY, BOT_DEFAULTS, RECAP_MS, EXIT_TEXT, cleanConfig, freshSession, filterPair, smartsAgent, trendsAgent, debateAgent,
   routerAgent, councilScore, decide, entrySize, exitReason, sessionEquity, lossHit, pushLog, makeRecap, metaWords,
   cleanCopilot, copilotGate, signalsToday, COPILOT_DEFAULTS,
+  safetyAgent, indicators, indicatorAgent, guardrails, checklist,
 } from './lib/bot.js';
 import { themes, snapshotOf, whaleTape, recentBuys, parseSwaps } from './lib/radar.js';
 import { newKeypair, keypairFromSecret, signTransaction, transferTx, closeAccountTx, TOKEN_PROGRAMS, b58encode, b58decode, b64encode, b64decode, isAddress } from './lib/solana.js';
@@ -771,12 +772,33 @@ async function shieldFor({ mint, name, symbol, createdAt, mcUsd }) {
     const pool = pools?.data?.[0]?.attributes?.address;
     if (!pool) return null;
     const o = await fetch(`${GT}/networks/solana/pools/${pool}/ohlcv/minute?aggregate=1&limit=90&currency=usd`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(7000) }).then((r) => (r.ok ? r.json() : null));
-    return analyzeChart(o?.data?.attributes?.ohlcv_list || []);
+    const rows = o?.data?.attributes?.ohlcv_list || [];
+    return { ...analyzeChart(rows), ind: indicators(rows) };
   })();
   const [copies, chart] = await Promise.all([copiesP.catch(() => null), chartP.catch(() => null)]);
   const data = { copies, chart, at: Date.now() };
   shieldCache.set(mint, { at: Date.now(), data });
   if (shieldCache.size > 200) shieldCache.delete(shieldCache.keys().next().value);
+  return data;
+}
+
+// Informe de seguridad de RugCheck (gratis, 15 peticiones por minuto): caché de 10 min y freno propio.
+const RC = 'https://api.rugcheck.xyz/v1';
+const rcCache = new Map(); const rcHits = [];
+async function rugcheckFor(mint) {
+  const hit = rcCache.get(mint);
+  if (hit && Date.now() - hit.at < 10 * 60e3) return hit.data;
+  const now = Date.now();
+  while (rcHits.length && now - rcHits[0] > 60e3) rcHits.shift();
+  if (rcHits.length >= 12) return null;   // sin cupo este minuto: se vuelve a mirar en la siguiente búsqueda
+  rcHits.push(now);
+  const r = await fetch(`${RC}/tokens/${encodeURIComponent(mint)}/report/summary`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8000) }).catch(() => null);
+  if (!r?.ok) return null;
+  const j = await r.json().catch(() => null);
+  if (!j || !Array.isArray(j.risks)) return null;
+  const data = { risks: j.risks.slice(0, 30).map((x) => ({ name: String(x?.name || '').slice(0, 80), value: String(x?.value || '').slice(0, 20), level: String(x?.level || '').slice(0, 10) })), score_normalised: Number(j.score_normalised), lpLockedPct: Number(j.lpLockedPct) };
+  rcCache.set(mint, { at: Date.now(), data });
+  if (rcCache.size > 300) rcCache.delete(rcCache.keys().next().value);
   return data;
 }
 
@@ -1492,7 +1514,7 @@ function botClose(s, key, quote, sol, settings, exit, now) {
   pushLog(s, { kind: 'sell', symbol: p.symbol, addr: p.addr, exit, ch, pnlSol, pnlPct, mins: Math.round((now - p.openedAt) / 60e3) }, now);
 }
 
-async function botScan(s, settings, sol, now) {
+async function botScan(s, settings, sol, now, store = {}) {
   s.lastScanAt = now;
   const [boosts, profiles] = await Promise.all([
     getJson(`${DS}/token-boosts/latest/v1`).catch(() => []),
@@ -1506,6 +1528,17 @@ async function botScan(s, settings, sol, now) {
   for (let i = 0; i < addrs.length; i += 30) raw.push(...(await getJson(`${DS}/tokens/v1/solana/${addrs.slice(i, i + 30).join(',')}`).catch(() => [])));
   const pairs = botBestPairs(raw);
   const meta = metaWords(pairs);
+  // Restricciones antes de mirar nada: racha de pérdidas, SOL cayendo, horas malas.
+  const solPair = await getJson(`${DS}/tokens/v1/solana/${SOL_MINT}`).then((l) => (Array.isArray(l) ? l : []).filter((p) => /USD/.test(p?.quoteToken?.symbol || '')).sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0]).catch(() => null);
+  const solH1 = Number(solPair?.priceChange?.h1);
+  const past = store.pastClosed || [];
+  const stopNote = guardrails(s, { now, solH1: Number.isFinite(solH1) ? solH1 : null, tzOffsetMin: new Date(now).getTimezoneOffset(), pastClosed: past });
+  if (stopNote) {
+    if (!s.lastGuard || s.lastGuard.t !== stopNote.t || now - s.lastGuardAt > 30 * 60e3) { pushLog(s, { kind: 'info', reason: stopNote }, now); s.lastGuardAt = now; }
+    s.lastGuard = stopNote;
+    return;
+  }
+  s.lastGuard = null;
   const held = Object.fromEntries(Object.values(s.positions).map((p) => [p.addr, true]));
   const tracked = await trackedBuys().catch(() => ({}));
   s.skipSeen ||= {};
@@ -1530,18 +1563,24 @@ async function botScan(s, settings, sol, now) {
   s.skipSeen = Object.fromEntries(pruned);
   keep.sort((a, b) => b.pre - a.pre);
   let slots = s.config.maxOpen - Object.keys(s.positions).length;
-  // Solo las tres mejores pasan al debate (cada una cuesta peticiones del escudo anti-rug).
-  for (const c of keep.slice(0, 3)) {
+  // Solo las cuatro mejores pasan al debate (cada una cuesta peticiones del escudo y de RugCheck).
+  for (const c of keep.slice(0, 4)) {
     const { pair, smarts, trends } = c, addr = pair.baseToken.address;
-    const shield = await shieldFor({ mint: addr, name: pair.baseToken.name, symbol: pair.baseToken.symbol, createdAt: pair.pairCreatedAt, mcUsd: Number(pair.marketCap ?? pair.fdv) || 0 }).catch(() => null);
-    const debate = debateAgent(pair, { smarts, trends, shield });
+    const [shield, rc] = await Promise.all([
+      shieldFor({ mint: addr, name: pair.baseToken.name, symbol: pair.baseToken.symbol, createdAt: pair.pairCreatedAt, mcUsd: Number(pair.marketCap ?? pair.fdv) || 0 }).catch(() => null),
+      rugcheckFor(addr).catch(() => null),
+    ]);
+    const safety = safetyAgent(rc, { need: s.config.filters.needSafety });
+    const ind = indicatorAgent(shield?.chart?.ind || null);
+    const debate = debateAgent(pair, { smarts, trends, shield, safety, ind });
     const quote = withTax(pairToQuote(pair));
     let router = routerAgent({ quote, sizeSol: Math.min(entrySize(s), s.balance), solUsd: sol, settings, cfg: s.config, simulateBuy, simulateSell });
     if (router.ok && slots > 0 && !debate.veto) {
       const jup = await botJupRoute(addr, router.sizeSol, router.slipPct);
       if (jup) router = routerAgent({ quote, sizeSol: router.sizeSol, solUsd: sol, settings, cfg: s.config, simulateBuy, simulateSell, jup });
     }
-    const agents = { smarts, trends, debate, router };
+    const agents = { smarts, trends, debate, router, safety: { score: safety.score, veto: safety.veto, notes: safety.notes }, ind: { score: ind.score, notes: ind.notes } };
+    agents.checks = checklist({ pair, safety, ind, router, smarts, trends }, s.config);
     const verdict = decide(agents, s.config);
     if (verdict.action === 'buy' && slots > 0 && s.balance >= 0.02) { if (botOpen(s, pair, quote, router, verdict, agents, sol, settings, now)) slots--; }
     else {
@@ -1578,7 +1617,17 @@ async function botTick({ forceScan = false } = {}) {
       const q = await refreshQuotes(keys, { force: true }).catch(() => ({}));
       for (const k of keys) {
         const p = s.positions[k], quote = q[k];
-        if (!(quote?.priceUsd > 0) || now - (quote.at || 0) > 60e3) continue;
+        if (!(quote?.priceUsd > 0) || now - (quote.at || 0) > 60e3) {
+          // Sin precio fresco el stop no puede actuar: se avisa una vez (a los 3 min) para que lo mires tú.
+          const since = p.priceAt || p.openedAt;
+          if (!p.staleWarned && now - since > 3 * 60e3) {
+            p.staleWarned = true;
+            pushLog(s, { kind: 'info', symbol: p.symbol, addr: p.addr, reason: { t: 'sin precio de {s} desde hace {m} min: el stop no puede actuar. Revísala tú.', v: { s: p.symbol, m: Math.round((now - since) / 60e3) } } }, now);
+            notify(tr('Blankfire · sin precio de ${s}', { s: p.symbol }), tr('El stop no puede actuar mientras no haya precio. Revísala en Padre.'));
+          }
+          continue;
+        }
+        p.priceAt = now; p.staleWarned = false;
         p.lastPrice = quote.priceUsd;
         p.peak = Math.max(p.peak || p.entryPrice, quote.priceUsd);
         const sim = simulateSell({ qty: p.qty, quote, solUsd: sol, settings: { ...settings, sellSlippagePct: 99 } });
@@ -1608,7 +1657,7 @@ async function botTick({ forceScan = false } = {}) {
         const stale = ws.list.filter((w) => now - (ws.data[w.address]?.at || 0) > 110e3).sort((a, b) => (ws.data[a.address]?.at || 0) - (ws.data[b.address]?.at || 0)).slice(0, 3);
         for (const w of stale) await walletsRefresh({ address: w.address }).catch(() => {});
       }
-      await botScan(s, settings, sol, now);
+      await botScan(s, settings, sol, now, store);
     }
     copilotProcess(store, now);
   });
@@ -1679,7 +1728,11 @@ Object.assign(handlers, {
   async botStart({ config } = {}) {
     const store = await botRun(async (store) => {
       if (store.session && ['running', 'paused'].includes(store.session.status)) throw new Error(tr('Ya hay una sesión en marcha.'));
-      if (store.session) { store.past = [{ id: store.session.id, startedAt: store.session.startedAt, endedAt: store.session.endedAt || Date.now(), budgetSol: store.session.config.budgetSol, balance: store.session.balance, trades: store.session.closed.length, status: store.session.status }, ...(store.past || [])].slice(0, 20); }
+      if (store.session) {
+        store.past = [{ id: store.session.id, startedAt: store.session.startedAt, endedAt: store.session.endedAt || Date.now(), budgetSol: store.session.config.budgetSol, balance: store.session.balance, trades: store.session.closed.length, status: store.session.status }, ...(store.past || [])].slice(0, 20);
+        // Operaciones de sesiones anteriores (solo lo necesario) para aprender las horas malas.
+        store.pastClosed = [...(store.pastClosed || []), ...store.session.closed.map((c) => ({ openedAt: c.openedAt, closedAt: c.closedAt, pnlSol: c.pnlSol }))].slice(-1000);
+      }
       store.config = cleanConfig({ ...store.config, ...(config || {}), filters: { ...store.config?.filters, ...(config?.filters || {}) } });
       store.session = freshSession(store.config);
       pushLog(store.session, { kind: 'start', reason: { t: 'sesión iniciada con {b} SOL de práctica', v: { b: fmtSol(store.config.budgetSol) } } });

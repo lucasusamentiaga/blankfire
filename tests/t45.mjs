@@ -29,6 +29,7 @@ await ctx.route('https://api.dexscreener.com/**', (r) => {
   if (u.includes('/search')) return r.fulfill({ json: { pairs: [] } });
   return r.fulfill({ json: u.includes(FROG) ? [pair()] : [] });
 });
+await ctx.route('https://api.rugcheck.xyz/**', (r) => r.fulfill({ json: { risks: [], score: 1, score_normalised: 1, lpLockedPct: 100 } }));
 await ctx.route('https://api.geckoterminal.com/**', (r) => r.fulfill({ status: 404, body: '' }));
 // Jupiter: cotización y operación construida para la wallet que pida
 const swaps = [];

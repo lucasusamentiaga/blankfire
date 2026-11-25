@@ -29,6 +29,7 @@ await ctx.route('https://api.dexscreener.com/**', (r) => {
   return r.fulfill({ json: ps });
 });
 const iso = (min) => new Date(NOW - min * 60e3).toISOString();
+await ctx.route('https://api.rugcheck.xyz/**', (r) => r.fulfill({ json: { risks: [], score: 1, score_normalised: 1, lpLockedPct: 100 } }));
 await ctx.route('https://api.geckoterminal.com/**', (r) => {
   const u = r.request().url();
   if (u.includes('/pools?')) return r.fulfill({ json: { data: [{ attributes: { address: 'POOLFROG', name: 'FROG / SOL', reserve_in_usd: '80000' } }] } });

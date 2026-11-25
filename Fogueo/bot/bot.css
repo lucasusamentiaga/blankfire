@@ -307,3 +307,20 @@ a.sym:hover { color: var(--fx-brand-hi); }
 .tag { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--fx-raise-2); color: var(--fx-ink-2); }
 .tag.warn { background: var(--fx-down-wash); color: var(--fx-down); }
 .tag.info { background: var(--fx-info-wash); color: var(--fx-info); }
+
+/* Repaso de cada decisión: lista de sí / no que ocupa todo el ancho */
+.ag-checks { grid-column: 1 / -1; background: transparent; border: 1px solid var(--fx-line-soft); }
+.cklist { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 3px 18px; }
+.ck { display: grid; grid-template-columns: 16px 1fr; gap: 6px; align-items: baseline; }
+.ck i { font-style: normal; font-weight: 700; font-size: 12px; text-align: center; }
+.ck.ok i { color: var(--fx-up); }
+.ck.no i { color: var(--fx-down); }
+.ck.na i { color: var(--fx-ink-3); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.verify { margin-top: 10px; font-size: 12px; color: var(--fx-ink-3); }
+.verify a { color: var(--fx-ink-2); text-decoration: underline; text-decoration-color: var(--fx-line); text-underline-offset: 3px; }
+.verify a:hover { color: var(--fx-ink); text-decoration-color: currentColor; }
+.care { display: grid; gap: 8px; margin-top: 10px; max-width: 72ch; }
+.care li { position: relative; padding-left: 18px; color: var(--fx-ink-2); text-wrap: pretty; }
+.care li::before { content: ''; position: absolute; left: 2px; top: .6em; width: 6px; height: 6px; border-radius: 1px; background: var(--fx-warn, var(--fx-down)); transform: rotate(45deg); }
+.intro h3 { margin-top: 28px; }
