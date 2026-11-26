@@ -456,6 +456,10 @@ export function exitReason(pos, price, cfg, now = Date.now()) {
   if (ch <= -cfg.stopPct + 1e-9) return { id: 'stop', ch };
   if (ch >= cfg.tpPct - 1e-9) return { id: 'tp', ch };
   if (peakCh >= cfg.trailArmPct && fromPeak <= -cfg.trailPct) return { id: 'trail', ch };
+  // Una ganadora no se convierte en perdedora: si llegó a cubrir de sobra las comisiones y vuelve a
+  // ese punto, sale ahí (en ritmos rápidos el stop que sigue al precio quedaría por debajo del coste).
+  const be = pos.costSol > 0 && pos.rtCostSol > 0 ? (pos.rtCostSol / pos.costSol) * 100 + 0.3 : null;
+  if (be != null && peakCh >= cfg.trailArmPct && peakCh >= be + 1.5 && ch <= be) return { id: 'trail', ch };
   if (now - pos.openedAt > cfg.maxHoldMin * 60e3 && ch < Math.min(5, cfg.tpPct / 3)) return { id: 'time', ch };
   return null;
 }
@@ -478,6 +482,13 @@ export function lossHit(session, equity) {
 
 // ---------- Registro ----------
 export function pushLog(session, entry, now = Date.now()) {
+  // Avisos repetidos seguidos («ninguna pasó los filtros»…) se juntan en una fila: en ritmo Rápido
+  // llenarían el registro en minutos y echarían fuera las decisiones que importan.
+  const last = session.log.at(-1);
+  if (entry.kind === 'info' && last?.kind === 'info' && last.reason?.t === entry.reason?.t && !entry.symbol && !last.symbol) {
+    last.at = now; last.times = (last.times || 1) + 1; last.reason = entry.reason;
+    return;
+  }
   session.log.push({ at: now, ...entry });
   if (session.log.length > LOG_MAX) session.log.splice(0, session.log.length - LOG_MAX);
 }

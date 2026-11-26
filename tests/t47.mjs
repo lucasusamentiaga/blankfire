@@ -1,5 +1,5 @@
 // Seguridad (RugCheck), indicadores, restricciones y repaso del bot: lógica pura.
-import { safetyAgent, indicators, indicatorAgent, rsi, ema, guardrails, badHours, checklist, filterPair, cleanConfig, debateAgent, decide, freshSession, BOT_DEFAULTS } from '../Fogueo/lib/bot.js';
+import { exitReason, applyPace, safetyAgent, indicators, indicatorAgent, rsi, ema, guardrails, badHours, checklist, filterPair, cleanConfig, debateAgent, decide, freshSession, BOT_DEFAULTS } from '../Fogueo/lib/bot.js';
 let fails = 0; const ok = (c, m) => { if (!c) fails++; console.log((c ? 'OK  ' : 'FAIL') + ' ' + m); };
 const R = (name, level = 'warn', value = '') => ({ name, level, value });
 
@@ -72,6 +72,14 @@ ok(badHours(hist.slice(0, 3)).length === 0, 'con menos de 4 operaciones no se ju
 const ses2 = freshSession({}, now - 3600e3);
 ok(/a esta hora/.test(guardrails(ses2, { now, pastClosed: hist })?.t || ''), 'en la hora mala no compra');
 ok(guardrails({ ...ses2, config: { ...ses2.config, avoidBadHours: false } }, { now, pastClosed: hist }) === null, 'se puede desactivar');
+
+// --- Una ganadora no se convierte en perdedora (ritmo Rápido: el stop que sigue al precio quedaría bajo el coste)
+const fastCfg = applyPace(cleanConfig({}), 'fast');
+const pz = { entryPrice: 1, openedAt: Date.now(), costSol: 0.03, rtCostSol: 0.00075 };   // 2,5 % de ida y vuelta
+ok(exitReason({ ...pz, peak: 1.07 }, 1.024, fastCfg)?.id === 'trail', 'subió +7 % y vuelve a +2,4 %: sale antes de perder (comisiones 2,5 %)');
+ok(exitReason({ ...pz, peak: 1.07 }, 1.03, fastCfg) === null, 'si sigue por encima del coste, aguanta');
+ok(exitReason({ ...pz, peak: 1.03 }, 1.02, fastCfg) === null, 'sin haber cubierto de sobra el coste, no actúa (manda el stop normal)');
+ok(exitReason({ entryPrice: 1, openedAt: Date.now(), peak: 1.07 }, 1.024, fastCfg) === null, 'posiciones antiguas sin dato de coste: igual que antes');
 
 // --- Repaso
 const ck = checklist({ pair, safety: safetyAgent({ risks: [], score_normalised: 1, lpLockedPct: 100 }), ind: indicatorAgent(iu), router: { ok: true, costPct: 6.2 }, smarts: { score: 0.4 }, trends: { score: -0.1 } }, cfg);

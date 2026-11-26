@@ -1761,4 +1761,6 @@ export const EN = {
   "Escribe un saldo entre 0,05 y 1000 SOL (con punto: 0.13).": "Enter a balance between 0.05 and 1000 SOL (with a dot: 0.13).",
   "tu partida en la repetición": "your game in the replay",
   "lo que hiciste de verdad": "what you actually did",
+  "DexScreener no ha respondido: vuelve a mirar en {m}": "DexScreener didn't respond: checking again in {m}",
+  "×{n} seguidas": "×{n} in a row",
 };

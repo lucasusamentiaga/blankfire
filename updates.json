@@ -3,6 +3,23 @@
     "ai": false
   },
   "releases": {
+    "1.24.2": {
+      "date": "2026-11-26",
+      "es": [
+        "Una ganadora ya no se convierte en perdedora: si una moneda cubrió de sobra las comisiones y vuelve a ese punto, el bot sale ahí (importante en el ritmo Rápido)",
+        "Terminar la sesión o vender a mano usa las mismas comisiones que el resto de la práctica",
+        "Los avisos repetidos («ninguna moneda pasó los filtros»…) se juntan en una fila con «×N seguidas» y ya no echan del registro las decisiones importantes",
+        "El aviso de DexScreener caído dice cuándo vuelve a mirar según tu ritmo",
+        "Prueba de resistencia: miles de vueltas con subidas, rugs y caídas de red en los tres ritmos, con las cuentas cuadrando siempre"
+      ],
+      "en": [
+        "A winner no longer turns into a loser: if a coin more than covered its fees and falls back to that point, the bot exits there (key at Fast pace)",
+        "Ending the session or selling by hand uses the same fees as the rest of practice",
+        "Repeated notices (“no coin passed the filters”…) collapse into one row with “×N in a row” and no longer push important decisions out of the log",
+        "The DexScreener-down notice says when it checks again based on your pace",
+        "Stress test: thousands of cycles with pumps, rugs and network outages across all three paces, with the books always balancing"
+      ]
+    },
     "1.24.1": {
       "date": "2026-11-26",
       "es": [

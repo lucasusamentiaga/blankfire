@@ -143,7 +143,7 @@ function logRow(l, i) {
   if (l.kind === 'sell') main = `${tr(EXIT_TEXT[l.exit] || EXIT_TEXT.manual, { v: l.ch != null ? tr('precio {p}', { p: fmtPct(l.ch, 1, { sign: true }) }) : '—', m: l.mins })} · <b class="${tone(l.pnlSol)} num">${fmtSol(l.pnlSol, { sign: true })} SOL (${fmtPct(l.pnlPct, 1, { sign: true })})</b> <span class="more">${tr('con comisiones')}</span>`;
   else if (l.kind === 'buy') main = `${tr('{s} SOL a {p}', { s: fmtSol(l.sol), p: fmtPrice(l.price) })} · ${say(l.reason)}`;
   else if (l.kind === 'recap') main = tr(l.recap.trades === 1 ? '1 operación · {pnl} SOL' : '{n} operaciones · {pnl} SOL', { n: l.recap.trades, pnl: fmtSol(l.recap.pnlSol, { sign: true }) });
-  else main = say(l.reason) + (l.more?.length ? ` <span class="more">${tr('y {n} más', { n: l.more.length })}</span>` : '');
+  else main = say(l.reason) + (l.more?.length ? ` <span class="more">${tr('y {n} más', { n: l.more.length })}</span>` : '') + (l.times > 1 ? ` <span class="more">${tr('×{n} seguidas', { n: l.times })}</span>` : '');
   const hasAgents = !!l.agents;
   const sym = l.symbol && l.agents ? `<span class="sym">${esc(l.symbol)}</span>` : l.symbol ? `<a class="sym" href="https://trade.padre.gg/trade/solana/${esc(l.addr)}" target="_blank" rel="noopener">${esc(l.symbol)}</a>` : '<span class="sym none">·</span>';
   const head = `<span class="t num">${time(l.at)}</span>${sym}<span class="kind ${cls}">${tr(label)}</span><span class="why">${main}</span>${l.score != null ? scoreBar(l.score) : '<span></span>'}`;

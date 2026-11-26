@@ -1440,7 +1440,8 @@ chrome.commands?.onCommand.addListener(async (command) => {
 // Saldo propio de sesión en SOL ficticios: no toca la cuenta del usuario ni ninguna wallet.
 // =====================================================================
 const BOT_ALARM = 'blankfire-bot';
-const DESKTOP = !!globalThis.BLANKFIRE_DESKTOP;   // dentro de la app de escritorio: vueltas más rápidas
+const DESKTOP = !!globalThis.BLANKFIRE_DESKTOP;
+const fmtDurationTxt = (ms) => (ms >= 60e3 ? `${Math.round(ms / 60e3)} min` : `${Math.round(ms / 1e3)} s`);   // dentro de la app de escritorio: vueltas más rápidas
 const botWatchMin = (cfg) => paceTimes(cfg, DESKTOP).watchMin;
 let botChain = Promise.resolve();
 // Todo lo que cambia el bot pasa por esta cola: un tick y un «Parar» nunca se pisan.
@@ -1525,7 +1526,7 @@ async function botScan(s, settings, sol, now, store = {}) {
   const list = [...(Array.isArray(boosts) ? boosts : []), ...(Array.isArray(profiles) ? profiles : [])].filter((x) => x?.chainId === 'solana' && x.tokenAddress);
   const boosted = new Set((Array.isArray(boosts) ? boosts : []).map((x) => x.tokenAddress));
   const addrs = [...new Set(list.map((x) => x.tokenAddress))].slice(0, 60);
-  if (!addrs.length) { pushLog(s, { kind: 'info', reason: { t: 'DexScreener no ha respondido: vuelve a mirar en 2 min' } }, now); return; }
+  if (!addrs.length) { pushLog(s, { kind: 'info', reason: { t: 'DexScreener no ha respondido: vuelve a mirar en {m}', v: { m: fmtDurationTxt(paceTimes(s.config, DESKTOP).scanMs) } } }, now); return; }
   const raw = [];
   for (let i = 0; i < addrs.length; i += 30) raw.push(...(await getJson(`${DS}/tokens/v1/solana/${addrs.slice(i, i + 30).join(',')}`).catch(() => [])));
   const pairs = botBestPairs(raw);
@@ -1652,7 +1653,7 @@ async function botTick({ forceScan = false } = {}) {
     }
     // 2) Resumen cada 12 horas.
     if (now - s.lastRecapAt >= RECAP_MS) botRecap(s, now);
-    // 3) Buscar entradas cada 2 min, si queda hueco y saldo. Antes, lo último de las wallets que sigues (si hay clave de Helius).
+    // 3) Buscar entradas según el ritmo (cada 20 s – 2 min), si queda hueco y saldo. Antes, lo último de las wallets que sigues (si hay clave de Helius).
     const free = s.status === 'running' && Object.keys(s.positions).length < s.config.maxOpen && s.balance >= 0.01;
     if (free && (forceScan || now - s.lastScanAt >= paceTimes(s.config, DESKTOP).scanMs)) {
       if (userKeys.helius) {
@@ -1774,7 +1775,7 @@ Object.assign(handlers, {
       const keys = Object.keys(s.positions);
       const q = keys.length ? await refreshQuotes(keys, { force: true }).catch(() => ({})) : {};
       const now = Date.now();
-      for (const k of keys) botClose(s, k, q[k], sol, st.settings, 'manual', now);
+      for (const k of keys) botClose(s, k, q[k], sol, costSettings(st.settings, s.config), 'manual', now);
       copilotProcess(store, now);
       s.status = 'stopped'; s.endedAt = now;
       pushLog(s, { kind: 'stop', reason: { t: 'sesión terminada' } }, now);
@@ -1789,7 +1790,7 @@ Object.assign(handlers, {
     const q = await refreshQuotes([String(key)], { force: true }).catch(() => ({}));
     return botRun(async (store) => {
       const s = store.session;
-      if (s?.positions?.[key]) { botClose(s, key, q[key], sol, st.settings, 'manual', Date.now()); copilotProcess(store); }
+      if (s?.positions?.[key]) { botClose(s, key, q[key], sol, costSettings(st.settings, s.config), 'manual', Date.now()); copilotProcess(store); }
       return store;
     });
   },
@@ -1808,6 +1809,7 @@ Object.assign(handlers, {
 // Una vuelta a la vez: si la red va lenta, la siguiente alarma se salta en vez de hacer cola
 // (en la app de escritorio el ritmo Rápido vigila cada 5 s y una búsqueda puede tardar más).
 let botTicking = false;
+if (globalThis.BLANKFIRE_TEST) globalThis.__bfTick = botTick;   // solo para las pruebas de resistencia (tests/t50)
 chrome.alarms.onAlarm.addListener((a) => {
   if (a.name !== BOT_ALARM || botTicking) return;
   botTicking = true;
