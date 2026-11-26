@@ -6,7 +6,9 @@
 // Uso:  node make.mjs --today            (los dos de hoy: ES y EN)
 //       node make.mjs --idea=rug --lang=es
 //       node make.mjs --all               (todas las ideas, para revisar)
-import { chromium } from 'playwright';
+// Que las peticiones del motor de la extensión (service worker) también pasen por los datos de ejemplo.
+process.env.PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS = '1';
+const { chromium } = await import('playwright');
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -90,8 +92,11 @@ const SCENES = {
   // El bot decidiendo: registro, compra abierta con sus agentes y el repaso de sí / no.
   async bot(page, send) {
     await send({ type: 'botStart', config: { budgetSol: 2, pace: 'balanced', usePace: true } });
-    await page.waitForFunction(() => document.querySelectorAll('.ev.k-buy').length > 0, null, { timeout: 30000 });
+    await page.waitForSelector('.ev.k-buy', { timeout: 30000 });   // (waitForFunction no vale aquí: la CSP de la extensión prohíbe eval)
     await page.reload(); await page.waitForSelector('.ev.k-buy');
+    // Si no son los datos de ejemplo (p. ej. el navegador se saltó la simulación), no se graba: el vídeo diría «demo» y no lo sería.
+    const bought = await page.innerText('.ev.k-buy .sym');
+    if (!Object.values(T).some((x) => x.sym === bought.trim())) throw new Error('la grabación no está usando los datos de ejemplo');
     await page.evaluate(() => scrollTo(0, 0));
     return async () => {
       const top = (sel) => page.evaluate((sel) => { const el = document.querySelector(sel); return el ? el.getBoundingClientRect().top + scrollY - 90 : null; }, sel);
@@ -120,6 +125,7 @@ const SCENES = {
   async radar(page, send) {
     await page.goto(page.url().replace(/bot\/bot\.html.*/, 'radar/radar.html'));
     await page.waitForSelector('.th-row', { timeout: 20000 });
+    if (!/frog/i.test(await page.innerText('.th-w'))) throw new Error('la grabación no está usando los datos de ejemplo');
     return async () => {
       await wait(2400);
       await page.locator('.th-row').first().click(); await wait(2200);
@@ -279,6 +285,7 @@ if (jobs.some(([i]) => !i)) { console.error('No existe esa idea. Mira ideas.json
 let bad = 0;
 for (const [i, l] of jobs) { try { await makeOne(i, l); } catch (e) { bad++; console.error(`falló «${i.id}» (${l}): ${e.message}`); } }
 // Copia a OneDrive (si lo tienes) para tenerlos en el móvil.
-const od = process.env.OneDrive && path.join(process.env.OneDrive, 'Blankfire TikTok');
+const odRoot = process.env.OneDrive || (fs.existsSync(path.join(os.homedir(), 'OneDrive')) ? path.join(os.homedir(), 'OneDrive') : '');
+const od = odRoot && path.join(odRoot, 'Blankfire TikTok');
 if (od && !has('no-onedrive')) { try { fs.mkdirSync(od, { recursive: true }); for (const f of fs.readdirSync(OUT)) if (f.startsWith(new Date().toISOString().slice(0, 10))) fs.copyFileSync(path.join(OUT, f), path.join(od, f)); } catch (e) { console.error('OneDrive:', e.message); } }
 process.exit(bad ? 1 : 0);

@@ -1,4 +1,4 @@
-# Blankfire · tarea de Windows que genera los dos vídeos del día (ES y EN) a las 08:30, sin ventanas.
+﻿# Blankfire · tarea de Windows que genera los dos vídeos del día (ES y EN) a las 08:30, sin ventanas.
 # Si el PC está apagado a esa hora, los hace en cuanto se encienda. Para quitarla:
 #   Unregister-ScheduledTask -TaskName "Blankfire TikTok" -Confirm:$false
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
