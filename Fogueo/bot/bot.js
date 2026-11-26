@@ -9,6 +9,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const send = (msg) => new Promise((res) => chrome.runtime.sendMessage(msg, (r) => res(r || { ok: false, error: chrome.runtime.lastError?.message })));
 
 let store = null, filter = 'all', open = new Set(), busy = false, userSettings = DEFAULT_SETTINGS, advOpen = false;
+let money = null, bt = null, btBusy = false, keys = null, smoke = null;
 let real = null, realBackup = null, realBusy = false;
 const DESKTOP = !!globalThis.blankfireDesktop;   // dentro de la app de escritorio (sin Opera)
 const closesWhen = () => tr(DESKTOP ? 'al salir de la app' : 'al cerrar Opera');
@@ -252,7 +253,7 @@ function copilotBlock() {
         <label class="chk"><input type="checkbox" name="on" ${c.on ? 'checked' : ''}> ${tr('Avisarme de cada compra y venta del bot')}</label>
         <div class="row2">
           ${field('maxSol', 'Máximo por compra', c.maxSol, { min: 0.01, max: 5, step: 0.01, unit: 'SOL' })}
-          ${field('maxPerDay', 'Avisos de compra al día', c.maxPerDay, { min: 1, max: 30, unit: '' })}
+          ${field('maxPerDay', 'Avisos de compra al día', c.maxPerDay, { min: 1, max: 100, unit: '' })}
         </div>
         ${field('ttlMin', 'El aviso caduca a los', c.ttlMin, { min: 1, max: 15, unit: 'min' })}
         <p class="muted sm2">${tr('Empieza con poco: lo que la simulación aguanta no siempre lo aguanta tu cabeza con dinero real.')}</p>
@@ -318,6 +319,12 @@ function realBlock() {
     <div class="rbal"><div><span>${tr('Saldo')}</span><b class="num">${real.balance == null ? '—' : `${fmtSol(real.balance)} SOL`}</b></div>
       <div><span>${tr('Wallet del bot')}</span><button class="link mono" data-act="copyAddr">${esc(shortA(real.address))}</button></div></div>
     ${real.balErr ? `<p class="warnp">${esc(real.balErr)}</p>` : real.balance === 0 ? `<p class="hint">${tr('Mándale SOL desde Phantom a la dirección de la wallet del bot (pulsa para copiarla). Empieza con poco.')}</p>` : ''}
+    <div class="smoke">
+      <p class="sm2"><b>${tr('Prueba completa con 0,01 SOL')}</b> · ${tr('compra USDC y lo vende al momento para comprobar que todo funciona con dinero de verdad. Cuesta céntimos.')}</p>
+      <button class="btn small" data-act="realSmoke" ${realBusy || smoke === 'busy' ? 'disabled' : ''}>${tr(smoke === 'busy' ? 'Probando… (hasta 1 min)' : 'Hacer la prueba')}</button>
+      ${smoke && smoke !== 'busy' ? `<ul class="cklist one">${smoke.steps.map((x) => `<li class="ck ${x.ok ? 'ok' : 'no'}"><i aria-hidden="true">${x.ok ? '✓' : '✕'}</i>${tr(x.t, x.v ? Object.fromEntries(Object.entries(x.v).filter(([k]) => k !== 'sig').map(([k, v]) => [k, esc(String(v))])) : undefined)}${x.v?.sig ? ` · <a class="link" href="https://solscan.io/tx/${esc(x.v.sig)}" target="_blank" rel="noopener">Solscan</a>` : ''}</li>`).join('')}</ul>
+        <p class="sm2 ${smoke.ok ? 'up' : 'down'}">${smoke.ok ? tr('Todo correcto. Costó {v} SOL.', { v: smoke.costSol.toFixed(5) }) : tr('Algo falló: no enciendas el modo automático hasta que la prueba salga bien.')}</p>` : ''}
+    </div>
     <label class="chk big"><input type="checkbox" data-act="realMode" ${c.mode === 'auto' ? 'checked' : ''}> ${tr('Que el bot opere él solo con dinero real')}</label>
     <form class="cop" data-form="realCfg">
       <div class="row2">
@@ -371,6 +378,23 @@ function moveInForm() {
       <label class="fld"><span class="fl">${tr('Contraseña de esa wallet')}</span><span class="fi"><input type="password" name="pw" autocomplete="current-password"></span></label>
       <button class="btn small" type="submit" ${realBusy ? 'disabled' : ''}>${tr('Traer wallet')}</button>
     </form></details>`;
+}
+
+// Avisos al móvil por Telegram: tu propio bot (gratis), solo para recibir los avisos de Blankfire.
+function phoneBlock() {
+  const on = !!keys?.telegram;
+  return `<details class="side-s adv tg" ${on ? '' : ''}><summary>${tr('Avisos al móvil')}<span class="muted">${tr(on ? 'Conectado' : 'Telegram, gratis')}</span></summary>
+    ${on ? `<p class="hint">${tr('Te llegan a Telegram los mismos avisos que en el PC: stops, ventas pendientes, frenos y compras reales.')}</p>
+      <div class="rbtns"><button class="btn small" data-act="tgTest">${tr('Mandar un aviso de prueba')}</button><button class="btn small ghost" data-act="tgOff">${tr('Desconectar')}</button></div>`
+    : `<ol class="steps">
+        <li>${tr('En Telegram, abre @BotFather, escribe /newbot y ponle un nombre (lo creas tú).')}</li>
+        <li>${tr('Copia el token que te da (números, dos puntos y letras).')}</li>
+        <li>${tr('Abre tu bot nuevo y escríbele «hola».')}</li>
+        <li>${tr('Pega aquí el token y pulsa Conectar.')}</li>
+      </ol>
+      <form class="cop" data-form="tg"><label class="fld"><span class="fl">${tr('Token de tu bot')}</span><span class="fi"><input name="token" type="password" autocomplete="off" spellcheck="false" placeholder="123456789:AA…"></span><small>${tr('Se guarda aparte de tus datos y solo se usa para mandarte avisos a ti.')}</small></label>
+        <button class="btn small primary" type="submit">${tr('Conectar')}</button></form>`}
+  </details>`;
 }
 
 // ---------- Límites y filtros ----------
@@ -455,6 +479,16 @@ function paceRow(k, cfg) {
     <span class="pace-n num"><span>${tr('mira cada {s}', { s: fmtDuration(t.scanMs) })}</span><span>${fmtPct(p.tpPct, 0, { sign: true })} / ${fmtPct(-p.stopPct, 0)}</span></span>
   </label>`;
 }
+// ¿Qué ritmo habría ganado hace un rato? (velas de 1 min de las monedas que se mueven ahora)
+function btBlock() {
+  if (!bt) return `<div class="bt"><button type="button" class="btn small ghost" data-act="backtest" ${btBusy ? 'disabled' : ''}>${tr(btBusy ? 'Mirando las últimas 6 h… (tarda ~20 s)' : '¿Qué ritmo habría ganado en las últimas 6 h?')}</button></div>`;
+  if (bt.error) return `<div class="bt"><p class="warnp">${esc(bt.error)}</p></div>`;
+  const row = (k) => { const r = bt.paces[k]; return `<tr class="${bt.best === k ? 'win' : ''}"><th>${tr(PACE_TXT[k][0])}</th><td class="num">${r.trades}</td><td class="num">${r.winRate == null ? '—' : fmtPct(r.winRate, 0)}</td><td class="num ${tone(r.totalPct)}">${r.trades ? fmtPct(r.totalPct, 1, { sign: true }) : '—'}</td></tr>`; };
+  return `<div class="bt">
+    <table class="bt-t"><thead><tr><th></th><th>${tr('Operaciones')}</th><th>${tr('Aciertos')}</th><th>${tr('Resultado')}</th></tr></thead><tbody>${['calm', 'balanced', 'fast'].map(row).join('')}</tbody></table>
+    <p class="muted sm2">${bt.best ? tr('En las últimas {h} h, con {n} monedas, habría ganado más «{p}».', { h: bt.hours, n: bt.coins, p: tr(PACE_TXT[bt.best][0]) }) : tr('En las últimas {h} h ningún ritmo habría ganado tras comisiones. Es una señal para esperar.', { h: bt.hours })} ${tr('Aproximado: imita la entrada con el gráfico (sin flujo de órdenes ni wallets); las salidas y las comisiones sí son las del bot.')}</p>
+  </div>`;
+}
 function intro(cfg, past) {
   const steps = [
     ['Restricciones', 'No mira nada tras una racha de pérdidas, con SOL cayendo o en tus horas malas.'],
@@ -476,13 +510,18 @@ function intro(cfg, past) {
     <form id="startForm" data-form="start" class="start">
       <div class="q">
         <label class="ql" for="budgetSol">${tr('¿Con cuánto practicas?')}</label>
-        <p class="qh">${tr('Pon lo mismo que piensas meter de verdad. 20 € son unos 0,13 SOL.')}</p>
-        <span class="fi big"><input id="budgetSol" type="number" name="budgetSol" form="startForm" value="${cfg.budgetSol}" min="0.05" max="1000" step="0.01" inputmode="decimal"><em>SOL</em></span>
+        <p class="qh">${money?.solEur ? tr('Pon lo mismo que piensas meter de verdad. Hoy 1 SOL son {e}: 20 € son {s} SOL.', { e: `${money.solEur.toFixed(0)} €`, s: fmtSol(20 / money.solEur) }) : tr('Pon lo mismo que piensas meter de verdad.')}</p>
+        <div class="budget-r">
+          <span class="fi big"><input id="budgetSol" type="number" name="budgetSol" form="startForm" value="${cfg.budgetSol}" min="0.05" max="1000" step="0.01" inputmode="decimal"><em>SOL</em></span>
+          ${money?.solEur ? `<button type="button" class="btn small ghost" data-act="eur20">${tr('Usar 20 €')}</button>` : ''}
+          ${money?.solEur ? `<span class="muted sm">≈ <span class="num" data-ref="eur">${(cfg.budgetSol * money.solEur).toFixed(0)} €</span></span>` : ''}
+        </div>
       </div>
       <fieldset class="q">
         <legend class="ql">${tr('¿A qué ritmo?')}</legend>
         ${!DESKTOP ? `<p class="qh">${tr('En Opera mira como mucho cada 30 s. En la app de escritorio, «Rápido» va de verdad rápido.')}</p>` : ''}
         <div class="paces">${['calm', 'balanced', 'fast'].map((k) => paceRow(k, cfg)).join('')}</div>
+        ${btBlock()}
       </fieldset>
       ${costBox(cfg)}
       <button class="btn primary big" type="submit">${tr('Arrancar práctica')}</button>
@@ -505,12 +544,12 @@ function render() {
   const cfg = { ...BOT_DEFAULTS, ...raw, filters: { ...BOT_DEFAULTS.filters, ...(raw.filters || {}) } };
   // No repintar mientras escribes en un formulario (se perdería lo escrito).
   const ae = document.activeElement;
-  if (ae && $('#app').contains(ae) && ae.form && ['cfg', 'start', 'copilot', 'realCreate', 'realUnlock', 'realCfg', 'realWithdraw', 'realKey', 'realMove', 'realMoveIn'].includes(ae.form.dataset.form) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && !['radio', 'checkbox', 'submit', 'button', 'file'].includes(ae.type)) return;   // no pisar lo que escribe
+  if (ae && $('#app').contains(ae) && ae.form && ['cfg', 'start', 'copilot', 'realCreate', 'realUnlock', 'realCfg', 'realWithdraw', 'realKey', 'realMove', 'realMoveIn', 'tg'].includes(ae.form.dataset.form) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && !['radio', 'checkbox', 'submit', 'button', 'file'].includes(ae.type)) return;   // no pisar lo que escribe
   $('#app').innerHTML = `${header(s)}
     ${s ? ledger(s) : ''}
     <main class="grid">
       <div class="main-col">${s ? stream(s) : intro(cfg, store.past)}${s && !live ? intro(cfg, store.past) : ''}</div>
-      <aside class="side">${s ? positions(s) : ''}${moneyPath()}${copilotGate(store).ok ? copilotBlock() + realBlock() : ''}${s ? recaps(s) : ''}${limits(cfg, live)}</aside>
+      <aside class="side">${s ? positions(s) : ''}${moneyPath()}${copilotGate(store).ok ? copilotBlock() + realBlock() : ''}${s ? recaps(s) : ''}${phoneBlock()}${limits(cfg, live)}</aside>
     </main>`;
   document.title = `Blankfire · ${tr('Bot de práctica')}`;
 }
@@ -570,6 +609,11 @@ document.addEventListener('click', async (e) => {
   }
   if (a === 'realLock') { await realAct('realLock'); return; }
   if (a === 'realReclaim') { await realAct('realReclaim'); return; }
+  if (a === 'eur20' && money?.solEur) { const i = $('input[name="budgetSol"][form="startForm"]'); if (i) { i.value = (Math.round((20 / money.solEur) * 100) / 100).toFixed(2); i.dispatchEvent(new Event('input', { bubbles: true })); } return; }
+  if (a === 'backtest') { btBusy = true; render(); const r = await send({ type: 'botBacktest' }); btBusy = false; bt = r.ok ? r.data : { error: r.error }; render(); return; }
+  if (a === 'realSmoke') { smoke = 'busy'; render(); const r = await send({ type: 'realSmoke' }); smoke = r.ok ? r.data : { ok: false, steps: [{ t: 'falló: {e}', ok: false, v: { e: r.error } }], costSol: 0 }; await loadReal(); return; }
+  if (a === 'tgTest') { const r = await send({ type: 'botTgTest' }); toast(r.ok ? tr('Enviado: mira Telegram.') : r.error, !r.ok); return; }
+  if (a === 'tgOff') { const r = await send({ type: 'botTgOff' }); if (r.ok) { keys = { ...keys, telegram: false }; render(); } return; }
   if (a === 'realSellOne') { b.disabled = true; b.textContent = tr('Vendiendo…'); await realAct('realSellOne', { addr: b.dataset.addr }); return; }
 
   if (a === 'scan') { busy = true; render(); await act('botScanNow'); busy = false; render(); }
@@ -599,6 +643,17 @@ document.addEventListener('submit', async (e) => {
     if (what === 'export') { const r = await send({ type: 'realExport', password: pw }); if (r.ok) { realBackup = { backup: r.data.backup, address: real.address }; e.target.reset(); render(); } else toast(r.error, true); }
     else { const r = await realAct('realDelete', { password: pw }); if (r) toast(tr('Wallet del bot borrada.')); }
     return;
+  }
+  if (f === 'tg') {
+    const token = e.target.token.value.trim();
+    if (!token) { toast(tr('Pega el token de tu bot.'), true); return; }
+    // En Opera el permiso para hablar con Telegram se pide aquí, con tu clic.
+    const granted = await chrome.permissions.request({ origins: ['https://api.telegram.org/*'] }).catch(() => false);
+    if (!granted) { toast(tr('Sin el permiso para Telegram no puedo mandarte avisos.'), true); return; }
+    const r = await send({ type: 'saveKeys', tgToken: token });
+    if (!r.ok) { toast(r.error, true); return; }
+    keys = { ...keys, telegram: r.data.telegram }; e.target.reset(); document.activeElement?.blur?.();
+    toast(tr('Conectado: te he mandado un mensaje a Telegram.')); render(); return;
   }
   if (f === 'realMove') {
     const t = e.target, pw = t.pw.value;
@@ -640,6 +695,7 @@ document.addEventListener('input', (e) => {
     e.target.style.setProperty('--p', `${((v - STOP_MIN) / (STOP_MAX - STOP_MIN)) * 100}%`);
     e.target.setAttribute('aria-valuetext', fmtPct(-v, 1));
   }
+  if (e.target.name === 'budgetSol' && money?.solEur) { const o = $('[data-ref="eur"]'); if (o) o.textContent = `${((Number(e.target.value) || 0) * money.solEur).toFixed(0)} €`; }
   if (['budgetSol', 'sizePct', 'stopPct', 'maxCostPct'].includes(e.target.name)) {
     const form = $('form[data-form="cfg"]'), box = $('[data-ref="cost"]');
     if (!form || !box) return;
@@ -687,4 +743,6 @@ setInterval(render, 30e3);   // relojes («hace 3 min», «próximo resumen en�
   store = r.ok ? r.data : { config: BOT_DEFAULTS, session: null, past: [] };
   render();
   loadReal();
+  send({ type: 'botMoney' }).then((m) => { if (m.ok) { money = m.data; render(); } });
+  send({ type: 'keysStatus' }).then((k) => { if (k.ok) { keys = k.data; render(); } });
 })();

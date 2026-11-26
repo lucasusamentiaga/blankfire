@@ -1342,3 +1342,6 @@ a.upd-link { font-weight: 600; }
 .cop-card.sell { background: var(--fx-down-wash); }
 .cop-card.sell b { color: var(--fx-down); }
 .cop-f { color: var(--fx-ink-2); }
+
+/* 1.25 · Abierto, el recuento sobra (está en cada fila) y se cortaba: «4 bie…» */
+.chk.open .chk-tally { display: none; }

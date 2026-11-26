@@ -2,7 +2,7 @@
 // precios (DexScreener + Jupiter para tokens recién creados) y vigilancia de Take Profit / Stop Loss.
 import {
   DEFAULT_SETTINGS, simulateBuy, simulateSell, positionPnl, uid, fmtSol, fmtPct, fmtCompact,
-  realizedSince, startOfDay, REVIEW_TAGS, LAUNCH_DEXES, stopLevelPct, txCost, failCost,
+  realizedSince, startOfDay, REVIEW_TAGS, LAUNCH_DEXES, stopLevelPct, txCost, failCost, roundTripPct,
 } from './lib/core.js';
 import { tr, setLang } from './lib/i18n.js';
 import { analyzeCopies, analyzeChart } from './lib/shield.js';
@@ -13,6 +13,7 @@ import {
   safetyAgent, indicators, indicatorAgent, guardrails, checklist,
   costSettings, paceTimes, applyPace,
 } from './lib/bot.js';
+import { comparePaces } from './lib/backtest.js';
 import { themes, snapshotOf, whaleTape, recentBuys, parseSwaps } from './lib/radar.js';
 import { newKeypair, keypairFromSecret, signTransaction, transferTx, closeAccountTx, TOKEN_PROGRAMS, b58encode, b58decode, b64encode, b64decode, isAddress } from './lib/solana.js';
 import { seal, open as openVault, passwordProblem } from './lib/vault.js';
@@ -123,13 +124,13 @@ let jupBackoffUntil = 0;
 // ---------- Clave opcional del usuario (Jupiter) ----------
 // Fuera del estado principal: el panel de Padre nunca las recibe.
 const KEYS_KEY = 'blankfireKeys';
-let userKeys = { jupiter: '', helius: '' };
+let userKeys = { jupiter: '', helius: '', tgToken: '', tgChat: '' };
 chrome.storage.local.get(KEYS_KEY).then((g) => {
   const k = g[KEYS_KEY] || {};
-  userKeys = { jupiter: k.jupiter || '', helius: k.helius || '' };
-  if ('gemini' in k) chrome.storage.local.set({ [KEYS_KEY]: { jupiter: k.jupiter || '', helius: k.helius || '' } });   // ya no se usa: se borra
+  userKeys = { jupiter: k.jupiter || '', helius: k.helius || '', tgToken: k.tgToken || '', tgChat: k.tgChat || '' };
+  if ('gemini' in k) { const { gemini, ...rest } = k; chrome.storage.local.set({ [KEYS_KEY]: rest }); }   // ya no se usa: se borra
 }).catch(() => {});
-chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch[KEYS_KEY]) userKeys = { jupiter: '', helius: '', ...(ch[KEYS_KEY].newValue || {}) }; });
+chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch[KEYS_KEY]) userKeys = { jupiter: '', helius: '', tgToken: '', tgChat: '', ...(ch[KEYS_KEY].newValue || {}) }; });
 
 // Avisos de servicio que enseña la ventana (p. ej. «Jupiter ya pide clave»).
 const NOTICE_KEY = 'blankfireNotice';
@@ -733,6 +734,22 @@ function notify(title, message) {
   try {
     chrome.notifications.create({ type: 'basic', iconUrl: 'icons/icon128.png', title, message, priority: 1 });
   } catch (e) { /* notificaciones desactivadas */ }
+  tgSend(`${title}\n${message}`).catch(() => {});
+}
+
+// ---------- Avisos al móvil por Telegram (opcional) ----------
+// Tú creas un bot con @BotFather (tu token) y le escribes; Blankfire solo le manda texto a ese chat.
+const TG = 'https://api.telegram.org';
+const TG_ORIGIN = 'https://api.telegram.org/*';
+let tgLastAt = 0;
+async function tgSend(text, { force = false } = {}) {
+  if (!userKeys.tgToken || !userKeys.tgChat) return false;
+  if (!(await chrome.permissions.contains({ origins: [TG_ORIGIN] }).catch(() => false))) return false;
+  // Como mucho un aviso por segundo (Telegram corta si se manda más).
+  const wait = tgLastAt + 1100 - Date.now(); if (wait > 0 && !force) await new Promise((r) => setTimeout(r, wait));
+  tgLastAt = Date.now();
+  const r = await fetch(`${TG}/bot${userKeys.tgToken}/sendMessage`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ chat_id: userKeys.tgChat, text: String(text).slice(0, 3500), disable_web_page_preview: true }), signal: AbortSignal.timeout(8000) }).catch(() => null);
+  return !!r?.ok;
 }
 
 async function broadcast(msg) {
@@ -985,14 +1002,28 @@ const handlers = {
   async proActivate({ key }) { return proActivate(key); },
   async proDeactivate() { return proDeactivate(); },
   async proRecheck() { return proValidate(true); },
-  async saveKeys({ jupiter, helius }) {
-    const cur = { jupiter: '', helius: '', ...((await chrome.storage.local.get(KEYS_KEY))[KEYS_KEY] || {}) };
+  async saveKeys(msg) {
+    const { jupiter, helius } = msg;
+    const cur = { jupiter: '', helius: '', tgToken: '', tgChat: '', ...((await chrome.storage.local.get(KEYS_KEY))[KEYS_KEY] || {}) };
     if (helius !== undefined) {
       const hk = String(helius || '').trim();
       if (hk && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(hk)) throw new Error(tr('Esa clave de Helius no tiene el formato de las suyas (8-4-4-4-12 letras y números).'));
       cur.helius = hk;
     }
     delete cur.gemini;   // desde 1.13.1 la IA va por el servidor de Blankfire: ya no se guarda clave de Gemini
+    if (msg.tgToken !== undefined) {
+      const t = String(msg.tgToken || '').trim();
+      if (t && !/^\d{5,12}:[A-Za-z0-9_-]{30,50}$/.test(t)) throw new Error(tr('Ese token no tiene el formato de los de @BotFather (números, dos puntos y letras).'));
+      cur.tgToken = t; cur.tgChat = t ? cur.tgChat : '';
+      if (t) {
+        // El chat se saca solo del último mensaje que le has escrito a tu bot.
+        const up = await fetch(`${TG}/bot${t}/getUpdates?limit=20`, { signal: AbortSignal.timeout(8000) }).then((r) => r.json()).catch(() => null);
+        if (!up?.ok) throw new Error(tr('Telegram no reconoce ese token. Cópialo otra vez de @BotFather.'));
+        const chat = (up.result || []).map((u) => u.message?.chat || u.my_chat_member?.chat).filter((c) => c && c.type === 'private').at(-1);
+        if (!chat) throw new Error(tr('Escríbele cualquier cosa a tu bot en Telegram (por ejemplo «hola») y vuelve a pulsar Conectar.'));
+        cur.tgChat = String(chat.id);
+      }
+    }
     let check = null;
     if (jupiter !== undefined) {
       const key = cleanJupKey(jupiter);
@@ -1006,12 +1037,13 @@ const handlers = {
     await chrome.storage.local.set({ [KEYS_KEY]: cur });
     userKeys = cur;
     if (jupiter !== undefined) { jupBackoffUntil = 0; await setNotice({ jupiterKeyBad: false }); }
-    return { jupiter: !!cur.jupiter, helius: !!cur.helius, check, checkedAt: cur.checkedAt || null };
+    if (msg.tgToken) await tgSend(tr('Blankfire conectado. Aquí te llegarán los avisos del bot (stops, ventas pendientes, frenos).'), { force: true });
+    return { jupiter: !!cur.jupiter, helius: !!cur.helius, telegram: !!(cur.tgToken && cur.tgChat), check, checkedAt: cur.checkedAt || null };
   },
   async keysStatus() {
     const k = (await chrome.storage.local.get(KEYS_KEY))[KEYS_KEY] || {};
     const notice = (await chrome.storage.local.get(NOTICE_KEY))[NOTICE_KEY] || {};
-    return { jupiter: !!k.jupiter, helius: !!k.helius, checkedAt: k.checkedAt || null, notice, ai: await aiOn() };
+    return { jupiter: !!k.jupiter, helius: !!k.helius, telegram: !!(k.tgToken && k.tgChat), checkedAt: k.checkedAt || null, notice, ai: await aiOn() };
   },
   async afterData({ id }) { return afterData(id); },
   async replayData(msg) { return replayData(msg); },
@@ -1439,6 +1471,18 @@ chrome.commands?.onCommand.addListener(async (command) => {
 // Bot de práctica: cuatro agentes deciden por separado, el ejecutor obedece límites duros.
 // Saldo propio de sesión en SOL ficticios: no toca la cuenta del usuario ni ninguna wallet.
 // =====================================================================
+// Precios en directo de Jupiter (Price API v3): salen del último bloque, mucho más frescos que DexScreener.
+// Se usan para vigilar las posiciones abiertas: el stop reacciona antes.
+const jupPx = new Map();   // mint → { usd, at }
+let backtestCache = null;
+async function jupPrices(mints) {
+  const want = [...new Set(mints)].filter(Boolean).slice(0, 50);
+  if (!want.length) return {};
+  const j = await getJson(`${JUP}/price/v3?ids=${want.join(',')}`).catch(() => null);
+  const now = Date.now(), out = {};
+  for (const m of want) { const u = Number(j?.[m]?.usdPrice); if (u > 0) { out[m] = u; jupPx.set(m, { usd: u, at: now }); } }
+  return out;
+}
 const BOT_ALARM = 'blankfire-bot';
 const DESKTOP = !!globalThis.BLANKFIRE_DESKTOP;
 const fmtDurationTxt = (ms) => (ms >= 60e3 ? `${Math.round(ms / 60e3)} min` : `${Math.round(ms / 1e3)} s`);   // dentro de la app de escritorio: vueltas más rápidas
@@ -1618,9 +1662,14 @@ async function botTick({ forceScan = false } = {}) {
     // 1) Vigilar las abiertas: stop duro, objetivo, stop que sigue al precio y tiempo máximo.
     const keys = Object.keys(s.positions);
     if (keys.length) {
-      const q = await refreshQuotes(keys, { force: true }).catch(() => ({}));
+      const [q, live] = await Promise.all([refreshQuotes(keys, { force: true }).catch(() => ({})), jupPrices(keys.map((k) => s.positions[k].addr))]);
       for (const k of keys) {
-        const p = s.positions[k], quote = q[k];
+        const p = s.positions[k];
+        // El precio de Jupiter manda (es del último bloque); la liquidez y demás, de DexScreener o lo último conocido.
+        const base = q[k] || p.lastQuote || null;
+        const jp = live[p.addr];
+        const quote = jp && base ? { ...base, priceUsd: jp, at: now, src: 'jup' } : q[k];
+        if (q[k]) p.lastQuote = { ...q[k], at: q[k].at };
         if (!(quote?.priceUsd > 0) || now - (quote.at || 0) > 60e3) {
           // Sin precio fresco el stop no puede actuar: se avisa una vez (a los 3 min) para que lo mires tú.
           const since = p.priceAt || p.openedAt;
@@ -1717,6 +1766,51 @@ chrome.notifications?.onClicked?.addListener(async (id) => {
 
 Object.assign(handlers, {
   async botState() { return botRun(async (store) => store); },
+  // Cuánto vale 1 SOL en dólares y euros (para traducir «20 €» a SOL con el precio de hoy).
+  async botMoney() {
+    const EURC = 'HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr';
+    const [usd, px] = await Promise.all([solUsd().catch(() => null), jupPrices([EURC]).catch(() => ({}))]);
+    const eurUsd = px[EURC] > 0.5 && px[EURC] < 2 ? px[EURC] : null;
+    return { solUsd: usd, solEur: usd && eurUsd ? usd / eurUsd : null };
+  },
+  // ¿Qué ritmo habría ganado en las últimas 6 h? Velas de 1 min de las monedas que se mueven ahora.
+  async botBacktest() {
+    if (proSelling()) throw new Error(tr('Esta comprobación usa velas de GeckoTerminal, solo disponibles en la beta gratis.'));
+    const now = Date.now();
+    if (backtestCache && now - backtestCache.at < 10 * 60e3) return backtestCache.data;
+    const st = await load();
+    const store = (await chrome.storage.local.get(BOT_KEY))[BOT_KEY] || {};
+    const cfg = cleanConfig(store.config || {});
+    const sol = await solUsd().catch(() => null);
+    const { pairs } = await latestPairs();
+    const picks = pairs.filter((p) => (Number(p.liquidity?.usd) || 0) >= cfg.filters.minLiqUsd).sort((a, b) => (Number(b.volume?.h1) || 0) - (Number(a.volume?.h1) || 0)).slice(0, 8);
+    const coins = [];
+    for (const p of picks) {   // de una en una: GeckoTerminal permite unas 30 peticiones por minuto
+      const pool = p.pairAddress;
+      const o = await fetch(`${GT}/networks/solana/pools/${pool}/ohlcv/minute?aggregate=1&limit=360&currency=usd`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      const rows = o?.data?.attributes?.ohlcv_list || [];
+      if (rows.length < 60) continue;
+      const size = (cfg.budgetSol * cfg.sizePct) / 100;
+      const costPct = roundTripPct(size, costSettings(st.settings, cfg), pairToQuote(p), sol || 180) ?? 3;
+      coins.push({ symbol: p.baseToken?.symbol || '?', ohlcv: rows, costPct });
+    }
+    if (coins.length < 2) throw new Error(tr('No he podido bajar suficientes gráficos ahora mismo. Prueba en un par de minutos.'));
+    const data = { ...comparePaces(coins, cfg), at: now, hours: 6 };
+    backtestCache = { at: now, data };
+    return data;
+  },
+  async botTgTest() {
+    if (!userKeys.tgToken || !userKeys.tgChat) throw new Error(tr('Primero conecta tu bot de Telegram.'));
+    const ok = await tgSend(tr('Prueba de Blankfire: los avisos llegan bien.'), { force: true });
+    if (!ok) throw new Error(tr('Telegram no ha aceptado el mensaje. Revisa el token o vuelve a conectar.'));
+    return { ok: true };
+  },
+  async botTgOff() {
+    const cur = (await chrome.storage.local.get(KEYS_KEY))[KEYS_KEY] || {};
+    cur.tgToken = ''; cur.tgChat = '';
+    await chrome.storage.local.set({ [KEYS_KEY]: cur }); userKeys = { ...userKeys, tgToken: '', tgChat: '' };
+    return { telegram: false };
+  },
   async botConfig({ config }) {
     return botRun(async (store) => {
       let next = cleanConfig({ ...store.config, ...(config || {}), filters: { ...store.config?.filters, ...(config?.filters || {}) } });
@@ -1942,8 +2036,8 @@ Object.assign(handlers, {
 const REAL_KEY = 'blankfireReal';
 const REAL_SESSION = 'blankfireRealKey';
 const LAMPORTS = 1e9;
-// Pensado para empezar con poco (20 € ≈ 0,13 SOL): entradas de 0,025 SOL, freno diario de 0,03 SOL.
-const REAL_DEFAULTS = { mode: 'off', maxSol: 0.025, maxPerDay: 20, maxDailyLossSol: 0.03, maxOpen: 2, buySlipBps: 1500, sellSlipBps: 3000, maxImpactPct: 5, maxPrioLamports: 300000 };
+// Pensado para empezar con poco (unos 20 €, ~0,3 SOL en nov. 2026): entradas de 0,05 SOL, freno diario de 0,06 SOL.
+const REAL_DEFAULTS = { mode: 'off', maxSol: 0.05, maxPerDay: 20, maxDailyLossSol: 0.06, maxOpen: 2, buySlipBps: 1500, sellSlipBps: 3000, maxImpactPct: 5, maxPrioLamports: 300000 };
 chrome.storage.session?.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' }).catch?.(() => {});
 let realChain = Promise.resolve();
 const realRun = (fn) => { const r = realChain.then(fn); realChain = r.catch(() => {}); return r; };
@@ -2334,6 +2428,41 @@ Object.assign(handlers, {
     });
     for (const p of list) realRun(() => realSell({ addr: p.addr, symbol: p.symbol, reason: 'manual' })).catch(() => {});
     return handlers.realState();
+  },
+  // Prueba completa con muy poco dinero: compra ~0,01 SOL de USDC y lo vende al momento.
+  // Comprueba de verdad firmar, ensayar, enviar, confirmar, vender y recuperar la renta. Cuesta céntimos.
+  async realSmoke() {
+    const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+    const kp = await realKeypair();
+    if (!kp) throw new Error(tr('Abre la wallet del bot primero.'));
+    const steps = [];
+    const step = (t, ok, v) => steps.push({ t, ok, v });
+    const out = await realRun(async () => {
+      const r = await realLoad();
+      if (Object.keys(r.positions).length) throw new Error(tr('Haz la prueba sin posiciones abiertas.'));
+      const before = await lamportsOf(kp.address);
+      step('saldo leído: {v} SOL', true, { v: (before / LAMPORTS).toFixed(4) });
+      const amount = Math.floor(0.01 * LAMPORTS);
+      if (before < amount + 0.006 * LAMPORTS) throw new Error(tr('Para la prueba hacen falta al menos 0,016 SOL en la wallet del bot.'));
+      try {
+        const buy = await swap(kp, { inputMint: SOL_MINT, outputMint: USDC, amount, slippageBps: 100, maxImpactPct: 1, maxPrioLamports: 100000, priorityLevel: 'medium' });
+        step('compra ensayada, enviada y confirmada', true, { sig: buy.sig });
+        const { raw } = await tokenRaw(kp.address, USDC);
+        if (raw === 0n) throw new Error(tr('La compra se confirmó pero no aparecen los USDC.'));
+        step('tokens recibidos', true);
+        const sell = await swap(kp, { inputMint: USDC, outputMint: SOL_MINT, amount: raw.toString(), slippageBps: 200, maxImpactPct: 2, maxPrioLamports: 300000, priorityLevel: 'high' });
+        step('venta ensayada, enviada y confirmada', true, { sig: sell.sig });
+        const back = await closeEmpty(kp, USDC).catch(() => 0);
+        step(back > 0 ? 'renta de la cuenta recuperada' : 'sin cuenta que cerrar', true);
+      } catch (e) {
+        step('falló: {e}', false, { e: e.message, sig: e.sig || null });
+      }
+      const after = await lamportsOf(kp.address).catch(() => before);
+      const cost = (before - after) / LAMPORTS;
+      await realPatch((x) => realLog(x, { kind: steps.every((z) => z.ok) ? 'info' : 'error', t: steps.every((z) => z.ok) ? 'prueba completa superada: costó {v} SOL' : 'prueba completa fallida', v: { v: cost.toFixed(5) } }));
+      return { ok: steps.every((z) => z.ok), steps, costSol: cost };
+    });
+    return out;
   },
   async realSellOne({ addr }) {
     const r = await realLoad();

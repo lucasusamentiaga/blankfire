@@ -13,7 +13,7 @@ export const LOG_MAX = 400;
 export const BOT_DEFAULTS = {
   pace: 'balanced',      // ritmo: calm | balanced | fast
   costModel: 'wallet',   // costes de la wallet del bot (Jupiter, sin comisión de Padre) o 'padre'
-  budgetSol: 0.15,       // saldo fijo de la sesión: lo mismo que piensas meter de verdad (20 € ≈ 0,13 SOL)
+  budgetSol: 0.3,        // saldo fijo de la sesión: lo mismo que piensas meter de verdad (la ventana lo traduce a euros)
   sizePct: 20,           // cada entrada usa este % del saldo de la sesión
   maxOpen: 2,            // posiciones abiertas a la vez
   stopPct: 7,            // stop duro, siempre entre 6 % y 8 %

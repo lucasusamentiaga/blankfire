@@ -3,6 +3,29 @@
     "ai": false
   },
   "releases": {
+    "1.25.0": {
+      "date": "2026-11-26",
+      "es": [
+        "Prueba completa con 0,01 SOL: compra USDC y lo vende al momento para comprobar con dinero de verdad que firmar, enviar, confirmar y vender funciona. Cuesta céntimos",
+        "Precios en directo de Jupiter para vigilar las posiciones: el stop reacciona antes que con DexScreener",
+        "«¿Qué ritmo habría ganado en las últimas 6 h?»: compara Prudente, Equilibrado y Rápido con velas reales y comisiones (aproximado, y lo dice)",
+        "Avisos al móvil por Telegram, gratis, con tu propio bot: stops, ventas pendientes, frenos y compras reales",
+        "App de escritorio: se actualiza sola desde la bandeja (Actualizar) y avisa cuando hay versión nueva",
+        "El saldo de práctica se enseña en euros con el precio de hoy, con botón «Usar 20 €»",
+        "Valores por defecto ajustados al precio actual de SOL: 0,3 SOL de práctica, entradas reales de 0,05 SOL y freno diario de 0,06 SOL",
+        "Panel en Padre: el recuento del chequeo ya no sale cortado («4 bie…»)"
+      ],
+      "en": [
+        "Full test with 0.01 SOL: buys USDC and sells it right away to check with real money that signing, sending, confirming and selling work. Costs cents",
+        "Live Jupiter prices to watch positions: the stop reacts sooner than with DexScreener",
+        "“Which pace would have won over the last 6 h?”: compares Careful, Balanced and Fast with real candles and fees (approximate, and it says so)",
+        "Phone alerts via Telegram, free, with your own bot: stops, pending sells, brakes and real buys",
+        "Desktop app: updates itself from the tray (Update) and tells you when there's a new version",
+        "The practice balance is shown in euros at today's price, with a “Use €20” button",
+        "Defaults adjusted to the current SOL price: 0.3 SOL practice, real entries of 0.05 SOL and a 0.06 SOL daily brake",
+        "Padre panel: the check tally is no longer cut off"
+      ]
+    },
     "1.24.2": {
       "date": "2026-11-26",
       "es": [

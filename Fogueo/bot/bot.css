@@ -383,3 +383,20 @@ a.sym:hover { color: var(--fx-brand-hi); }
 .adv > summary .muted { margin-left: auto; font-size: 12.5px; font-weight: 500; }
 .adv .limits { padding-top: 12px; border-top: 0; }
 @media (max-width: 700px) { .start { padding: 16px; } .pace { grid-template-columns: 20px minmax(0, 1fr); } .pace-n { grid-column: 2; justify-items: start; } }
+
+/* 1.25 · Saldo en euros, comprobación con el pasado, prueba real y avisos al móvil */
+.budget-r { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+.budget-r .fi.big { margin-top: 0; }
+.sm { font-size: 13px; }
+.bt { margin-top: 10px; }
+.bt-t { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 8px; }
+.bt-t th, .bt-t td { padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--fx-line-soft); }
+.bt-t th:first-child { text-align: left; font-weight: 600; }
+.bt-t thead th { font-weight: 500; color: var(--fx-ink-3); font-size: 12px; }
+.bt-t tr.win th { color: var(--fx-brand-hi); }
+.bt-t tr.win { background: var(--fx-brand-wash); }
+.smoke { display: grid; gap: 8px; padding: 12px 14px; border-radius: var(--fx-r-lg); background: var(--fx-raise); }
+.smoke .btn { justify-self: start; }
+.cklist.one { grid-template-columns: 1fr; font-size: 12.5px; }
+.steps { display: grid; gap: 4px; padding-left: 18px; list-style: decimal; font-size: 12.5px; color: var(--fx-ink-2); margin: 8px 0 10px; }
+.tg .cop { margin-top: 4px; }

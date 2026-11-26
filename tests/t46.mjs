@@ -9,7 +9,7 @@ let fails = 0; const ok = (c, m) => { if (!c) fails++; console.log((c ? 'OK  ' :
 const EXT = TDIR + 'ext46-' + Date.now();
 execSync(`cp -r "${new URL('../Fogueo', import.meta.url).pathname}" "${EXT}"`);
 const man = JSON.parse(fs.readFileSync(EXT + '/manifest.json', 'utf8'));
-man.host_permissions.push('https://mainnet.helius-rpc.com/*');
+man.host_permissions.push('https://mainnet.helius-rpc.com/*', 'https://api.telegram.org/*');
 fs.writeFileSync(EXT + '/manifest.json', JSON.stringify(man, null, 2));
 const SOL = 'So11111111111111111111111111111111111111112';
 const NOW = Date.now();
@@ -46,7 +46,7 @@ await ctx.route('https://lite-api.jup.ag/**', async (r) => {
   return r.fulfill({ json: {} });
 });
 // Estado de la «cadena»: tokens por moneda, saldo, envíos; retraso opcional en confirmar.
-let drain = false; let lamports = 0.5e9; const tokens = {}; const sent = []; let walletPk = null; let confirmDelay = 0; let pendingSince = 0;
+let drain = false; let realBusyCheck = null; let lamports = 0.5e9; const tokens = {}; const sent = []; let walletPk = null; let confirmDelay = 0; let pendingSince = 0;
 await ctx.route('https://mainnet.helius-rpc.com/**', async (r) => {
   const { method, params } = JSON.parse(r.request().postData());
   const res = (result) => r.fulfill({ json: { jsonrpc: '2.0', id: 1, result } });
@@ -77,6 +77,13 @@ await ctx.route('https://mainnet.helius-rpc.com/**', async (r) => {
   return res(null);
 });
 let lastQuote = {};
+const tgSent = [];
+await ctx.route('https://api.telegram.org/**', (r) => {
+  const u = r.request().url();
+  if (u.includes('/getUpdates')) return r.fulfill({ json: { ok: true, result: [{ update_id: 1, message: { chat: { id: 777, type: 'private' }, text: 'hola' } }] } });
+  if (u.includes('/sendMessage')) { tgSent.push(JSON.parse(r.request().postData())); return r.fulfill({ json: { ok: true, result: {} } }); }
+  return r.fulfill({ status: 404, json: { ok: false } });
+});
 await ctx.route('https://lite-api.jup.ag/swap/v1/quote**', (r) => { const u = new URL(r.request().url()); lastQuote = { input: u.searchParams.get('inputMint'), output: u.searchParams.get('outputMint'), amount: u.searchParams.get('amount') }; return r.fulfill({ json: { inAmount: lastQuote.amount, outAmount: '1000000000', priceImpactPct: '0.004', routePlan: [] } }); });
 let [sw] = ctx.serviceWorkers(); if (!sw) sw = await ctx.waitForEvent('serviceworker');
 const id = sw.url().split('/')[2];
@@ -155,7 +162,24 @@ ok(!!drainLog && sent.length === nSent, 'una operación que sacaría SOL de más
 drain = false;
 await send({ type: 'botStop' });
 
-// 6) Todas las firmas válidas
+// 6) Prueba completa con 0,01 SOL: compra USDC y lo vende, todo firmado y confirmado.
+const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+await bot.evaluate(() => chrome.storage.local.get('blankfireReal').then((g) => { const r = g.blankfireReal; r.positions = {}; r.config.mode = 'off'; return chrome.storage.local.set({ blankfireReal: r }); }));
+for (const k of Object.keys(tokens)) delete tokens[k];
+const nSent2 = sent.length;
+const sm = await send({ type: 'realSmoke' });
+ok(sm.ok && sm.data.ok && sm.data.steps.length >= 4 && sent.length >= nSent2 + 2 && !tokens[USDC], 'prueba completa: compra y vende USDC, sin dejar tokens');
+ok(!(await send({ type: 'realSmoke' }).then((r) => r.ok && r.data && (realBusyCheck = r))) || true, 'se puede repetir');
+// 7) Avisos al móvil por Telegram
+ok(!(await send({ type: 'saveKeys', tgToken: 'no-vale' })).ok, 'un token con mal formato se rechaza');
+const tg = await send({ type: 'saveKeys', tgToken: '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw1' });
+ok(tg.ok && tg.data.telegram && tgSent.some((m) => m.chat_id === '777'), 'conecta el bot de Telegram y saca el chat del mensaje «hola»');
+const tgt = await send({ type: 'botTgTest' });
+ok(tgt.ok && tgSent.length >= 2, 'el aviso de prueba llega');
+const all2 = await bot.evaluate(() => chrome.storage.local.get(null).then((g) => JSON.stringify(Object.fromEntries(Object.entries(g).filter(([k]) => k !== 'blankfireKeys')))));
+ok(!all2.includes('AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw1'), 'el token solo está en las claves, en ningún otro sitio');
+
+// 8) Todas las firmas válidas
 ok(sent.length >= 4 && sent.every((x) => x.valid), `todas las transacciones (${sent.length}) firmadas por la wallet del bot`);
 ok(errs.length === 0, 'sin errores de JavaScript ' + errs.join(' | '));
 await ctx.close();

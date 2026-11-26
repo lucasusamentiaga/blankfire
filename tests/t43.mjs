@@ -102,7 +102,7 @@ await bot.click('form[data-form="copilot"] button[type="submit"]'); await bot.wa
 let store = await bot.evaluate(() => chrome.storage.local.get('blankfireBot').then((g) => g.blankfireBot));
 ok(store.copilot.on && store.copilot.maxSol === 0.05, 'encendido con 0,05 SOL por aviso');
 await bot.fill('input[name="budgetSol"][form="startForm"]', '10');
-await bot.click('form[data-form="start"] button'); 
+await bot.click('form[data-form="start"] button[type="submit"]'); 
 await bot.waitForFunction(() => document.querySelectorAll('.log .ev').length >= 2, null, { timeout: 25000 }).catch(() => {});
 await bot.waitForTimeout(800);
 store = await bot.evaluate(() => chrome.storage.local.get('blankfireBot').then((g) => g.blankfireBot));

@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Pruebas de extremo a extremo de Blankfire con Playwright (la extensión se carga sin empaquetar).",
   "scripts": {
-    "test": "node core.test.mjs && node math.test.mjs && node fuzz.test.mjs && node t29.mjs && node t34.mjs && node t31.mjs && node t32.mjs && node t9.mjs && node t10.mjs && node t11.mjs && node t12.mjs && node t13.mjs && node t14.mjs && node t15.mjs && node t16.mjs && node t17.mjs && node t18.mjs && node t19.mjs && node t20.mjs && node t23.mjs && node t24.mjs && node t25.mjs && node t26.mjs && node t27.mjs && node t28.mjs && node t30.mjs && node t33.mjs && node t35.mjs && node t36.mjs && node t37.mjs && node t38.mjs && node t39.mjs && node t40.mjs && node t41.mjs && node t42.mjs && node t43.mjs && node t44.mjs && node t45.mjs && node t46.mjs && node t47.mjs && node t48.mjs && node t49.mjs && node t50.mjs && node t5.mjs && node t7.mjs && node t8.mjs",
+    "test": "node core.test.mjs && node math.test.mjs && node fuzz.test.mjs && node t29.mjs && node t34.mjs && node t31.mjs && node t32.mjs && node t9.mjs && node t10.mjs && node t11.mjs && node t12.mjs && node t13.mjs && node t14.mjs && node t15.mjs && node t16.mjs && node t17.mjs && node t18.mjs && node t19.mjs && node t20.mjs && node t23.mjs && node t24.mjs && node t25.mjs && node t26.mjs && node t27.mjs && node t28.mjs && node t30.mjs && node t33.mjs && node t35.mjs && node t36.mjs && node t37.mjs && node t38.mjs && node t39.mjs && node t40.mjs && node t41.mjs && node t42.mjs && node t43.mjs && node t44.mjs && node t45.mjs && node t46.mjs && node t47.mjs && node t48.mjs && node t49.mjs && node t50.mjs && node t51.mjs && node t5.mjs && node t7.mjs && node t8.mjs",
     "test:perf": "node t21.mjs",
     "test:a11y": "node t22.mjs"
   },

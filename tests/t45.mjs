@@ -113,7 +113,7 @@ ok((await send({ type: 'realState' })).data.config.mode === 'auto', 'modo automÃ
 await bot.screenshot({ path: TDIR + 't45-real-on-es.png', fullPage: true });
 // El bot simulado compra â†’ la wallet real compra (0,05 SOL)
 await bot.fill('input[name="budgetSol"][form="startForm"]', '10');
-await bot.click('form[data-form="start"] button');
+await bot.click('form[data-form="start"] button[type="submit"]');
 await bot.waitForFunction(() => document.querySelectorAll('.log .ev').length >= 2, null, { timeout: 25000 }).catch(() => {});
 let rs;
 for (let i = 0; i < 40; i++) { rs = (await send({ type: 'realState' })).data; if (rs.positions[FROG]) break; await bot.waitForTimeout(500); }

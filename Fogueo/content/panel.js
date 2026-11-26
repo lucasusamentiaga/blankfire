@@ -1030,7 +1030,7 @@ class Panel {
           <span class="chk-verdict"><span class="chk-shield" aria-hidden="true"></span>${tr(V.label)}</span>
           ${res.score != null ? `<span class="chk-score sc-${scoreBand(res.score)}" title="${esc(tr('Nota del escudo anti-rug (0-100)'))}"><b class="num">${res.score}</b>/100</span>` : ''}
           <span class="chk-dots" aria-hidden="true">${dots}</span>
-          <span class="chk-tally">${tally || tr('sin datos aún')}</span>
+          <span class="chk-tally" title="${esc(tally)}">${tally || tr('sin datos aún')}</span>
           <span class="reco-more">${open ? tr('Ocultar') : tr('Detalles')}${ICON.chevron}</span>
         </button>
         <div class="chk-body" id="fx-chk-body" ${open ? '' : 'hidden'}>

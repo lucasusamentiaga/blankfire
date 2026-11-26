@@ -1,7 +1,9 @@
 // Blankfire de escritorio · proceso principal.
 // Arranca el mismo motor que la extensión (Fogueo/background.js) sin navegador, enseña sus ventanas
 // (Bot, Radar, Repetición) y se queda en la bandeja del sistema vigilando aunque cierres la ventana.
-const { app, BrowserWindow, Tray, Menu, Notification, ipcMain, protocol, net, shell, nativeTheme, nativeImage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, Notification, ipcMain, protocol, net, shell, nativeTheme, nativeImage, dialog } = require('electron');
+const { execFile } = require('node:child_process');
+const crypto = require('node:crypto');
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
@@ -102,6 +104,44 @@ function createWindow(page = 'bot') {
 }
 function show() { if (!win || win.isDestroyed()) return createWindow(); if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
 
+// ---------- Actualizaciones ----------
+// La app vive en tu copia del repositorio: actualizar es bajarse lo nuevo de GitHub (git pull) y reiniciar.
+// Eso actualiza a la vez los archivos de la extensión (en Opera solo hay que pulsar «recargar»).
+const REPO = path.resolve(__dirname, '..');
+let updates = { n: 0, at: 0, busy: false, told: 0 };
+const git = (args, opts = {}) => new Promise((res) => execFile('git', ['-C', REPO, ...args], { windowsHide: true, timeout: 60000, ...opts }, (err, out, errOut) => res({ ok: !err, out: String(out || '').trim(), err: String(errOut || err?.message || '').trim() })));
+const fileHash = (f) => { try { return crypto.createHash('sha1').update(fs.readFileSync(f)).digest('hex'); } catch { return ''; } };
+async function checkUpdates({ quiet = true } = {}) {
+  if (process.env.BLANKFIRE_DATA) return;
+  const f = await git(['fetch', '-q', 'origin']);
+  if (!f.ok) { if (!quiet) notify('upd', { title: 'Blankfire', message: 'No he podido mirar si hay actualizaciones (¿sin conexión?).' }); return; }
+  const c = await git(['rev-list', '--count', 'HEAD..@{u}']);
+  updates.n = c.ok ? Number(c.out) || 0 : 0; updates.at = Date.now();
+  if (updates.n > 0 && updates.told !== updates.n) { updates.told = updates.n; notify('upd', { title: 'Blankfire · hay una actualización', message: 'Clic derecho en el icono de la bandeja → Actualizar.' }); }
+  else if (!quiet && !updates.n) notify('upd', { title: 'Blankfire', message: 'Ya tienes la última versión.' });
+  refreshTray();
+}
+async function applyUpdate() {
+  if (updates.busy) return;
+  const st = await botCall('botState').catch(() => null);
+  const open = Object.keys(st?.data?.session?.positions || {}).length;
+  if (open) {
+    const { response } = await dialog.showMessageBox({ type: 'question', buttons: ['Actualizar igualmente', 'Ahora no'], defaultId: 1, cancelId: 1, title: 'Blankfire', message: `Hay ${open} posición(es) abiertas.`, detail: 'Al actualizar, el bot deja de vigilar unos 10 segundos mientras se reinicia.' });
+    if (response !== 0) return;
+  }
+  updates.busy = true; refreshTray();
+  const before = fileHash(path.join(__dirname, 'package.json'));
+  const p = await git(['pull', '--ff-only', '-q']);
+  if (!p.ok) { updates.busy = false; refreshTray(); dialog.showErrorBox('Blankfire', `No he podido actualizar:\n${p.err.slice(0, 400)}\n\nSi has tocado archivos a mano, pídele a Claude que lo arregle.`); return; }
+  // Si cambió lo que necesita la app (Electron), se instala antes de reiniciar.
+  if (fileHash(path.join(__dirname, 'package.json')) !== before) {
+    await new Promise((res) => execFile(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--no-audit', '--no-fund'], { cwd: __dirname, windowsHide: true, shell: process.platform === 'win32', timeout: 600000 }, () => res()));
+  }
+  notify('upd', { title: 'Blankfire actualizado', message: 'Se reinicia ahora. En Opera, recarga la extensión en opera://extensions.' });
+  try { await engine?.flush(); } catch { /* */ }
+  app.relaunch(); app.exit(0);
+}
+
 async function botCall(type) { return engine?.dispatch({ type }, { id: 'blankfire-desktop', url: BASE + 'tray' }); }
 
 async function refreshTray() {
@@ -120,6 +160,7 @@ async function refreshTray() {
     { label: 'Abrir la repetición', click: () => createWindow('replay') },
     { type: 'separator' },
     ...(live ? [s.status === 'running' ? { label: 'Pausar el bot', click: () => botCall('botPause').then(refreshTray) } : { label: 'Reanudar el bot', click: () => botCall('botResume').then(refreshTray) }] : []),
+    updates.n ? { label: updates.busy ? 'Actualizando…' : `Actualizar (${updates.n} cambio${updates.n === 1 ? '' : 's'})`, enabled: !updates.busy, click: () => applyUpdate() } : { label: 'Buscar actualizaciones', click: () => checkUpdates({ quiet: false }) },
     { label: 'Arrancar con Windows', type: 'checkbox', checked: login, click: (i) => { app.setLoginItemSettings({ openAtLogin: i.checked, path: process.execPath, args: [...APP_ARGS, '--hidden'] }); refreshTray(); } },
     { type: 'separator' },
     { label: 'Salir (el bot deja de vigilar)', click: () => { quitting = true; app.quit(); } },
@@ -168,4 +209,6 @@ app.whenReady().then(async () => {
   refreshTray();
   setInterval(refreshTray, 30e3);
   if (!process.argv.includes('--hidden')) createWindow('bot');
+  setTimeout(() => checkUpdates(), 30e3);
+  setInterval(() => checkUpdates(), 6 * 3600e3);
 });

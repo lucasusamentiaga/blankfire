@@ -73,7 +73,7 @@ ok(exitReason({ ...pos, peak: 1.3 }, 1.16, cfg, NOW)?.id === 'trail', 'tras subi
 ok(exitReason({ ...pos, openedAt: NOW - 50 * 60e3 }, 1.02, cfg, NOW)?.id === 'time', 'fuera si en 45 min no se mueve');
 const s = freshSession({ budgetSol: 2 }, NOW);
 ok(Math.abs(entrySize(s) - 0.4) < 1e-12 && s.balance === 2, 'cada entrada es el 20 % del saldo fijo');
-ok(freshSession({}, NOW).config.budgetSol === 0.15 && Math.abs(entrySize(freshSession({}, NOW)) - 0.03) < 1e-12, 'por defecto: 0,15 SOL de sesión (unos 20 €) y entradas de 0,03 SOL');
+ok(freshSession({}, NOW).config.budgetSol === 0.3 && Math.abs(entrySize(freshSession({}, NOW)) - 0.06) < 1e-12, 'por defecto: 0,3 SOL de sesión (unos 20 €) y entradas de 0,06 SOL');
 s.balance = 1.4; s.positions.x = { costSol: 0.2, valueSol: 0.1 };
 ok(Math.abs(sessionEquity(s) - 1.5) < 1e-9 && lossHit(s, 1.5) && !lossHit(s, 1.6), 'freno: con −25 % la sesión se para');
 

@@ -57,7 +57,7 @@ const store = () => sw.evaluate(() => chrome.storage.local.get('blankfireBot').t
 
 ok(/Pon a prueba el bot/.test(await pg.innerText('body')) && (await pg.locator('.flow li').count()) === 9 && (await pg.locator('.care li').count()) >= 5, 'sin sesión explica los 9 pasos (restricciones, filtros, 6 agentes, ejecutor) y de qué tener cuidado');
 await pg.screenshot({ path: TDIR + 't39-intro-es.png', fullPage: true });
-// Con 20 € (0,13 SOL) la ventana dice cuánto se va en comisiones y lo que hay que ganar para no perder.
+// Con poco saldo la ventana dice cuánto se va en comisiones y lo que hay que ganar para no perder.
 await pg.fill('input[name="budgetSol"][form="startForm"]', '0.13');
 await pg.waitForTimeout(150);
 const costTxt = await pg.locator('[data-ref="cost"]').innerText();
@@ -73,7 +73,7 @@ await pg.screenshot({ path: TDIR + 't39-cost-es.png' });
 await pg.fill('input[name="budgetSol"][form="startForm"]', '10');
 await pg.waitForTimeout(150);
 ok(!/no comprará/.test(await pg.locator('[data-ref="cost"]').innerText()), 'con 10 SOL (entradas de 1 SOL) ya compensa');
-await pg.click('form[data-form="start"] button');
+await pg.click('form[data-form="start"] button[type="submit"]');
 await pg.waitForFunction(() => document.querySelectorAll('.log .ev').length >= 3, null, { timeout: 25000 }).catch(() => {});
 await pg.waitForTimeout(800);
 let b = await store();
