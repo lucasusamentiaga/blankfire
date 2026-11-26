@@ -1,0 +1,8 @@
+{
+  "name": "blankfire-tiktok",
+  "private": true,
+  "type": "module",
+  "description": "Vídeos de TikTok de Blankfire hechos en tu PC, gratis: graba la app con datos de ejemplo, pone los textos y monta el MP4.",
+  "scripts": { "hoy": "node make.mjs --today", "todos": "node make.mjs --all" },
+  "dependencies": { "playwright": "1.49.1", "ffmpeg-static": "5.2.0" }
+}

@@ -23,3 +23,6 @@ desktop.ini
 
 desktop/node_modules/
 desktop/package-lock.json
+tiktok/cola/
+tiktok/node_modules/
+tiktok/package-lock.json
